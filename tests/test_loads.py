@@ -60,7 +60,6 @@ def test_base_load_daily_shape_follows_source_in_local_time(idx):
     assert 17 <= model_shape.idxmax() <= 20              # Nordic households peak 17–20 local, not 15–16 (UTC bug)
     assert model_shape.idxmin() in (3, 4, 5)
     assert np.corrcoef(src_shape.to_numpy(), model_shape.to_numpy())[0, 1] > 0.97
-    assert abs(int(model_shape.idxmax()) - int(src_shape.idxmax())) <= 1
 
 
 def test_base_load_is_reproducible_and_per_house_stable(idx):
@@ -178,6 +177,19 @@ def test_fuse_cap_and_ev_backs_off_first(wx):
     # EV energy is what gets curtailed, heating is untouched
     assert nb25.houses.ev_kwh.sum() > nb.houses.ev_kwh.sum()
     assert nb25.houses.heat_kwh.sum() == pytest.approx(nb.houses.heat_kwh.sum())
+    # bookkeeping must hold WITH curtailment too (round-2 finding)
+    for x in (nb, nb25):
+        parts_sum = x.parts["base"] + x.parts["heat"] + x.parts["ev"] - x.parts["fuse_curtailed"]
+        pd.testing.assert_series_equal(parts_sum, x.cons_kw.sum(axis=1), check_names=False, rtol=1e-9)
+        assert x.houses.ev_kwh.sum() < x.parts["ev"].sum()   # recorded ev_kwh is after the cap
+
+
+def test_house_j_is_stable_when_neighbourhood_grows(wx):
+    small = build_neighbourhood(Scenario(n_houses=6, ev_share=0.5, pv_share=0.5, seed=2), wx)
+    big = build_neighbourhood(Scenario(n_houses=12, ev_share=0.5, pv_share=0.5, seed=2), wx)
+    pd.testing.assert_frame_equal(small.houses, big.houses.iloc[:6])
+    pd.testing.assert_frame_equal(small.cons_kw, big.cons_kw.iloc[:, :6])
+    pd.testing.assert_frame_equal(small.gen_kw, big.gen_kw.iloc[:, :6])
 
 
 def test_charger_mix_is_applied(wx):

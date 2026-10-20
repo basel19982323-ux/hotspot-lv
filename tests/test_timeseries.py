@@ -48,7 +48,8 @@ def test_coldest_evening_is_the_peak(slice_result):
 
 def test_export_hours_reverse_flow_and_raise_voltage(slice_result):
     cons, gen, yr = slice_result
-    export = yr.hourly[(cons - gen).sum(axis=1) < -20]  # clear net export, not a near-zero wobble
+    export = yr.hourly[(cons - gen).sum(axis=1) < -40]  # export must dominate: with mild export the lagging Q of the
+                                                        # remaining consumption still holds the busbar just under 1.0
     assert len(export) > 0                                # sunny May noon with 50 % PV
     assert (export["p_kw"] < 0).all()
     assert (export["vmax_pu"] > 1.0).all()                # voltage rises at the exporting houses

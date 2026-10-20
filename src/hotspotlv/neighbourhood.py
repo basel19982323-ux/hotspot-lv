@@ -86,7 +86,7 @@ class Neighbourhood:
     houses: pd.DataFrame          # one row per house: heating, ua, q_nom, charger_kw, pv_kwp, annual kWh …
     cons_kw: pd.DataFrame         # 8760 × N consumption per house (base + heating + EV), fuse-capped
     gen_kw: pd.DataFrame          # 8760 × N PV generation per house (positive)
-    parts: dict[str, pd.Series]   # aggregate kW per component: base, heat, ev, pv, fuse_curtailed
+    parts: dict[str, pd.Series]   # aggregate kW per component (raw demand): base, heat, ev, pv, fuse_curtailed
 
     @property
     def p_kw(self) -> pd.DataFrame:
@@ -101,8 +101,7 @@ class Neighbourhood:
 def build_neighbourhood(scenario: Scenario, weather: pd.DataFrame) -> Neighbourhood:
     """Roll the dice for every house and build the hourly kW matrices."""
     root = np.random.SeedSequence(scenario.seed)
-    ss_base, ss_assign, ss_houses = root.spawn(3)
-    rng = np.random.default_rng(ss_assign)
+    ss_base, ss_houses = root.spawn(2)
     n = scenario.n_houses
     idx = weather.index
     cap_kw = fuse_kw(scenario.fuse_a)
@@ -111,17 +110,25 @@ def build_neighbourhood(scenario: Scenario, weather: pd.DataFrame) -> Neighbourh
     base.columns = range(n)
 
     kinds = list(scenario.heating_mix)
-    heating = rng.choice(kinds, size=n, p=[scenario.heating_mix[k] for k in kinds])
-    has_ev = rng.random(n) < scenario.ev_share
-    has_pv = rng.random(n) < scenario.pv_share
+    kind_p = [scenario.heating_mix[k] for k in kinds]
     chargers = list(scenario.charger_mix)
-    charger_kw = np.where(has_ev, rng.choice(chargers, size=n, p=[scenario.charger_mix[c] for c in chargers]), 0.0)
-    pv_kwp = np.where(has_pv, [draw_kwp(rng) for _ in range(n)], 0.0)
+    charger_p = [scenario.charger_mix[c] for c in chargers]
 
+    # every house rolls ALL its own dice from its own stream, so house j is the
+    # same whether the neighbourhood has 5 or 45 houses
+    heating = np.empty(n, dtype=object)
+    has_ev, has_pv = np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
+    charger_kw, pv_kwp = np.zeros(n), np.zeros(n)
     heat_cols, ev_cols, pv_cols = {}, {}, {}
     ua, qnom = np.zeros(n), np.zeros(n)
     for j, stream in enumerate(ss_houses.spawn(n)):
-        hrng = np.random.default_rng(stream)
+        ss_dice, ss_heat, ss_ev = stream.spawn(3)
+        drng, hrng = np.random.default_rng(ss_dice), np.random.default_rng(ss_heat)
+        heating[j] = drng.choice(kinds, p=kind_p)
+        has_ev[j] = drng.random() < scenario.ev_share
+        has_pv[j] = drng.random() < scenario.pv_share
+        charger_kw[j] = drng.choice(chargers, p=charger_p) if has_ev[j] else 0.0
+        pv_kwp[j] = draw_kwp(drng) if has_pv[j] else 0.0
         if heating[j] == "none":
             heat_cols[j] = 0.0
         else:
@@ -132,7 +139,7 @@ def build_neighbourhood(scenario: Scenario, weather: pd.DataFrame) -> Neighbourh
                 qnom[j] = p.design_load_kw()            # bergvärme is sized for the design load
                 p = p.with_(q_nom_kw=qnom[j])
             heat_cols[j] = heat_pump_profile(weather["temp_c"], p)["total"]
-        ev_cols[j] = (ev_charging_profile(idx, replace(scenario.ev, charger_kw=float(charger_kw[j])), seed=stream)
+        ev_cols[j] = (ev_charging_profile(idx, replace(scenario.ev, charger_kw=float(charger_kw[j])), seed=ss_ev)
                       if has_ev[j] else 0.0)
         pv_cols[j] = pv_profile(weather["pv_kw_per_kwp"], pv_kwp[j]) if has_pv[j] else 0.0
     heat = pd.DataFrame(heat_cols, index=idx)
@@ -158,7 +165,8 @@ def build_neighbourhood(scenario: Scenario, weather: pd.DataFrame) -> Neighbourh
         "pv_kwh": gen.sum().round(0).to_numpy(),
         "fuse_limited_hours": (curtailed > 1e-9).sum().to_numpy(),
     }, index=cols)
-    parts = {"base": base.sum(axis=1), "heat": heat.sum(axis=1), "ev": ev_capped.sum(axis=1),
+    # parts: raw demand per component; base + heat + ev − fuse_curtailed == consumption exactly
+    parts = {"base": base.sum(axis=1), "heat": heat.sum(axis=1), "ev": ev.sum(axis=1),
              "pv": gen.sum(axis=1), "fuse_curtailed": curtailed.sum(axis=1)}
     return Neighbourhood(scenario, houses, cons, gen, parts)
 
@@ -180,4 +188,4 @@ if __name__ == "__main__":
         print(f"{sc.name:16s} {mix} EV {nb.houses.has_ev.sum():2d} PV {nb.houses.has_pv.sum():2d} | "
               f"peak {tot.max():6.1f} kW on {peak_t:%d %b %H:%M} (T {wx['temp_c'][tot.idxmax()]:+.1f} °C) | "
               f"min {tot.min():6.1f} kW | {tot.clip(lower=0).sum() / 1000:.0f} MWh/yr | "
-              f"fuse-limited house-hours {int((nb.parts['fuse_curtailed'] > 0).sum())}")
+              f"fuse-limited house-hours {int(nb.houses.fuse_limited_hours.sum())}")

@@ -1,8 +1,8 @@
 # Data sources and licences
 
-Every dataset shipped in `data/` or downloaded into `data/raw/` by the code, with
+Every dataset shipped inside the package (`hotspotlv/data/`) or downloaded by the code into the user cache (`~/.hotspotlv/raw/`, override with HOTSPOTLV_CACHE), with
 its licence and the attribution it requires. Processed files are small and
-committed; raw downloads are git-ignored and re-fetched on demand.
+shipped with the package; raw downloads are fetched on demand.
 
 | File | Content | Source | Licence / terms | Attribution |
 |---|---|---|---|---|
@@ -11,9 +11,9 @@ committed; raw downloads are git-ignored and re-fetched on demand.
 | `base_load_norway_2021.csv.gz`, `…_meta.csv`, `…_README.md` | Hourly whole-house consumption 2021 of 63 Norwegian detached houses without heat pump, anonymised | Hofmann, M., Bjarghov, S., Nessa, S. (2023). *Norwegian hourly residential electricity demand data with consumer characteristics during the European energy crisis.* Zenodo, v3. https://doi.org/10.5281/zenodo.8423312 ; data article: Data in Brief 51 (2023) 109687, https://doi.org/10.1016/j.dib.2023.109687 | CC BY 4.0 | cite as above |
 | `ev_arrival_hist.csv`, `ev_energy_hist.csv` | Plug-in-hour and energy-per-session histograms of 35,377 residential charging sessions (Norwegian apartment garages, 2018–2021) | Sørensen, Å. L., et al. (2024). *Residential electric vehicle charging datasets from apartment buildings.* Zenodo. https://doi.org/10.5281/zenodo.12730566 ; Data in Brief (2021) https://doi.org/10.1016/j.dib.2021.107105 | CC BY 4.0 | cite as above |
 | `ev_charging_parameters.md` | Parameter table for the EV model with per-row sources (Trafikanalys, Chalmers, Energiforsk, Power Circle) | listed inside the file | public reports / open statistics | see file |
-| `raw/smhi_*_temp.csv` | Full SMHI hourly archive for one station (fetched by `weather.py`) | SMHI, as above | CC BY 4.0 | "Source: SMHI" |
-| `raw/pvgis_vasteras_<year>.csv` | Raw PVGIS hourly response (fetched by `weather.py`) | PVGIS, as above | as above | as above |
-| `raw/norway/`, `raw/ev/` | Original Zenodo downloads used to build the processed files (not committed) | as above | CC BY 4.0 | as above |
+| `~/.hotspotlv/raw/smhi_*_temp.csv` | Full SMHI hourly archive for one station (fetched by `weather.py`) | SMHI, as above | CC BY 4.0 | "Source: SMHI" |
+| `~/.hotspotlv/raw/pvgis_<tag>_<year>.csv` | Raw PVGIS hourly response (fetched by `weather.py`) | PVGIS, as above | as above | as above |
+| repo `data/raw/norway/`, `data/raw/ev/` | Original Zenodo downloads used to build the processed files (not committed) | as above | CC BY 4.0 | as above |
 
 Transformer loss figures in `feeder.py` are the Tier-2 maximum losses of
 Commission Regulation (EU) No 548/2014 as amended by (EU) 2019/1783, Annex I
