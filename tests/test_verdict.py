@@ -21,7 +21,8 @@ def _year(loading_pct, vmin=0.97, vmax=1.01, cable=50.0, n=8760):
 
 def _thermal(year, ambient=5.0):
     ta = pd.Series(float(ambient), index=year.hourly.index)
-    return simulate(year.hourly["loading_pct"] / 100, ta, ThermalParams.for_transformer(500))
+    # bare IEC constants: these tests probe the rule anchors (98 °C at rated load = 365 days), not the kiosk
+    return simulate(year.hourly["loading_pct"] / 100, ta, ThermalParams.for_transformer(500, enclosure="outdoor"))
 
 
 def test_on_paper_overload_in_cold_climate_is_still_ok():

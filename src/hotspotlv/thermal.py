@@ -43,10 +43,17 @@ characteristics for a distribution ONAN unit (2005 Annex E / 2018 Annex H);
 the standard's example uses R = 5, we use the Ecodesign Tier-2 loss ratio of
 the chosen size (500 kVA: 3900/459 = 8.5) — a deliberate, stated deviation.
 
+Enclosure: a Swedish nätstation is normally a prefabricated kiosk. IEC 60076-7
+(2005 clause 8.3.2, Table 6, eq. 11) gives the extra air-temperature rise inside
+a kiosk with one transformer — 250 kVA: 10 K, 500 kVA: 15 K, 750 kVA: 20 K —
+and says the extra TOP-OIL rise is about half of that. `for_transformer(kva,
+enclosure="kiosk")` therefore adds Table-6/2 to Δθor (+7.5 K for 500 kVA →
+ageing ≈ ×2.4). `enclosure="outdoor"` leaves the bare constants.
+
 Stated limits: generic constants (manufacturer values are rarely published for
 small units); no oil-viscosity correction in cold oil, so at −20 °C the model
 is optimistic; load held constant within each step; ambient = air temperature
-at the SMHI station (a kiosk substation runs a few K warmer in summer).
+at the SMHI station.
 """
 
 from __future__ import annotations
@@ -70,6 +77,10 @@ IEC_LIMITS_C = {             # IEC 60076-7 Table 4 (2005) — distribution trans
 }
 IEC_LIMITS_K = {"normal_cyclic": 1.5, "long_time_emergency": 1.8, "short_time_emergency": 2.0}
 PAPERS = ("kraft", "upgraded")
+ENCLOSURES = ("outdoor", "kiosk")
+# IEC 60076-7:2005 Table 6, "Kiosks", one transformer: extra AIR temperature rise (K) vs kVA.
+# Linear between the points; held at the ends. Half of it is added to the top-oil rise (eq. 11).
+KIOSK_AIR_RISE_K = {250: 10.0, 500: 15.0, 750: 20.0}
 
 
 @dataclass(frozen=True)
@@ -86,6 +97,8 @@ class ThermalParams:
     d_theta_hr: float = 23.0  # hot-spot-to-top-oil gradient at rated load, K
     R: float = 3900 / 459     # load loss / no-load loss at rated load (500 kVA Tier 2)
     paper: str = "kraft"      # "kraft" (V = 2^((θh−98)/6)) or "upgraded" (Arrhenius, 110 °C ref)
+    enclosure: str = "outdoor"
+    enclosure_rise_k: float = 0.0   # extra top-oil rise already included in d_theta_or (for reporting)
 
     def __post_init__(self):
         if self.paper not in PAPERS:
@@ -99,11 +112,23 @@ class ThermalParams:
             raise ValueError("exponents, k11, k22, time constants, rises and R must be positive")
         if self.k21 < 1.0:
             raise ValueError("k21 must be >= 1 (IEC: 1.0 distribution … 2.0 large power)")
+        if self.enclosure not in ENCLOSURES:
+            raise ValueError(f"enclosure must be one of {ENCLOSURES}")
 
     @classmethod
-    def for_transformer(cls, kva: int, **changes) -> "ThermalParams":
+    def for_transformer(cls, kva: int, enclosure: str = "kiosk", **changes) -> "ThermalParams":
+        """Constants for a catalogue size; a kiosk (the Swedish norm) adds IEC Table 6 / 2 to the top-oil rise."""
         tr = transformer(kva)                 # raises a clear ValueError for unknown sizes
-        return replace(cls(R=tr["p_load_w"] / tr["p_noload_w"]), **changes)
+        rise = kiosk_extra_top_oil_rise_k(kva) if enclosure == "kiosk" else 0.0
+        base = cls(R=tr["p_load_w"] / tr["p_noload_w"], enclosure=enclosure, enclosure_rise_k=rise)
+        base = replace(base, d_theta_or=base.d_theta_or + rise)
+        return replace(base, **changes)
+
+
+def kiosk_extra_top_oil_rise_k(kva: float) -> float:
+    """Half of the IEC Table 6 kiosk air rise, interpolated on kVA (eq. 11)."""
+    sizes = np.array(sorted(KIOSK_AIR_RISE_K))
+    return float(np.interp(kva, sizes, [KIOSK_AIR_RISE_K[k] for k in sizes]) / 2)
 
 
 def ageing_rate(theta_h_c, paper: str = "kraft"):

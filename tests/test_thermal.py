@@ -257,3 +257,19 @@ def test_validation():
     with pytest.raises(ValueError):
         simulate(K, ta, ThermalParams(tau_o_min=0.9))     # unstable sub-step
     assert ThermalParams.for_transformer(800).R == pytest.approx(6000 / 585)
+
+
+def test_kiosk_enclosure_correction():
+    from hotspotlv.thermal import kiosk_extra_top_oil_rise_k
+    assert kiosk_extra_top_oil_rise_k(500) == pytest.approx(7.5)          # Table 6: 15 K air → half to top-oil
+    assert kiosk_extra_top_oil_rise_k(250) == pytest.approx(5.0)
+    assert kiosk_extra_top_oil_rise_k(800) == pytest.approx(10.0)         # held at the 750 kVA end
+    kiosk = ThermalParams.for_transformer(500)                             # Swedish default: kiosk
+    outdoor = ThermalParams.for_transformer(500, enclosure="outdoor")
+    assert kiosk.d_theta_or == pytest.approx(outdoor.d_theta_or + 7.5)
+    assert kiosk.enclosure_rise_k == 7.5 and outdoor.enclosure_rise_k == 0
+    K, ta = _const(48, 1.0, 20.0)
+    assert simulate(K, ta, kiosk).hourly.theta_h.iloc[-1] == pytest.approx(105.5, abs=1e-6)
+    assert simulate(K, ta, kiosk).hourly.V_mean.iloc[-1] == pytest.approx(2 ** (7.5 / 6), rel=1e-6)   # ≈ ×2.4
+    with pytest.raises(ValueError):
+        ThermalParams(enclosure="garage")

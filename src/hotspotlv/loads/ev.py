@@ -84,7 +84,12 @@ def ev_charging_profile(
 
     Works in 1-minute resolution internally so a session can start mid-hour;
     then averages to hourly kW (what the grid sees as hourly energy)."""
-    rng = np.random.default_rng(seed)
+    # two independent streams: WHICH days and HOW MUCH energy come from the first, the plug-in
+    # time from the second — so the smart variant charges the same cars with the same energy
+    ss = seed if isinstance(seed, np.random.SeedSequence) else np.random.SeedSequence(seed)
+    ss_day, ss_start = ss.spawn(2)
+    rng = np.random.default_rng(ss_day)
+    rng_start = np.random.default_rng(ss_start)
     local = index_utc.tz_convert("Europe/Stockholm")
     dates = sorted(set(local.date))
     n_days = len(dates)
@@ -95,9 +100,9 @@ def ev_charging_profile(
             continue
         energy = min(rng.lognormal(np.log(params.energy_median_kwh), params.energy_sigma), params.energy_max_kwh)
         if params.smart:
-            start_h = rng.uniform(params.smart_start_min_h, params.smart_start_max_h)
+            start_h = rng_start.uniform(params.smart_start_min_h, params.smart_start_max_h)
         else:
-            start_h = _truncated_normal(rng, params.arrival_mean_h, params.arrival_sd_h,
+            start_h = _truncated_normal(rng_start, params.arrival_mean_h, params.arrival_sd_h,
                                         params.arrival_min_h, params.arrival_max_h)
         start = int(i * 1440 + start_h * 60)
         duration = int(round(energy / params.charger_kw * 60))
