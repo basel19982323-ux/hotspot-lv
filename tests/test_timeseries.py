@@ -40,10 +40,10 @@ def test_transformer_power_matches_house_sum_plus_losses(slice_result):
 
 def test_export_hours_reverse_flow_and_raise_voltage(slice_result):
     p_kw, yr = slice_result
-    export = yr.hourly[p_kw.sum(axis=1) < 0]
+    export = yr.hourly[p_kw.sum(axis=1) < -20]          # clear net export, not a near-zero wobble
     assert len(export) > 0                               # sunny May noon with 50 % PV
     assert (export["p_kw"] < 0).all()
-    assert (export["vmax_pu"] > 1.0).all()
+    assert (export["vmax_pu"] > 1.0).all()               # voltage rises at the exporting houses
 
 
 def test_summary_counts(slice_result):

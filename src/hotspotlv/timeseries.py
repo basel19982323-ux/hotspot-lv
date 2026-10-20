@@ -91,7 +91,10 @@ def run_year(net: pp.pandapowerNet, p_kw: pd.DataFrame, pf: float = POWER_FACTOR
             pp.runpp(net, numba=False, init="flat")       # retry cold; raises again if truly infeasible
         init = "results"
         tr = net.res_trafo.iloc[0]
-        s_kva = float(np.hypot(tr.p_lv_mw, tr.q_lv_mvar) * 1000)
+        # pandapower's loading % = max(S_hv, S_lv) / S_rated; the HV side carries the
+        # transformer's own losses too, so it is ~0.5 % above S_lv. We keep that
+        # (conservative) definition and derive S from it, so both columns agree.
+        s_kva = float(tr.loading_percent / 100 * rated_kva)
         house_v = net.res_bus.vm_pu.to_numpy()[load_buses]
         out[i] = (
             s_kva,
