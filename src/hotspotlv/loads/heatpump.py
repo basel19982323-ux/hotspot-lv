@@ -42,6 +42,9 @@ COP_TABLE_T = np.array([-25, -15, -7, 2, 7, 15])
 COP_TABLE = np.array([1.5, 1.9, 2.3, 2.9, 3.5, 4.5])
 
 
+HEATING_KINDS = ("air_water", "ground_source", "direct_electric")
+
+
 @dataclass(frozen=True)
 class HeatPumpParams:
     ua_kw_per_k: float = 0.20      # house heat-loss coefficient
@@ -49,18 +52,29 @@ class HeatPumpParams:
     capacity_slope: float = 0.15   # kW thermal lost per K below +7 °C
     q_min_kw: float = 2.0          # floor on pump heat output in extreme cold
     backup_kw_max: float = 9.0     # immersion heater size (3 × 3 kW steps)
-    kind: str = "air_water"        # "ground_source" → flat COP 3.8, full capacity
+    kind: str = "air_water"
+    # "air_water"       → COP table + capacity fade + backup (most common new install)
+    # "ground_source"   → flat COP 3.8, full capacity (bergvärme)
+    # "direct_electric" → no pump: radiators/boiler, COP 1, every kWh of heat is 1 kWh electric
+
+    def with_(self, **changes) -> "HeatPumpParams":
+        from dataclasses import replace
+        return replace(self, **changes)
 
 
 def cop(temp_c: np.ndarray, params: HeatPumpParams) -> np.ndarray:
     if params.kind == "ground_source":
         return np.full_like(temp_c, 3.8, dtype=float)
+    if params.kind == "direct_electric":
+        return np.ones_like(temp_c, dtype=float)
     return np.interp(temp_c, COP_TABLE_T, COP_TABLE)
 
 
 def pump_capacity_kw(temp_c: np.ndarray, params: HeatPumpParams) -> np.ndarray:
     if params.kind == "ground_source":
         return np.full_like(temp_c, params.q_nom_kw, dtype=float)
+    if params.kind == "direct_electric":
+        return np.full_like(temp_c, np.inf, dtype=float)   # resistive heating has no capacity fade
     return np.maximum(params.q_min_kw, params.q_nom_kw + params.capacity_slope * (temp_c - 7.0))
 
 

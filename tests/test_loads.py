@@ -97,15 +97,32 @@ def test_pv_sign_and_yield(wx):
 
 # --- neighbourhood ---------------------------------------------------------
 def test_neighbourhood_shapes_and_shares(wx):
-    nb = build_neighbourhood(Scenario(n_houses=40, hp_share=1.0, ev_share=0.0, pv_share=0.0, seed=3), wx)
+    nb = build_neighbourhood(Scenario(n_houses=40, heating_mix={"air_water": 1.0}, ev_share=0.0, pv_share=0.0, seed=3), wx)
     assert nb.p_kw.shape == (8760, 40)
-    assert nb.houses.has_hp.all() and not nb.houses.has_ev.any() and not nb.houses.has_pv.any()
+    assert (nb.houses.heating == "air_water").all()
+    assert not nb.houses.has_ev.any() and not nb.houses.has_pv.any()
+    assert nb.houses.ua_kw_per_k.std() > 0               # houses differ in size
     assert nb.total_kw.idxmax().month in (1, 2, 12)      # winter peak
 
 
+def test_direct_electric_is_worse_than_heat_pump(wx):
+    hp = build_neighbourhood(Scenario(heating_mix={"air_water": 1.0}, ev_share=0, pv_share=0, seed=2), wx)
+    de = build_neighbourhood(Scenario(heating_mix={"direct_electric": 1.0}, ev_share=0, pv_share=0, seed=2), wx)
+    # energy: a heat pump cuts heating electricity by ~2/3 ...
+    assert de.parts["heat"].sum() > 2.5 * hp.parts["heat"].sum()
+    # ... but at the very coldest hour the air/water pump is on backup heaters,
+    # so its peak is only modestly below direct electric (a key Swedish-winter fact)
+    assert 1.1 * hp.total_kw.max() < de.total_kw.max() < 1.6 * hp.total_kw.max()
+
+
 def test_electrification_raises_peak_and_pv_creates_export(wx):
-    none = build_neighbourhood(Scenario(hp_share=0, ev_share=0, pv_share=0, seed=1), wx)
-    full = build_neighbourhood(Scenario(hp_share=0.8, ev_share=0.6, pv_share=0.5, seed=1), wx)
+    none = build_neighbourhood(Scenario(heating_mix={"none": 1.0}, ev_share=0, pv_share=0, seed=1), wx)
+    full = build_neighbourhood(Scenario(ev_share=0.6, pv_share=0.5, seed=1), wx)
     assert full.total_kw.max() > 2 * none.total_kw.max()
     assert full.total_kw.min() < 0                      # midsummer noon export
     assert none.total_kw.min() > 0
+
+
+def test_heating_mix_must_sum_to_one():
+    with pytest.raises(ValueError):
+        Scenario(heating_mix={"air_water": 0.5, "none": 0.3})
