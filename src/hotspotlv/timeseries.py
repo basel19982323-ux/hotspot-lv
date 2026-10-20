@@ -73,18 +73,26 @@ class YearResult:
         }
 
 
-def run_year(net: pp.pandapowerNet, p_kw: pd.DataFrame, pf: float = POWER_FACTOR) -> YearResult:
-    """Power flow for every row of `p_kw` (hours × houses). Returns hourly transformer and voltage results."""
-    if p_kw.shape[1] != len(net.load):
-        raise ValueError(f"p_kw has {p_kw.shape[1]} houses, the net has {len(net.load)} loads")
+def run_year(net: pp.pandapowerNet, cons_kw: pd.DataFrame, gen_kw: pd.DataFrame | None = None,
+             pf: float = POWER_FACTOR) -> YearResult:
+    """Power flow for every row (hour) of `cons_kw` (consumption per house) and
+    `gen_kw` (PV generation per house, positive; None = no PV).
+    Returns hourly transformer and voltage results."""
+    if cons_kw.shape[1] != len(net.load):
+        raise ValueError(f"cons_kw has {cons_kw.shape[1]} houses, the net has {len(net.load)} loads")
+    if gen_kw is None:
+        gen_kw = pd.DataFrame(0.0, index=cons_kw.index, columns=cons_kw.columns)
+    if gen_kw.shape != cons_kw.shape or not gen_kw.index.equals(cons_kw.index):
+        raise ValueError("gen_kw must have the same shape and index as cons_kw")
     rated_kva = float(net.trafo.sn_mva.iloc[0] * 1000)
     load_buses = net.load.bus.to_numpy()
-    values = p_kw.to_numpy(dtype=float)
-    out = np.empty((len(p_kw), 7))
+    cons = cons_kw.to_numpy(dtype=float)
+    gen = gen_kw.to_numpy(dtype=float)
+    out = np.empty((len(cons_kw), 7))
 
     init = "flat"
-    for i, row in enumerate(values):
-        set_house_loads(net, row, pf)
+    for i in range(len(cons)):
+        set_house_loads(net, cons[i], gen[i], pf)
         try:
             pp.runpp(net, numba=False, init=init)
         except pp.LoadflowNotConverged:
@@ -106,7 +114,7 @@ def run_year(net: pp.pandapowerNet, p_kw: pd.DataFrame, pf: float = POWER_FACTOR
             net.res_line.loading_percent.max(),
         )
 
-    hourly = pd.DataFrame(out, index=p_kw.index,
+    hourly = pd.DataFrame(out, index=cons_kw.index,
                           columns=["s_kva", "loading_pct", "p_kw", "vmin_pu", "vmax_pu", "losses_kw", "line_max_pct"])
     return YearResult(hourly, rated_kva)
 
@@ -121,7 +129,7 @@ if __name__ == "__main__":
     nb = build_neighbourhood(Scenario("today", n_houses=45, ev_share=0.25, pv_share=0.20, seed=0), wx)
     net = build_feeder(n_houses=45, trafo_kva=500)
     t0 = time.perf_counter()
-    yr = run_year(net, nb.p_kw)
+    yr = run_year(net, nb.cons_kw, nb.gen_kw)
     dt = time.perf_counter() - t0
     print(f"8760 power flows in {dt:.1f} s ({dt / 8760 * 1000:.1f} ms each)")
     for k, v in yr.summary().items():

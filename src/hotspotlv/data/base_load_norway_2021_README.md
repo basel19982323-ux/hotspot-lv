@@ -1,4 +1,4 @@
-# base_load_norway_2021.csv.gz — hourly household electricity load, 111 detached houses, 2021
+# base_load_norway_2021.csv.gz — hourly household electricity load, 63 detached houses without heat pump, 2021
 
 Measured smart-meter data from Norwegian detached houses, used in this study as the
 "base load" of a villa (everything except the heat pump, EV charger and PV that the
@@ -8,7 +8,7 @@ simulation adds on top). Prepared by Basel Haijar.
 
 | File | Content |
 |---|---|
-| `base_load_norway_2021.csv.gz` | 8760 rows × 111 columns. Index `time_utc` = start of the hour, UTC, ISO 8601 (`2021-01-01T00:00:00Z`). Columns `h001`…`h111` = one house each. Values = **kWh consumed in that hour** (equal to the mean kW over the hour), rounded to 3 decimals. No missing values. |
+| `base_load_norway_2021.csv.gz` | 8760 rows × 63 columns. Index `time_utc` = start of the hour, UTC, ISO 8601 (`2021-01-01T00:00:00Z`). Columns `h001`…`h063` = one house each. Values = **kWh consumed in that hour** (equal to the mean kW over the hour), rounded to 3 decimals. No missing values. |
 | `base_load_norway_2021_meta.csv` | One row per house: `id`, `annual_kwh`, `peak_kw` (highest single hour), `heating_type`, `wood_stove`, `hot_water`, `house_type`, `floor_area_m2` (survey bracket), `n_persons`, `city`, `gaps_filled` (hours interpolated). |
 
 Size: 5.9 MB (a 2 MB target was not reachable with ~100 houses × 8760 h at meter
@@ -53,7 +53,7 @@ Norwegian detached houses heat with electricity:
 |---|---|---|---|
 | `non_electric` | no electric heater, no heat pump, no electric waterborne heating (district heating, wood, oil, "other") | 5 | h001–h005 |
 | `direct_electric` | electric panel heaters and/or electric floor heating, **no heat pump** | 58 | h006–h063 |
-| `heat_pump` | air-air / air-water / ground-source heat pump (usually together with direct electric heating) | 48 | h064–h111 |
+| `heat_pump` | (48 houses with a heat pump were selected but are NOT shipped — this file keeps only the 63 houses without a heat pump) | 48 | — |
 
 `wood_stove` = 1 if a fireplace/wood stove is also used. `hot_water` is the tap-water
 heater type (Q28); 93 of 111 have their own electric storage tank, which is the normal
@@ -131,3 +131,13 @@ Dec 2508 — the 3.5× winter/summer ratio is the electric heating.
   original authors removed meters with > 1 % zero readings, peaks > 20 kWh/h or
   averages outside 0.1–6 kWh/h.
 - This is input data for a simulation study; it is not a measurement of any Swedish grid.
+
+## Note added 20 Oct 2026 (review)
+The shipped file contains only the 63 houses **without** a heat pump (h001–h063);
+the "All 111" statistics above describe the full selection before that cut.
+The seasonal factor used in `loads/base.py` (`SEASONAL_FACTOR`, monthly energy
+relative to July, mean of h001–h005) was recomputed from this file and is:
+Jan 2.03, Feb 1.89, Mar 1.69, Apr 1.42, May 1.26, Jun 1.00, Jul 1.00, Aug 1.08,
+Sep 1.33, Oct 1.39, Nov 1.50, Dec 1.74. Only June–August days are used as
+appliance texture (May and September still contain electric space heating in
+the direct-electric houses).

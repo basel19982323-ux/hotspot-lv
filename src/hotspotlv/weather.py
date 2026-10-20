@@ -1,16 +1,18 @@
 """
 Hourly weather for the study year: outdoor temperature (SMHI) and rooftop-PV
 output per kWp (PVGIS). Both are open data (SMHI: CC BY 4.0; PVGIS: free, JRC).
+Attribution: data/SOURCES.md.
 
 Why both matter:
   * temperature drives the heat-pump load (cold → more kW) AND the transformer
     cooling (cold → lower hot-spot, slower ageing) — the whole point of the study
   * PV output drives midday reverse power flow
 
-Station choice: Västerås's own SMHI station (96350) is manual — two readings a
-day. The nearest *automatic* hourly station is Eskilstuna A (96190), 35 km
-south across Mälaren, same inland climate. PVGIS is queried for Västerås itself
-(59.61 N, 16.55 E). PVGIS covers 2005–2023, so 2023 is the reference year.
+Station choice: Västerås's own SMHI station (96350) is manual — readings at
+06 and 18 UTC only. The nearest *automatic* hourly station is Eskilstuna A
+(96190), 26 km south across Mälaren, same inland climate. PVGIS is queried for
+Västerås itself (59.61 N, 16.55 E). PVGIS covers 2005–2023, so 2023 is the
+reference year.
 
 All timestamps are UTC (what SMHI and PVGIS deliver). Convert with
 `.tz_convert("Europe/Stockholm")` when something depends on local clock time
@@ -21,12 +23,11 @@ from __future__ import annotations
 
 import io
 import urllib.request
-from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
-RAW_DIR = DATA_DIR / "raw"
+from hotspotlv.paths import cache_dir, package_data, raw_dir
 
 SMHI_STATION = 96190            # Eskilstuna A (automatic, hourly, since 1990)
 SMHI_STATION_NAME = "Eskilstuna A"
@@ -35,42 +36,54 @@ SMHI_URL = ("https://opendata-download-metobs.smhi.se/api/version/1.0/parameter/
 
 VASTERAS_LAT, VASTERAS_LON = 59.61, 16.55
 PV_TILT_DEG = 30                # typical Swedish villa roof
-PV_AZIMUTH_DEG = 180            # pvlib convention: 180 = facing south
+PV_AZIMUTH_DEG = 180            # pvlib convention: 180 = facing south (pvlib sends aspect = az − 180 to PVGIS)
 PV_SYSTEM_LOSS_PCT = 14         # PVGIS default (soiling, wiring, inverter)
-MAX_GAP_HOURS = 6               # longer gaps than this are reported, not hidden
+MAX_GAP_HOURS = 6               # longer gaps than this are an error, not silently filled
+
+
+def _year_index(year: int) -> pd.DatetimeIndex:
+    return pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h", tz="UTC")
+
+
+def _longest_nan_run(s: pd.Series) -> int:
+    isna = s.isna().to_numpy()
+    if not isna.any():
+        return 0
+    # lengths of consecutive True runs
+    padded = np.concatenate(([False], isna, [False]))
+    edges = np.flatnonzero(padded[1:] != padded[:-1])
+    return int((edges[1::2] - edges[::2]).max())
 
 
 # ---------------------------------------------------------------------------
 # SMHI temperature
 # ---------------------------------------------------------------------------
-def _smhi_raw_path(station: int) -> Path:
-    return RAW_DIR / f"smhi_{station}_temp.csv"
-
-
-def fetch_smhi_temperature(station: int = SMHI_STATION) -> Path:
-    """Download the full hourly archive (~5 MB) once into data/raw/."""
-    path = _smhi_raw_path(station)
+def fetch_smhi_temperature(station: int = SMHI_STATION):
+    """Download the full hourly archive (~5 MB) once into the user cache."""
+    path = raw_dir() / f"smhi_{station}_temp.csv"
     if not path.exists():
-        RAW_DIR.mkdir(parents=True, exist_ok=True)
         path.write_bytes(urllib.request.urlopen(SMHI_URL.format(station=station), timeout=180).read())
     return path
 
 
 def load_smhi_temperature(year: int, station: int = SMHI_STATION) -> pd.Series:
-    """Hourly air temperature (°C) for one year, UTC index, gaps ≤ 6 h interpolated."""
+    """Hourly air temperature (°C) for one year, UTC index. Gaps of at most
+    MAX_GAP_HOURS consecutive hours are linearly interpolated; longer gaps raise."""
     text = fetch_smhi_temperature(station).read_text(encoding="utf-8")
     lines = text.splitlines()
     header = next(i for i, line in enumerate(lines) if line.startswith("Datum"))
     df = pd.read_csv(io.StringIO("\n".join(lines[header:])), sep=";", usecols=[0, 1, 2])
     df.columns = ["date", "time", "temp_c"]
-    ts = pd.to_datetime(df["date"] + " " + df["time"], utc=True)
-    temp = pd.Series(df["temp_c"].to_numpy(), index=ts, name="temp_c").loc[str(year)]
-    full = pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h", tz="UTC")
-    temp = temp[~temp.index.duplicated()].reindex(full)
+    ts = pd.to_datetime(df["date"] + " " + df["time"], utc=True)      # column is "Tid (UTC)"
+    temp = pd.Series(df["temp_c"].to_numpy(dtype=float), index=ts, name="temp_c").loc[str(year)]
+    temp = temp[~temp.index.duplicated()].reindex(_year_index(year))
+    if len(temp.dropna()) == 0:
+        raise ValueError(f"SMHI {station}: no data for {year}")
+    longest = _longest_nan_run(temp)
+    if longest > MAX_GAP_HOURS:
+        raise ValueError(f"SMHI {station} {year}: a gap of {longest} h exceeds {MAX_GAP_HOURS} h — choose another station or fill by hand")
     n_missing = int(temp.isna().sum())
-    temp = temp.interpolate(limit=MAX_GAP_HOURS, limit_direction="both")
-    if temp.isna().any():
-        raise ValueError(f"SMHI {station} {year}: gap longer than {MAX_GAP_HOURS} h, fill by hand")
+    temp = temp.interpolate(limit_direction="both")
     temp.attrs["missing_hours_filled"] = n_missing
     return temp
 
@@ -78,45 +91,42 @@ def load_smhi_temperature(year: int, station: int = SMHI_STATION) -> pd.Series:
 # ---------------------------------------------------------------------------
 # PVGIS photovoltaic output
 # ---------------------------------------------------------------------------
-def _pvgis_raw_path(year: int) -> Path:
-    return RAW_DIR / f"pvgis_vasteras_{year}.csv"
-
-
-def load_pvgis_pv(year: int) -> pd.Series:
+def load_pvgis_pv(year: int, lat: float = VASTERAS_LAT, lon: float = VASTERAS_LON, tag: str = "vasteras") -> pd.Series:
     """Hourly PV output in kW per kWp installed (south, 30° tilt), UTC index."""
-    path = _pvgis_raw_path(year)
+    path = raw_dir() / f"pvgis_{tag}_{year}.csv"
     if not path.exists():
         import pvlib  # imported here so the rest of the package works without it
         data, _meta = pvlib.iotools.get_pvgis_hourly(
-            VASTERAS_LAT, VASTERAS_LON, start=year, end=year,
+            lat, lon, start=year, end=year,
             raddatabase="PVGIS-SARAH3",
             surface_tilt=PV_TILT_DEG, surface_azimuth=PV_AZIMUTH_DEG,
             pvcalculation=True, peakpower=1.0, loss=PV_SYSTEM_LOSS_PCT,
             mountingplace="building", components=True,
             url="https://re.jrc.ec.europa.eu/api/v5_3/", timeout=120,
         )
-        RAW_DIR.mkdir(parents=True, exist_ok=True)
         data.to_csv(path)
     data = pd.read_csv(path, index_col=0, parse_dates=True)
-    # PVGIS stamps hours at HH:10 (satellite scan time) → snap to the full hour
+    # PVGIS stamps each hour at HH:11 (satellite scan time) and gives P as the
+    # instantaneous value at that time, in W per kWp. We use it as the mean of
+    # the hour starting HH:00 (the 10:00 bucket contains solar noon, as expected).
     data.index = pd.DatetimeIndex(data.index, tz="UTC").floor("h")
-    pv = (data["P"] / 1000).rename("pv_kw_per_kwp")  # W per 1 kWp → kW per kWp
-    full = pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h", tz="UTC")
-    return pv.reindex(full).fillna(0.0)
+    pv = (data["P"] / 1000).rename("pv_kw_per_kwp")
+    return pv.reindex(_year_index(year)).fillna(0.0)
 
 
 # ---------------------------------------------------------------------------
 # Combined, cached
 # ---------------------------------------------------------------------------
 def get_weather(year: int = 2023, refresh: bool = False) -> pd.DataFrame:
-    """DataFrame[temp_c, pv_kw_per_kwp], 8760 hourly rows, UTC.
-    Cached as data/weather_vasteras_<year>.csv (small, committed)."""
-    cache = DATA_DIR / f"weather_vasteras_{year}.csv"
-    if cache.exists() and not refresh:
-        return pd.read_csv(cache, index_col=0, parse_dates=True)
+    """DataFrame[temp_c, pv_kw_per_kwp], hourly for the whole year, UTC.
+
+    Looks for a shipped file (package data), then the user cache, else builds it."""
+    name = f"weather_vasteras_{year}.csv"
+    for cache in (package_data() / name, cache_dir() / name):
+        if cache.exists() and not refresh:
+            return pd.read_csv(cache, index_col=0, parse_dates=True)
     wx = pd.concat([load_smhi_temperature(year), load_pvgis_pv(year)], axis=1)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    wx.to_csv(cache, float_format="%.3f")
+    wx.to_csv(cache_dir() / name, float_format="%.3f")
     return wx
 
 
