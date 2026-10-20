@@ -167,6 +167,10 @@ def test_quarter_hour_input_gives_the_same_physics():
     q = simulate(pd.Series(1.0, index=i15), pd.Series(20.0, index=i15), step_min=15.0)
     assert q.hourly.theta_h.iloc[-1] == pytest.approx(hourly.hourly.theta_h.iloc[-1], abs=1e-6)
     assert q.loss_of_life_days == pytest.approx(hourly.loss_of_life_days, abs=1e-6)
+    assert len(q.worst_week()) == min(7 * 24 * 4, len(q.hourly))       # the window follows step_min (whole series if shorter)
+    # a sub-step that does not divide the row is rounded DOWN (ceil on the count), never up
+    r = simulate(*_const(3, 1.0, 20.0), dt_min=1.7)
+    assert r.dt_min <= 1.7 and 60 / r.dt_min == pytest.approx(round(60 / r.dt_min))
 
 
 # --- bookkeeping ---------------------------------------------------------------
@@ -174,9 +178,19 @@ def test_within_hour_max_is_above_end_of_hour_after_a_step_down():
     i = _idx(26)
     K = pd.Series([1.5] * 24 + [0.5] * 2, index=i)
     r = simulate(K, pd.Series(20.0, index=i))
-    # the hour the load drops: the hot-spot starts high and falls → max ≫ end value
+    # the hour the load drops: the hot-spot starts high and falls → max ≫ end value,
+    # and the max is the START value (end of the previous hour), whatever the sub-step
     assert r.hourly.theta_h_max.iloc[24] > r.hourly.theta_h.iloc[24] + 10
+    assert r.hourly.theta_h_max.iloc[24] == pytest.approx(r.hourly.theta_h.iloc[23], abs=1e-9)
+    fine = simulate(K, pd.Series(20.0, index=i), dt_min=0.5)
+    assert fine.hourly.theta_h_max.iloc[24] == pytest.approx(r.hourly.theta_h_max.iloc[24], abs=0.05)
     assert (r.hourly.theta_h_max >= r.hourly.theta_h - 1e-9).all()
+    # EAF is the MEAN ageing rate, not the median (the two differ for a varying load)
+    assert r.equivalent_ageing_factor == pytest.approx(r.hourly.V_mean.mean())
+    assert r.equivalent_ageing_factor != pytest.approx(r.hourly.V_mean.median())
+    # strict '>' in the limit counts: a step whose max equals the limit does not count
+    assert r.steps_hot_spot_above(r.hourly.theta_h_max.max()) == 0
+    assert r.summary()["max_hot_spot_time"] == r.hourly.theta_h_max.idxmax().isoformat()
 
 
 def test_life_bookkeeping_and_limits():
@@ -213,6 +227,14 @@ def test_validation():
         simulate(K, ta, dt_min=3.0)                       # > τw/2
     with pytest.raises(ValueError):
         simulate(K, ta, dt_min=0.0)
+    with pytest.raises(ValueError):
+        simulate(K, ta, dt_min=1e-9)                      # would be 6e10 sub-steps → refused, not a hang
+    for bad_step in (0.0, -60.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            simulate(K.iloc[:1], ta.iloc[:1], step_min=bad_step)
+    # microsecond-resolution timestamps (pandas 3 default) are hourly too
+    us = K.index.as_unit("us")
+    simulate(pd.Series(1.0, index=us), pd.Series(20.0, index=us))
     with pytest.raises(ValueError):
         simulate(K.iloc[:4], ta)
     with pytest.raises(ValueError):

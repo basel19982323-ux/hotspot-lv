@@ -61,6 +61,7 @@ from hotspotlv.catalogue import transformer
 
 REF_HOT_SPOT_C = 98.0        # IEC: normal ageing rate 1.0 at 98 °C (kraft paper)
 K_MAX = 3.0                  # above 3 × rated the model (and the transformer) is meaningless
+MAX_SUBSTEPS = 10_000        # per row; guards against a dt that would run forever
 IEC_LIMITS_C = {             # IEC 60076-7 Table 4 (2005) — distribution transformers
     "normal_cyclic_hot_spot": 120.0,
     "long_time_emergency_hot_spot": 140.0,   # no short-time-emergency limit is set for distribution units
@@ -189,7 +190,7 @@ def _check_index(index: pd.Index, step_min: float) -> None:
     if not (index.is_monotonic_increasing and index.is_unique):
         raise ValueError("index must be strictly increasing with no duplicates")
     if len(index) > 1:
-        spacing = np.unique(np.diff(index.asi8)) / 60e9       # minutes
+        spacing = np.unique(np.diff(index.to_numpy()) / np.timedelta64(1, "m"))   # minutes, any time unit
         if len(spacing) != 1 or not math.isclose(spacing[0], step_min, rel_tol=1e-9):
             raise ValueError(f"index spacing must be exactly {step_min} min; got {spacing} min "
                              "(pass step_min= for other resolutions)")
@@ -220,9 +221,13 @@ def simulate(
         raise ValueError("K and theta_a must share the same index")
     _check_index(K.index, step_min)
     p = params
+    if not (math.isfinite(step_min) and step_min > 0):
+        raise ValueError("step_min must be a positive number of minutes")
     if not (math.isfinite(dt_min) and 0 < dt_min <= p.tau_w_min / 2):
         raise ValueError(f"dt_min must be within (0, tau_w/2 = {p.tau_w_min / 2}] min (IEC 60076-7)")
     n_sub = max(1, math.ceil(step_min / dt_min - 1e-9))
+    if n_sub > MAX_SUBSTEPS:
+        raise ValueError(f"dt_min too small: {n_sub} sub-steps per row (limit {MAX_SUBSTEPS})")
     dt = step_min / n_sub                     # the sub-step actually used (≤ dt_min)
     k = K.to_numpy(dtype=float)
     ta = theta_a.to_numpy(dtype=float)
@@ -249,9 +254,10 @@ def simulate(
     force_h = k**p.y * p.d_theta_hr
     ref = REF_HOT_SPOT_C
 
+    th = -np.inf
     for i in range(n):
         fo, fh, t_amb = force_o[i], force_h[i], ta[i]
-        h_max, v_sum = -np.inf, 0.0
+        h_max, v_sum = th, 0.0          # the step's max includes its starting value (dt-independent)
         for _ in range(n_sub):
             th_o += a_o * (fo - (th_o - t_amb))
             d_h1 += a_h1 * (p.k21 * fh - d_h1)
