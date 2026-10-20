@@ -8,38 +8,48 @@ Two views of the same year, side by side:
     hours above 80 % of nameplate        days of insulation life used per year
     hours above 100 %                    max hot-spot vs IEC limits (120 / 140 °C)
                                          max load vs IEC current limits (1.5 / 1.8 pu)
-                                         house voltage vs EN 50160 (0.90–1.10 pu)
+                                         house voltage vs EIFS 2023:3 (0.90–1.10 pu)
                                          main-cable loading
 
 The verdict is decided ONLY by the right-hand column. The left-hand column is
 reported next to it so the reader sees the gap — that is the point of the tool.
+It is a thermal / voltage SCREENING, not a replacement for a DSO's reserve
+(N-1), growth or accessory criteria.
 
 Rules (every threshold with its source):
   AT RISK if any of
-    • loss of life  > 365 days per year     (ages faster than the IEC design basis:
-                                             hot-spot 98 °C continuously = 1 day/day,
-                                             IEC 60076-7 clause 6.2 / eq. (2))
-    • hot-spot      > 140 °C at any time    (IEC 60076-7 Table 4, long-time emergency
-                                             limit for distribution transformers)
-    • load          > 1.8 × rated           (IEC 60076-7 Table 4 current limit, long-time emergency)
-    • voltage outside 0.90–1.10 pu for more than 5 % of the hours
-                                            (EN 50160: 95 % of 10-min means within ±10 %)
+    • loss of life  > 365 days per year     IEC 60076-7: 98 °C hot-spot = ageing rate 1 (6.2, eq. 2);
+                                             normal cyclic loading is "equivalent to the rated load" in
+                                             ageing terms over the period (3.5, 5.1, 6.3 eq. 4) — a
+                                             year using more than a year of life is beyond normal operation
+    • hot-spot      > 140 °C at any time    IEC 60076-7 Table 4, long-time emergency limit, distribution
+    • load          > 1.8 × rated           IEC 60076-7 Table 4, long-time emergency current limit
+    • any hour outside 0.90–1.10 pu         EIFS 2023:3 6 kap. 3 §: ALL ten-minute values within ±10 %
+                                             (binding in Sweden; EN 50160's 95 % allowance does not apply)
   WATCH if any of
-    • loss of life  > 182 days per year     (more than half the design rate — margin for the
-                                             model's known optimism in cold oil)
-    • hot-spot      > 120 °C at any time    (IEC 60076-7 Table 4, normal cyclic limit)
-    • top-oil       > 105 °C                (IEC 60076-7 Table 4, normal cyclic)
-    • load          > 1.5 × rated           (IEC 60076-7 Table 4, normal cyclic current limit)
-    • any hour outside 0.90–1.10 pu         (EN 50160 margin)
-    • main cable    > 100 % of its rating   (feeder.py cable catalogue)
+    • loss of life  > 182 days per year     margin for the model's known optimism (no cold-oil viscosity
+                                             correction, hourly means) — a chosen margin, not a standard
+    • hot-spot      > 120 °C at any time    IEC 60076-7 Table 4, normal cyclic limit
+    • top-oil       > 105 °C                IEC 60076-7 Table 4, normal cyclic
+    • load          > 1.5 × rated           IEC 60076-7 Table 4, normal cyclic current limit
+    • any hour below 0.92 or above 1.05 pu  planning margin: an hourly balanced mean understates the
+                                             10-minute, per-phase extremes the law is about (Chalmers
+                                             LV-grid generator uses 1.05 pu as the rise limit)
+    • main cable    > 100 % of its rating   feeder.py cable catalogue (rating conditions stated there)
   OK otherwise.
 
 The nameplate counters (hours above 80 % / 100 %) never change the verdict.
+Voltages are hourly balanced means of a simulation; counters use a tiny
+tolerance so a value sitting exactly ON a threshold does not count as above it.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
 
 from hotspotlv.thermal import IEC_LIMITS_C, IEC_LIMITS_K, ThermalResult
 from hotspotlv.timeseries import NAMEPLATE_RULE_PCT, VMAX_LIMIT_PU, VMIN_LIMIT_PU, YearResult
@@ -47,7 +57,9 @@ from hotspotlv.timeseries import NAMEPLATE_RULE_PCT, VMAX_LIMIT_PU, VMIN_LIMIT_P
 LEVELS = ("OK", "Watch", "At risk")
 DESIGN_LIFE_DAYS_PER_YEAR = 365.0          # V = 1 all year
 WATCH_LIFE_DAYS_PER_YEAR = 182.0
-EN50160_MAX_VIOLATION_SHARE = 0.05         # 95 % of the time inside ±10 %
+VMIN_PLAN_PU, VMAX_PLAN_PU = 0.92, 1.05    # planning margin band (Watch)
+TOL = 1e-6                                 # "above" means above by more than this (float noise at a cap)
+HOURS_PER_YEAR = 8760.0
 
 
 @dataclass(frozen=True)
@@ -59,7 +71,8 @@ class Reason:
     source: str
 
     def __str__(self) -> str:
-        return f"{self.rule}: {self.value:.3g} {self.unit} (limit {self.threshold:.3g} {self.unit}) — {self.source}"
+        lim = "none allowed" if self.threshold == 0 else f"limit {self.threshold:.3g} {self.unit}"
+        return f"{self.rule}: {self.value:.3g} {self.unit} ({lim}) — {self.source}"
 
 
 @dataclass
@@ -72,63 +85,85 @@ class Verdict:
 
     @property
     def reasons(self) -> list[Reason]:
-        return self.at_risk if self.level == "At risk" else self.watch
+        return self.at_risk + self.watch
 
     def headline(self) -> str:
         if self.level == "OK":
-            return "OK — ages slower than designed, all IEC and EN 50160 limits respected"
-        return f"{self.level} — " + "; ".join(r.rule for r in self.reasons)
+            return "OK — ages slower than designed, all IEC and EIFS limits respected"
+        main = [r.rule for r in (self.at_risk if self.level == "At risk" else self.watch)]
+        text = f"{self.level} — " + "; ".join(main)
+        if self.level == "At risk" and self.watch:
+            text += " (also: " + "; ".join(r.rule for r in self.watch) + ")"
+        return text
 
 
-def judge(year: YearResult, thermal: ThermalResult, hours_in_period: float | None = None) -> Verdict:
-    """Combine the power-flow year and the thermal year into one verdict."""
+def _step_hours(index: pd.Index) -> float:
+    if len(index) < 2:
+        return 1.0
+    spacing = np.unique(np.diff(index.to_numpy()) / np.timedelta64(1, "h"))
+    if len(spacing) != 1:
+        raise ValueError("year and thermal results must be evenly spaced in time")
+    return float(spacing[0])
+
+
+def judge(year: YearResult, thermal: ThermalResult) -> Verdict:
+    """Combine the power-flow year and the thermal year into one verdict.
+    Life used is expressed per YEAR whatever the length of the period."""
     h = year.hourly
     t = thermal.hourly
-    n_hours = hours_in_period or len(h)
-    scale = 8760.0 / n_hours                           # express life used per YEAR even for shorter runs
+    if len(h) == 0:
+        raise ValueError("empty results")
+    if len(h) != len(t) or not h.index.equals(t.index):
+        raise ValueError("year and thermal results must share the same index")
+    needed = ["loading_pct", "vmin_pu", "vmax_pu", "line_max_pct"]
+    if not np.isfinite(h[needed].to_numpy()).all() or not np.isfinite(t[["theta_h_max", "theta_o", "V_mean"]].to_numpy()).all():
+        raise ValueError("results contain NaN/inf")
+    hours = len(h) * _step_hours(h.index)
+    scale = HOURS_PER_YEAR / hours
     life_days_per_year = thermal.loss_of_life_days * scale
     max_hot_spot = float(t["theta_h_max"].max())
     max_top_oil = float(t["theta_o"].max())
     max_k = float(h["loading_pct"].max() / 100)
-    v_bad_hours = int(((h["vmin_pu"] < VMIN_LIMIT_PU) | (h["vmax_pu"] > VMAX_LIMIT_PU)).sum())
-    v_bad_share = v_bad_hours / n_hours
+    v_law_bad = int(((h["vmin_pu"] < VMIN_LIMIT_PU - TOL) | (h["vmax_pu"] > VMAX_LIMIT_PU + TOL)).sum())
+    v_plan_bad = int(((h["vmin_pu"] < VMIN_PLAN_PU - TOL) | (h["vmax_pu"] > VMAX_PLAN_PU + TOL)).sum())
     cable_max = float(h["line_max_pct"].max())
 
     at_risk, watch = [], []
     iec = "IEC 60076-7 Table 4 (distribution transformers)"
-    if life_days_per_year > DESIGN_LIFE_DAYS_PER_YEAR:
+    if life_days_per_year > DESIGN_LIFE_DAYS_PER_YEAR * (1 + TOL):
         at_risk.append(Reason("ageing faster than design", life_days_per_year, DESIGN_LIFE_DAYS_PER_YEAR,
-                              "days of life per year", "IEC 60076-7 eq. (2): 98 °C hot-spot = 1 day per day"))
+                              "days of life per year", "IEC 60076-7 3.5 / 5.1 / 6.3 eq. (4): 98 °C = 1 day per day"))
     elif life_days_per_year > WATCH_LIFE_DAYS_PER_YEAR:
         watch.append(Reason("ageing above half the design rate", life_days_per_year, WATCH_LIFE_DAYS_PER_YEAR,
-                            "days of life per year", "margin for model optimism in cold oil"))
-    if max_hot_spot > IEC_LIMITS_C["long_time_emergency_hot_spot"]:
+                            "days of life per year", "chosen margin for model optimism (cold oil, hourly means)"))
+    if max_hot_spot > IEC_LIMITS_C["long_time_emergency_hot_spot"] + TOL:
         at_risk.append(Reason("hot-spot above long-time emergency limit", max_hot_spot,
                               IEC_LIMITS_C["long_time_emergency_hot_spot"], "°C", iec))
-    elif max_hot_spot > IEC_LIMITS_C["normal_cyclic_hot_spot"]:
+    elif max_hot_spot > IEC_LIMITS_C["normal_cyclic_hot_spot"] + TOL:
         watch.append(Reason("hot-spot above normal cyclic limit", max_hot_spot,
                             IEC_LIMITS_C["normal_cyclic_hot_spot"], "°C", iec))
-    if max_top_oil > IEC_LIMITS_C["normal_cyclic_top_oil"]:
+    if max_top_oil > IEC_LIMITS_C["normal_cyclic_top_oil"] + TOL:
         watch.append(Reason("top-oil above normal cyclic limit", max_top_oil,
                             IEC_LIMITS_C["normal_cyclic_top_oil"], "°C", iec))
-    if max_k > IEC_LIMITS_K["long_time_emergency"]:
+    if max_k > IEC_LIMITS_K["long_time_emergency"] + TOL:
         at_risk.append(Reason("load above long-time emergency current limit", max_k,
                               IEC_LIMITS_K["long_time_emergency"], "× rated", iec))
-    elif max_k > IEC_LIMITS_K["normal_cyclic"]:
+    elif max_k > IEC_LIMITS_K["normal_cyclic"] + TOL:
         watch.append(Reason("load above normal cyclic current limit", max_k,
                             IEC_LIMITS_K["normal_cyclic"], "× rated", iec))
-    if v_bad_share > EN50160_MAX_VIOLATION_SHARE:
-        at_risk.append(Reason("house voltage outside ±10 % too often", 100 * v_bad_share,
-                              100 * EN50160_MAX_VIOLATION_SHARE, "% of hours", "EN 50160 (95 % rule)"))
-    elif v_bad_hours > 0:
-        watch.append(Reason("house voltage outside ±10 % in some hours", v_bad_hours, 0, "hours", "EN 50160"))
-    if cable_max > 100.0:
+    if v_law_bad > 0:
+        at_risk.append(Reason("house voltage outside ±10 %", v_law_bad, 0, "hours",
+                              "EIFS 2023:3 6 kap. 3 § (all 10-min values within 90–110 %)"))
+    elif v_plan_bad > 0:
+        watch.append(Reason("house voltage outside the 0.92–1.05 pu planning band", v_plan_bad, 0, "hours",
+                            "planning margin for hourly balanced simulation (Chalmers 1.05 pu rise limit)"))
+    if cable_max > 100.0 + TOL:
         watch.append(Reason("main cable above its current rating", cable_max, 100.0, "%", "cable catalogue (feeder.py)"))
 
     level = "At risk" if at_risk else ("Watch" if watch else "OK")
     on_paper = {
-        f"hours above {NAMEPLATE_RULE_PCT:.0f} % of nameplate": int((h["loading_pct"] > NAMEPLATE_RULE_PCT).sum()),
-        "hours above 100 % of nameplate": int((h["loading_pct"] > 100).sum()),
+        f"hours above {NAMEPLATE_RULE_PCT:.0f} % of nameplate": int((h["loading_pct"] > NAMEPLATE_RULE_PCT + TOL).sum()),
+        "hours above 100 % of nameplate": int((h["loading_pct"] > 100 + TOL).sum()),
         "peak load (% of nameplate)": float(h["loading_pct"].max()),
     }
     really = {
@@ -138,7 +173,8 @@ def judge(year: YearResult, thermal: ThermalResult, hours_in_period: float | Non
         "hours hot-spot above 98 °C": thermal.steps_hot_spot_above(98),
         "hours hot-spot above 120 °C": thermal.steps_hot_spot_above(IEC_LIMITS_C["normal_cyclic_hot_spot"]),
         "max load (× rated)": max_k,
-        "hours with voltage outside ±10 %": v_bad_hours,
+        "hours with voltage outside ±10 %": v_law_bad,
+        "hours with voltage outside the planning band": v_plan_bad,
         "max main-cable loading (%)": cable_max,
     }
     return Verdict(level, at_risk, watch, on_paper, really)

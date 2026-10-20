@@ -73,18 +73,26 @@ def build_feeder(
     n_feeders: int = 3,
     trafo_kva: int = 500,
     house_p_kw: float = 1.0,
+    main_cable_max_i_ka: float | None = None,
 ) -> pp.pandapowerNet:
     """Create the pandapower network.
 
     Returns a net whose house loads are all `house_p_kw` (placeholder).
     Later sessions overwrite the loads every hour of the year.
+    `main_cable_max_i_ka` overrides the main-cable rating (default 0.286 kA, Prysmian
+    AXQJ in ground at 20 °C soil; Chalmers' LV-grid generator uses 0.230 kA for a PVC
+    cable — the cable-loading result depends on this choice, so it is a parameter).
     """
     tr = transformer(trafo_kva)               # clear error for sizes not in the catalogue
     if n_houses < 1 or n_feeders < 1 or n_feeders > n_houses:
         raise ValueError(f"need 1 <= n_feeders <= n_houses, got {n_feeders=}, {n_houses=}")
+    if main_cable_max_i_ka is not None and not 0 < main_cable_max_i_ka < 2:
+        raise ValueError("main_cable_max_i_ka must be in kA, e.g. 0.286")
 
     net = pp.create_empty_network(name=f"LV feeder {n_houses} houses / {trafo_kva} kVA")
     for cable_name, params in CABLE_TYPES.items():
+        if cable_name == MAIN_CABLE_STD and main_cable_max_i_ka is not None:
+            params = {**params, "max_i_ka": main_cable_max_i_ka}
         pp.create_std_type(net, params, cable_name, element="line")
 
     # --- medium-voltage side: the "big lake" -----------------------------------
