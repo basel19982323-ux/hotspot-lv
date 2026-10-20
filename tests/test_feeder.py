@@ -2,7 +2,7 @@
 
 import pytest
 
-from gridstudy.feeder import build_feeder, run_snapshot, set_house_loads
+from hotspotlv.feeder import build_feeder, run_snapshot, set_house_loads
 
 
 @pytest.fixture

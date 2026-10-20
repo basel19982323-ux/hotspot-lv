@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from gridstudy.weather import get_weather
+from hotspotlv.weather import get_weather
 
 
 @pytest.fixture(scope="module")
