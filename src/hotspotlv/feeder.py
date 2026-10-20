@@ -30,14 +30,9 @@ import numpy as np
 import pandapower as pp
 import pandas as pd
 
-# ---------------------------------------------------------------------------
-# Transformer catalogue (Ecodesign Tier 2 losses, EU 548/2014 + 2019/1783, oil-immersed)
-# ---------------------------------------------------------------------------
-TRANSFORMERS = {
-    #  kVA : dict(load loss W, no-load loss W, uk %)
-    500: dict(p_load_w=3900, p_noload_w=459, uk_percent=6.0),
-    800: dict(p_load_w=6000, p_noload_w=585, uk_percent=6.0),
-}
+from hotspotlv.catalogue import TRANSFORMERS, transformer
+
+# Transformer catalogue (Ecodesign Tier-2 losses) lives in catalogue.py, shared with thermal.py.
 I0_PERCENT_ASSUMED = 0.3  # no-load current, assumption (not in Ecodesign; typical 0.2–0.5 %)
 VECTOR_GROUP = "Dyn11"
 SHIFT_DEGREE = 330  # Dyn11 = 11 x 30 deg (pandapower convention; irrelevant to a balanced power flow)
@@ -84,11 +79,9 @@ def build_feeder(
     Returns a net whose house loads are all `house_p_kw` (placeholder).
     Later sessions overwrite the loads every hour of the year.
     """
-    if trafo_kva not in TRANSFORMERS:
-        raise ValueError(f"no catalogue data for {trafo_kva} kVA (have {sorted(TRANSFORMERS)})")
+    tr = transformer(trafo_kva)               # clear error for sizes not in the catalogue
     if n_houses < 1 or n_feeders < 1 or n_feeders > n_houses:
         raise ValueError(f"need 1 <= n_feeders <= n_houses, got {n_feeders=}, {n_houses=}")
-    tr = TRANSFORMERS[trafo_kva]
 
     net = pp.create_empty_network(name=f"LV feeder {n_houses} houses / {trafo_kva} kVA")
     for cable_name, params in CABLE_TYPES.items():
