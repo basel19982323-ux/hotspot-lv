@@ -41,12 +41,19 @@ def main(out: Path):
     print("scenario:", sp.result.verdict.headline())
 
     # mode B
+    import time
     st = win.station
     st.path.setText(str(STATION_EXAMPLE))
+    st._t0 = time.perf_counter()
     st._done(_assess(STATION_EXAMPLE, 500, "meters", "Europe/Stockholm", "start", 96190, True, "kiosk", 0, 0, 0))
     win.centralWidget().setCurrentIndex(0); app.processEvents()
     win.grab().save(str(out / "station.png"))
     print("station:", st.result.verdict.headline())
+    from PySide6.QtWidgets import QLabel
+    short = [w for w in st.card._really[0].findChildren(QLabel) if w.height() < w.sizeHint().height() - 1]
+    print("card labels squeezed:", len(short))
+    assert not short, "the verdict card's REALLY column is squeezed — regression of 21 Oct"
+
 
     # mode C
     fl = win.fleet

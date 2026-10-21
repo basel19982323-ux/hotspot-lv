@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QTextBrowser, QVBoxLayout, QWidget
 
 from hotspotlv.app.theme import ACCENT, BORDER, MUTED, VERDICT_COLORS
 from hotspotlv.verdict import Verdict
@@ -43,7 +43,7 @@ def _fmt(key: str, v) -> str:
         if "× rated" in key:
             return f"{f:.2f}"
         if "°C" in key or "%" in key:
-            return f"{f:,.1f}" if f < 100 else f"{f:,.0f}"
+            return f"{f:,.1f}"
         return f"{f:,.2f}"
     return str(v)
 
@@ -83,10 +83,12 @@ class VerdictCard(QFrame):
         cols.addWidget(self._really[0], 1)
         body.addLayout(cols)
 
-        self._notes = QLabel("")
-        self._notes.setWordWrap(True)
-        self._notes.setTextFormat(Qt.RichText)
-        self._notes.setStyleSheet(f"color: {MUTED}; font-size: 9.5pt; border: none;")
+        # notes can be long: a small scrollable box keeps the card's height bounded
+        self._notes = QTextBrowser()
+        self._notes.setFrameShape(QFrame.NoFrame)
+        self._notes.setMaximumHeight(84)
+        self._notes.setStyleSheet(f"color: {MUTED}; font-size: 9.5pt; border: none; background: transparent;")
+        self._notes.setVisible(False)
         body.addWidget(self._notes)
         self.set_verdict(None)
 
@@ -129,7 +131,7 @@ class VerdictCard(QFrame):
             self._level.setStyleSheet(f"font-size: 20pt; font-weight: 700; color: {MUTED}; border: none;")
             self._headline.setText(self._empty_text)
             self._reasons.setText("")
-            self._notes.setText("")
+            self._notes.setVisible(False)
             self._fill(self._paper[1], {})
             self._fill(self._really[1], {})
             return
@@ -147,4 +149,5 @@ class VerdictCard(QFrame):
         self._reasons.setText("<br>".join(reasons) if reasons else "No rule is violated.")
         self._fill(self._paper[1], v.on_paper)
         self._fill(self._really[1], v.really)
-        self._notes.setText(("<b>Notes</b><br>• " + "<br>• ".join(v.notes)) if v.notes else "")
+        self._notes.setVisible(bool(v.notes))
+        self._notes.setHtml(("<b>Notes</b><br>• " + "<br>• ".join(v.notes)) if v.notes else "")

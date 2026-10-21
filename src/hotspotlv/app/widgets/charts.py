@@ -117,7 +117,7 @@ class YearTimeline(QWidget):
         self.scrubber.sigPositionChanged.connect(self._moved)
         self.readout = QLabel("")
         self.readout.setProperty("muted", True)
-        self.readout.setWordWrap(True)
+        self.readout.setWordWrap(False)        # a wrapped label imposes its height on the whole column
         lay.addWidget(self.plot, 1)
         lay.addWidget(self.readout)
         self._x = np.array([])
@@ -211,7 +211,7 @@ class WorstWeek(QWidget):
         self.plot.getViewBox().sigResized.connect(self._sync)
         self.caption = QLabel("")
         self.caption.setProperty("muted", True)
-        self.caption.setWordWrap(True)
+        self.caption.setWordWrap(False)
         lay.addWidget(self.plot, 1)
         lay.addWidget(self.caption)
 

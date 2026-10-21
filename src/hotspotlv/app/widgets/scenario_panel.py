@@ -110,18 +110,20 @@ class ScenarioPanel(QWidget):
         btns.addWidget(self.run_btn, 1); btns.addWidget(self.cancel_btn)
         self.progress = QProgressBar(); self.progress.setRange(0, 0); self.progress.setVisible(False)
         self.status = QLabel(""); self.status.setProperty("muted", True); self.status.setWordWrap(True)
-        form_lay.addWidget(g1); form_lay.addWidget(g2); form_lay.addWidget(g3)
-        form_lay.addLayout(btns); form_lay.addWidget(self.progress); form_lay.addWidget(self.status); form_lay.addStretch(1)
-        left = QScrollArea(); left.setWidget(left_inner); left.setWidgetResizable(True); left.setFrameShape(QScrollArea.NoFrame)
-        left.setMinimumWidth(340); left.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        form_lay.addWidget(g1); form_lay.addWidget(g2); form_lay.addWidget(g3); form_lay.addStretch(1)
+        scroll = QScrollArea(); scroll.setWidget(left_inner); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         left_inner.setMinimumWidth(0)
+        left = QWidget(); left_lay = QVBoxLayout(left); left_lay.setContentsMargins(0, 0, 0, 0)
+        left_lay.addWidget(scroll, 1)                       # only the option boxes scroll …
+        left_lay.addLayout(btns); left_lay.addWidget(self.progress); left_lay.addWidget(self.status)   # … Run stays visible
+        left.setMinimumWidth(340)
 
         # ---------------- results
-        right = QWidget()
-        rlay = QVBoxLayout(right)
+        right = QSplitter(Qt.Vertical)                      # drag the boundary between card and charts
         self.card = VerdictCard(empty_text="Set up the street on the left and press Run. The verdict and the "
                                             "'on paper vs really' comparison appear here.")
-        rlay.addWidget(self.card)
+        right.addWidget(self.card)
         self.tabs = QTabWidget()
         self.timeline = YearTimeline()
         self.diagram = FeederDiagram()
@@ -143,7 +145,8 @@ class ScenarioPanel(QWidget):
         self.tabs.addTab(self.duration, "Duration curve")
         self.tabs.addTab(self.week, "Worst week")
         self.tabs.addTab(self.houses_view, "Houses")
-        rlay.addWidget(self.tabs, 1)
+        right.addWidget(self.tabs)
+        right.setStretchFactor(0, 0); right.setStretchFactor(1, 1); right.setSizes([440, 420])
 
         split.addWidget(left); split.addWidget(right)
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 1)
@@ -215,16 +218,24 @@ class ScenarioPanel(QWidget):
         self._timer.stop(); self.progress.setVisible(False); self.cancel_btn.setVisible(False); self.run_btn.setEnabled(True)
 
     def cancel(self):
-        if self.is_running():
-            self._worker.cancel()
+        w, self._worker = self._worker, None           # retire it: a late result from it is ignored
+        if w is not None and w.isRunning():
+            w.cancel()
         self._finish_ui()
         self.status.setText("Cancelled.")
 
+    def _current(self) -> bool:
+        return self.sender() is None or self.sender() is self._worker
+
     def _failed(self, msg: str):
+        if not self._current():
+            return
         self._finish_ui(); self.status.setText("")
         show_error(self, "Run failed", msg)
 
     def _done(self, res: CaseResult):
+        if not self._current():
+            return
         self._finish_ui()
         try:
             self.result = res

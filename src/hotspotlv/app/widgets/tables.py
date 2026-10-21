@@ -22,7 +22,8 @@ FRIENDLY = {
     "has_ev": "EV", "charger_kw": "charger (kW)", "has_pv": "PV", "pv_kwp": "PV (kWp)", "base_kwh": "base (kWh/yr)",
     "heat_kwh": "heating (kWh/yr)", "ev_kwh": "EV (kWh/yr)", "pv_kwh": "PV (kWh/yr)", "fuse_limited_hours": "fuse-limited h",
 }
-WHOLE = ("hours", "h > ", "kVA", "SMHI", "gaps", "rank", "step", "kWh/yr", "fuse", "house")
+WHOLE = ("hours", "h > ", "kVA", "gaps", "step", "kWh/yr", "fuse")
+IDS = ("SMHI", "rank", "house")                  # whole numbers without a thousands separator
 ONE_DECIMAL = ("%", "°C", "MWh", "kW", "kWp")
 
 
@@ -70,6 +71,8 @@ class DataFrameModel(QAbstractTableModel):
             v = float(value)
             if math.isnan(v):
                 return "–"
+            if any(w in header for w in IDS):
+                return f"{v:.0f}"
             if isinstance(value, (int, np.integer)) or any(w in header for w in WHOLE):
                 return f"{v:,.0f}"
             if "days" in header:

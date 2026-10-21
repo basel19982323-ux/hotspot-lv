@@ -72,15 +72,16 @@ class FleetPanel(QWidget):
         self.view.horizontalHeader().setSortIndicatorShown(True)
         self.view.selectionModel().selectionChanged.connect(self._selected)
         split.addWidget(self.view)
-        detail = QWidget(); dl = QVBoxLayout(detail); dl.setContentsMargins(0, 0, 0, 0)
+        detail = QSplitter(Qt.Vertical)                     # card and charts share the space, boundary draggable
         self.card = VerdictCard(empty_text="Select a station in the table to see its verdict and charts.")
-        dl.addWidget(self.card)
+        detail.addWidget(self.card)
         self.tabs = QTabWidget()
         self.timeline = YearTimeline(); self.duration = DurationCurve(); self.week = WorstWeek()
         self.tabs.addTab(self.timeline, "Period"); self.tabs.addTab(self.duration, "Duration curve"); self.tabs.addTab(self.week, "Worst week")
-        dl.addWidget(self.tabs, 1)
+        detail.addWidget(self.tabs)
+        detail.setStretchFactor(0, 0); detail.setStretchFactor(1, 1); detail.setSizes([420, 300])
         split.addWidget(detail)
-        split.setSizes([220, 680])
+        split.setSizes([200, 720])
         lay.addWidget(split, 1)
 
     def browse(self):
@@ -113,15 +114,23 @@ class FleetPanel(QWidget):
         self.run_btn.setEnabled(True); self.cancel_btn.setVisible(False); self.progress.setVisible(False)
 
     def cancel(self):
-        if self.is_running():
-            self._worker.cancel()
+        w, self._worker = self._worker, None
+        if w is not None and w.isRunning():
+            w.cancel()
         self._finish_ui(); self.status.setText("Cancelled.")
 
+    def _current(self) -> bool:
+        return self.sender() is None or self.sender() is self._worker
+
     def _failed(self, msg):
+        if not self._current():
+            return
         self._finish_ui()
         show_error(self, "Fleet screening failed", msg)
 
     def _done(self, payload):
+        if not self._current():
+            return
         self._finish_ui()
         try:
             table, results = payload

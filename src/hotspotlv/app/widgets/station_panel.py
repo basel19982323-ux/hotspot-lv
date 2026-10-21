@@ -129,14 +129,15 @@ class StationPanel(QWidget):
         left.setMinimumWidth(340); left.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         left_inner.setMinimumWidth(0)
 
-        right = QWidget(); rl = QVBoxLayout(right)
+        right = QSplitter(Qt.Vertical)                      # drag the boundary between card and charts
         self.card = VerdictCard(empty_text="Choose a station CSV (or the example), set the rating and the SMHI station, "
                                             "then press Assess.")
-        rl.addWidget(self.card)
+        right.addWidget(self.card)
         self.tabs = QTabWidget()
         self.timeline = YearTimeline(); self.duration = DurationCurve(); self.week = WorstWeek()
         self.tabs.addTab(self.timeline, "Period"); self.tabs.addTab(self.duration, "Duration curve"); self.tabs.addTab(self.week, "Worst week")
-        rl.addWidget(self.tabs, 1)
+        right.addWidget(self.tabs)
+        right.setStretchFactor(0, 0); right.setStretchFactor(1, 1); right.setSizes([420, 400])
         split.addWidget(left); split.addWidget(right)
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 1); split.setSizes([440, 900])
 
@@ -177,16 +178,24 @@ class StationPanel(QWidget):
         self._timer.stop(); self.progress.setVisible(False); self.cancel_btn.setVisible(False); self.run_btn.setEnabled(True)
 
     def cancel(self):
-        if self.is_running():
-            self._worker.cancel()
+        w, self._worker = self._worker, None           # retire it: a late result from it is ignored
+        if w is not None and w.isRunning():
+            w.cancel()
         self._finish_ui()
         self.status.setText("Cancelled.")
 
+    def _current(self) -> bool:
+        return self.sender() is None or self.sender() is self._worker
+
     def _failed(self, msg: str):
+        if not self._current():
+            return
         self._finish_ui(); self.status.setText("")
         show_error(self, "Could not assess the station", msg)
 
     def _done(self, payload):
+        if not self._current():
+            return
         self._finish_ui()
         try:
             res, amb = payload
@@ -196,7 +205,8 @@ class StationPanel(QWidget):
             self.timeline.set_data(res.year.hourly, res.thermal.hourly, amb)
             self.duration.set_year(res.year.hourly, step_h)
             self.week.set_week(res.thermal.worst_week(), res.year.hourly, amb, step_h)
-            self.status.setText(f"Done in {time.perf_counter() - self._t0:.0f} s. {res.station.period()}, "
+            took = f"{time.perf_counter() - self._t0:.0f} s" if self._t0 else "a moment"
+            self.status.setText(f"Done in {took}. {res.station.period()}, "
                                 f"{res.station.step_min:g}-min steps, {res.station.gaps_filled} gaps filled. "
                                 "Notes are under the verdict; voltage and cable are not checked in this mode.")
         except Exception as e:  # never leave a half-drawn screen saying "Done"

@@ -115,7 +115,7 @@ def test_captions_and_card_use_the_verdicts_hours_and_days(panel):
     ww = res.thermal.worst_week()
     assert f"{ww['V_mean'].sum() / 24:.3f} days" in panel.week.caption.text()
     assert v.level.upper() in panel.card._level.text()
-    assert "kiosk" in panel.card._notes.text()                                   # the enclosure assumption is visible
+    assert "kiosk" in panel.card._notes.toPlainText()                            # the enclosure assumption is visible
     assert "fast mode" in panel.status.text() or "full power flow" in panel.status.text()
 
 
