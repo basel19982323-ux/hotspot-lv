@@ -1,4 +1,4 @@
-"""Mode C: a fleet index or a long CSV → ranked table, with one broken station not stopping the run."""
+"""Mode C: a fleet index or a long CSV → ranked table, notes carried, one broken station not stopping the run."""
 
 import pandas as pd
 import pytest
@@ -20,9 +20,9 @@ def example_run():
 
 def test_index_is_read(example_run):
     stations, _, _, _ = example_run
-    assert [s.station_id for s in stations] == ["NS-101 Lövängen", "NS-102 Björkbacken", "NS-103 Tallhöjden"]
     assert [s.rated_kva for s in stations] == [500, 500, 800]
     assert all(s.file.exists() for s in stations) and stations[0].smhi_station == 96190
+    assert all("synthetic" in s.station_id.lower() for s in stations)
 
 
 def test_ranked_table(example_run):
@@ -33,44 +33,61 @@ def test_ranked_table(example_run):
     assert ranks == sorted(ranks)                                       # worst first
     assert (table["error"] == "").all()
     assert seen[-1][:2] == (3, 3)                                       # progress callback reached the end
-    # the 80-house 500 kVA station must rank above the 45-house one
     pos = {sid: r for r, sid in table["station_id"].items()}
-    assert pos["NS-102 Björkbacken"] < pos["NS-101 Lövängen"]
-    assert table.loc[pos["NS-102 Björkbacken"], "peak_loading_pct"] > 80
+    big = next(s for s in pos if "102" in s); small = next(s for s in pos if "101" in s)
+    assert pos[big] < pos[small]                                        # the 80-house 500 kVA station ranks above the 45-house one
+    assert table.loc[pos[big], "peak_loading_pct"] > 80
+    assert table["why"].str.contains("not checked").all()               # the caveat survives into the table
+    assert table["notes"].str.contains("SMHI station 96190").all() and (table["smhi_station"] == 96190).all()
+    assert table["period"].str.endswith("(local)").all()
 
 
 def test_export(example_run, tmp_path):
     _, table, _, _ = example_run
     out = export_fleet_table(table, tmp_path / "fleet.csv")
-    back = pd.read_csv(out, index_col="rank")
+    back = pd.read_csv(out, index_col="rank", encoding="utf-8-sig")
     assert list(back.columns) == list(table.columns) and len(back) == 3
+    assert back["why"].str.contains("not checked").all()
 
 
 def test_bad_station_is_reported_not_raised(tmp_path):
     (tmp_path / "bad.csv").write_text("timestamp,kw\n2023-01-01 00:00,1\n2023-01-01 02:00,2\n2023-01-02 00:00,3\n")
     good = EXAMPLES / "ns-101.csv"
     stations = [FleetStation("good", 500, file=good), FleetStation("bad", 500, file=tmp_path / "bad.csv")]
-    table, results = screen_fleet(stations)
+    def boom(*a):
+        raise RuntimeError("progress bar died")
+    table, results = screen_fleet(stations, progress=boom)               # a broken callback must not stop it either
     assert set(results) == {"good"}
     bad_row = table[table["station_id"] == "bad"].iloc[0]
     assert bad_row["verdict"] == "error" and bad_row["error"] != ""
     assert table.iloc[-1]["station_id"] == "bad"                        # errors sort last
+    assert "DEFAULT" in table.iloc[0]["notes"]                          # no smhi_station given → said so
 
 
 def test_long_csv(tmp_path):
     a = pd.read_csv(EXAMPLES / "ns-101.csv").iloc[:24 * 10]
     b = pd.read_csv(EXAMPLES / "ns-102.csv").iloc[:24 * 10]
-    long = pd.concat([a.assign(station_id="A"), b.assign(station_id="B")])
-    long.to_csv(tmp_path / "long.csv", index=False)
-    stations = read_fleet_long(tmp_path / "long.csv", ratings={"A": 500, "B": 500})
-    assert [s.station_id for s in stations] == ["A", "B"] and all(s.series is not None for s in stations)
+    long = pd.concat([a.assign(station_id="101"), b.assign(station_id="NS/2 Björk")])
+    long.to_csv(tmp_path / "long.csv", index=False, encoding="utf-8-sig")
+    stations = read_fleet_long(tmp_path / "long.csv", ratings={101: 500, "NS/2 Björk": "500 kVA"})
+    assert [s.station_id for s in stations] == ["101", "NS/2 Björk"] and all(s.series is not None for s in stations)
+    assert [s.rated_kva for s in stations] == [500.0, 500.0]
     table, _ = screen_fleet(stations)
     assert len(table) == 2 and (table["error"] == "").all()
+    assert not list(tmp_path.glob(".long__*"))                          # no temp files left behind
     with pytest.raises(ValueError, match="rated_kva"):
-        read_fleet_long(tmp_path / "long.csv", ratings={"A": 500})
+        read_fleet_long(tmp_path / "long.csv", ratings={"101": 500})
 
 
 def test_fleet_index_validation(tmp_path):
     (tmp_path / "idx.csv").write_text("station_id,file\nX,x.csv\n")
     with pytest.raises(ValueError, match="rated_kva"):
         read_fleet_index(tmp_path / "idx.csv")
+    (tmp_path / "dup.csv").write_text("station_id,rated_kva,file\nX,500,x.csv\nX,500,y.csv\n")
+    with pytest.raises(ValueError, match="duplicate"):
+        read_fleet_index(tmp_path / "dup.csv")
+    (tmp_path / "kva.csv").write_text("station_id,rated_kva,file,smhi_station\nX,500 kVA,x.csv,\n")
+    s = read_fleet_index(tmp_path / "kva.csv")[0]
+    assert s.rated_kva == 500.0 and s.smhi_station is None
+    with pytest.raises(ValueError, match="duplicate"):
+        screen_fleet([FleetStation("X", 500, file=EXAMPLES / "ns-101.csv")] * 2)

@@ -37,3 +37,8 @@ https://pxexternal.energimyndigheten.se/pxweb/sv/Energimyndighetens_statistikdat
 | Night-timer charging | 0 SEK | optimistic bound: Energiforsk 2023:966 survey — ≈ 25 % on hourly contracts control charging; price-optimised charging "kan skapa nya effekttoppar" |
 | Reinforcement-equivalent value of peak kW avoided | 4.4 SEK/kW/yr ≈ 220 SEK/kW one-off | Energiforsk 2024:1043 §6.2 (≈ 100 kSEK per ~450 kW station step over ~50 yr, undiscounted; flexibility most likely defers reinforcement) — https://energiforsk.se/media/33660/2024-1043-analys-av-na-tutvecklingsplaner-och-flexibilitet-mo-jligheter-fo-r-digitalisering.pdf |
 | Service lives | transformer 40 yr, battery 15 yr, charging control 10 yr | assumptions, shown so capex alone does not favour short-lived assets |
+
+## Example station files (`data/examples/`)
+Synthetic: the sum of the scenario model's houses for three imaginary Västerås stations (Session 2 load
+models on SMHI 96190 / PVGIS 2023 weather, both CC BY 4.0 — attribution as above). Not measurements; the
+station names say "(synthetic)". Rebuilt by `validation/make_examples.py`.

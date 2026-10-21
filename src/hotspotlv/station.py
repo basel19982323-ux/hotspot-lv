@@ -8,7 +8,7 @@ such a profile (or a transformer-side measurement) and runs it through the
 thermal model and the verdict. No feeder model is needed, so the voltage and
 cable rules are reported as "not checked" rather than silently passed.
 
-    CSV ──► read_station_csv ──► StationSeries (P, Q, S per step, UTC)
+    CSV ──► read_station_csv ──► StationSeries (P, Q per step, UTC)
                                        │
           SMHI ambient for the place ──┤
                                        ▼
@@ -16,22 +16,31 @@ cable rules are reported as "not checked" rather than silently passed.
                                        ▼
                    IEC 60076-7 thermal (kiosk by default) ──► verdict
 
-Accepted CSV shapes (header names are matched case-insensitively):
-  * timestamp + `kw` / `p_kw` / `kW`                 active power per step
-  * timestamp + `kwh` / `energy`                     energy per step (kWh → kW = kWh / step hours)
-  * optionally `kvar` / `q_kvar`, or `kva` / `s_kva`  (measured S wins over the estimate)
-  * timestamps tz-naive are taken as Europe/Stockholm local time (DST handled);
-    tz-aware timestamps are converted to UTC
-Gaps of at most `max_gap_steps` consecutive steps are interpolated; longer
-gaps raise with the position, never filled silently.
-
-Future overlays: `with_overlay` adds synthetic EV / heat-pump houses from the
-scenario models on top of the measured profile ("what if 20 more EVs").
+What the reader accepts (headers matched after normalising case, units in
+parentheses and Swedish/English synonyms):
+  * one timestamp column, or separate date + time columns (`Datum;Tid`)
+  * active power per step (`kW`, `Effekt`, `Aktiv effekt`) or energy per step
+    (`kWh`, `Energi`, `Förbrukning`, `Uttag`, `Wh`); an export column
+    (`Produktion`, `Inmatning`, `Export`) is subtracted → net P
+  * optional reactive power (`kvar`, `Reaktiv effekt`) and, for a transformer
+    measurement, apparent power (`kVA`)
+  * separators `,` `;` tab, decimal point or comma, UTF-8 or Windows-1252
+  * timestamps: tz-naive = Swedish local time with DST (`tz="Europe/Stockholm"`);
+    files in "normaltid" (CET all year, as EIFS 2023:1 prescribes for registered
+    meter values) need `tz="normaltid"`; ISO stamps with offsets or `Z` are read
+    as given; `24:00` is the next day's 00:00
+  * `stamp="start"` (default) means a row labels the interval that STARTS at
+    the stamp; `stamp="end"` shifts interval-end stamps back one step
+Nothing is dropped or realigned silently: duplicated stamps with different
+values, rows off the meter grid, impossible DST rows and gaps longer than
+`max_gap_steps` all raise with the position. Short gaps are interpolated and
+counted; every assumption made is written to `notes`.
 """
 
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -39,30 +48,42 @@ import numpy as np
 import pandas as pd
 
 from hotspotlv.catalogue import transformer
-from hotspotlv.feeder import POWER_FACTOR
+from hotspotlv.feeder import HOUSE_FUSE_A, POWER_FACTOR, fuse_kw
 from hotspotlv.loads.ev import EVParams, ev_charging_profile
 from hotspotlv.loads.heatpump import HeatPumpParams, heat_pump_profile
-from hotspotlv.thermal import ThermalParams, ThermalResult, simulate
+from hotspotlv.thermal import K_MAX, ThermalParams, ThermalResult, simulate
 from hotspotlv.timeseries import YearResult
 from hotspotlv.verdict import Verdict, judge
-from hotspotlv.weather import SMHI_STATION, load_smhi_temperature
+from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME, load_smhi_temperature
 
 LOCAL_TZ = "Europe/Stockholm"
-TIME_NAMES = ("timestamp", "time", "datetime", "date", "tid", "tidpunkt", "datum")
-P_NAMES = ("p_kw", "kw", "p", "effekt", "aktiv_effekt", "active_power_kw")
-E_NAMES = ("kwh", "energy_kwh", "energy", "energi", "e_kwh")
-Q_NAMES = ("q_kvar", "kvar", "q", "reaktiv_effekt")
-S_NAMES = ("s_kva", "kva", "s", "skenbar_effekt")
+NORMALTID_TZ = "Etc/GMT-1"               # CET all year, no DST
+DATE_NAMES = ("datum", "date", "dag")
+TIME_NAMES = ("tid", "time", "klockslag", "timme")
+TIMESTAMP_NAMES = ("timestamp", "datetime", "tidpunkt", "datum_tid", "date_time", "datumtid", "period", "starttid")
+P_NAMES = ("p_kw", "kw", "effekt", "aktiv_effekt", "active_power", "active_power_kw", "medeleffekt", "power")
+E_NAMES = ("kwh", "energy_kwh", "energy", "energi", "e_kwh", "forbrukning", "uttag", "import", "consumption",
+           "konsumtion", "forbrukad_energi")
+EXPORT_NAMES = ("produktion", "inmatning", "export", "generation", "feed_in", "production", "utmatning")
+Q_NAMES = ("q_kvar", "kvar", "reaktiv_effekt", "reactive_power", "reactive_power_kvar")
+S_NAMES = ("s_kva", "kva", "skenbar_effekt", "apparent_power", "apparent_power_kva")
+SINGLE_LETTER = {"p": "p", "q": "q", "s": "s", "e": "e"}      # accepted only when nothing else matches
+ALLOWED_STEPS_MIN = (5.0, 10.0, 15.0, 30.0, 60.0)
 MAX_GAP_STEPS_DEFAULT = 6
-CABLE_LOSS_SHARE_DEFAULT = 0.02          # LV cable losses as a share of P when P is the sum of meters
+CABLE_LOSS_SHARE_AT_RATED = 0.042        # LV cable losses as a share of P at rated load (I²R → share ∝ K);
+                                         # fitted on the project feeder: ≈ 4.2 %·K (review of 21 Oct 2026)
+OFFSET_RE = re.compile(r"(Z|[+-]\d{2}:?\d{2})\s*$")
 
 
+# ---------------------------------------------------------------------------
+# reading
+# ---------------------------------------------------------------------------
 @dataclass
 class StationSeries:
     """Cleaned station measurements on a uniform UTC index."""
     p_kw: pd.Series
     q_kvar: pd.Series
-    s_kva_measured: pd.Series | None     # only if the CSV had S
+    s_kva_measured: pd.Series | None     # only if the CSV had S and measured_at == "transformer"
     step_min: float
     measured_at: str                     # "meters" (sum of customer meters) or "transformer"
     source: str = ""
@@ -75,18 +96,104 @@ class StationSeries:
 
     @property
     def years(self) -> list[int]:
-        return sorted(set(self.index.year))
+        return sorted(set(self.index.tz_convert(LOCAL_TZ).year))
+
+    def period(self) -> str:
+        loc = self.index.tz_convert(LOCAL_TZ)
+        return f"{loc[0]:%Y-%m-%d} – {loc[-1]:%Y-%m-%d} (local)"
 
 
-def _find_column(columns, names) -> str | None:
-    lower = {c.lower().strip(): c for c in columns}
-    for n in names:
-        if n in lower:
-            return lower[n]
+def _norm(name: str) -> tuple[str, str]:
+    """('normalised_name', 'unit hint') — 'Förbrukning (kWh)' → ('forbrukning', 'kwh')."""
+    s = str(name).strip().lower()
+    unit = ""
+    m = re.search(r"\(([^)]*)\)|\[([^\]]*)\]", s)
+    if m:
+        unit = (m.group(1) or m.group(2) or "").strip().lower().replace(" ", "")
+        s = s[:m.start()] + s[m.end():]
+    s = (s.replace("å", "a").replace("ä", "a").replace("ö", "o").replace("é", "e"))
+    s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+    return s, unit
+
+
+def _pick(cols: dict[str, tuple[str, str]], names, unit_hints=()) -> str | None:
+    """First original column whose normalised name is in `names` (or whose unit hint matches)."""
+    for orig, (n, u) in cols.items():
+        if n in names:
+            return orig
+    for orig, (n, u) in cols.items():
+        if u and u in unit_hints:
+            return orig
     return None
 
 
-ALLOWED_STEPS_MIN = (5.0, 10.0, 15.0, 30.0, 60.0)
+def _read_table(path, sep) -> pd.DataFrame:
+    last = None
+    for enc in ("utf-8-sig", "cp1252"):
+        try:
+            return pd.read_csv(path, sep=sep, engine="python", encoding=enc, dtype=str, skipinitialspace=True)
+        except UnicodeDecodeError as e:
+            last = e
+    raise ValueError(f"cannot decode {path}: {last}")
+
+
+def _to_number(col: pd.Series, name: str) -> pd.Series:
+    s = col.astype(str).str.strip().str.replace(r"\s", "", regex=True)
+    s = s.str.replace(r"(?i)\s*(kwh|kw|kvar|kva|wh)$", "", regex=True)
+    x = pd.to_numeric(s.replace({"": np.nan, "nan": np.nan, "None": np.nan, "-": np.nan}), errors="coerce")
+    if x.isna().sum() > 0.5 * len(x) and s.str.contains(",", regex=False).mean() > 0.5:
+        x = pd.to_numeric(s.str.replace(".", "", regex=False).str.replace(",", ".", regex=False), errors="coerce")
+    return x.rename(name)
+
+
+def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, tz: str) -> tuple[pd.DatetimeIndex, list[str]]:
+    notes = []
+    if timestamp_col is not None:
+        raw = df[timestamp_col].astype(str).str.strip()
+    else:
+        tcol = _pick(cols, TIMESTAMP_NAMES)
+        dcol, hcol = _pick(cols, DATE_NAMES), _pick(cols, TIME_NAMES)
+        if tcol is None and dcol is not None and hcol is not None:
+            raw = df[dcol].astype(str).str.strip() + " " + df[hcol].astype(str).str.strip()
+            notes.append(f"timestamps joined from columns {dcol!r} + {hcol!r}")
+        elif tcol is None and dcol is not None:
+            raw = df[dcol].astype(str).str.strip()
+        elif tcol is not None:
+            raw = df[tcol].astype(str).str.strip()
+        else:
+            raw = df[df.columns[0]].astype(str).str.strip()
+            notes.append(f"first column {df.columns[0]!r} taken as the timestamp")
+    # 24:00 → next day 00:00
+    is24 = raw.str.contains(r"\b24:00", regex=True)
+    if is24.any():
+        base = pd.to_datetime(raw[is24].str.replace(r"\b24:00(:00)?", "00:00", regex=True), errors="coerce", format="mixed")
+        raw = raw.copy()
+        raw[is24] = (base + pd.Timedelta(days=1)).dt.strftime("%Y-%m-%d %H:%M:%S")
+        notes.append(f"{int(is24.sum())} stamps written as 24:00 read as the next day's 00:00")
+    has_offset = raw.str.contains(OFFSET_RE).mean() > 0.9
+    if has_offset:
+        ts = pd.to_datetime(raw, errors="coerce", utc=True, format="mixed")
+        if ts.isna().any():
+            raise ValueError(f"unparseable timestamp {raw[ts.isna()].iloc[0]!r}")
+        notes.append("timestamps carry a UTC offset; read as given")
+        return pd.DatetimeIndex(ts), notes
+    ts = pd.to_datetime(raw, errors="coerce", format="mixed")
+    if ts.isna().any():
+        raise ValueError(f"unparseable timestamp {raw[ts.isna()].iloc[0]!r}")
+    if ts.dt.tz is not None:
+        return pd.DatetimeIndex(ts.dt.tz_convert("UTC")), notes
+    if len(ts) > 48 and ts.dt.normalize().nunique() == 1:
+        raise ValueError("the timestamp column seems to hold only a time of day — is the date in another column? "
+                         "(pass timestamp_col=, or make sure the date column is named Datum/Date)")
+    zone = NORMALTID_TZ if tz.lower() in ("normaltid", "cet", "etc/gmt-1") else tz
+    try:
+        loc = ts.dt.tz_localize(zone, ambiguous="infer", nonexistent="raise")
+    except Exception as e:  # pytz AmbiguousTimeError / NonExistentTimeError and friends
+        raise ValueError(f"timestamps do not fit {zone!r} daylight-saving rules ({type(e).__name__}): a file in "
+                         "'normaltid' (CET all year, no DST) must be read with tz='normaltid'; a file with a missing "
+                         "or doubled hour in March/October must be fixed, not guessed") from e
+    notes.append(f"tz-naive timestamps taken as {zone}" + (" (normaltid, no DST)" if zone == NORMALTID_TZ else " local time"))
+    return pd.DatetimeIndex(loc.dt.tz_convert("UTC")), notes
 
 
 def _uniform_step_min(index: pd.DatetimeIndex) -> float:
@@ -105,88 +212,146 @@ def _uniform_step_min(index: pd.DatetimeIndex) -> float:
 
 def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | None = None,
                      e_col: str | None = None, q_col: str | None = None, s_col: str | None = None,
-                     pf: float = POWER_FACTOR, measured_at: str = "meters", tz: str = LOCAL_TZ,
-                     max_gap_steps: int = MAX_GAP_STEPS_DEFAULT, sep: str | None = None) -> StationSeries:
+                     export_col: str | None = None, pf: float = POWER_FACTOR, measured_at: str = "meters",
+                     tz: str = LOCAL_TZ, stamp: str = "start", max_gap_steps: int = MAX_GAP_STEPS_DEFAULT,
+                     sep: str | None = None) -> StationSeries:
     """Read one station's CSV into a StationSeries (see the module docstring for the shapes)."""
     if measured_at not in ("meters", "transformer"):
         raise ValueError("measured_at must be 'meters' or 'transformer'")
-    df = pd.read_csv(path, sep=sep, engine="python")
-    if df.shape[1] < 2:
-        raise ValueError("CSV needs at least a timestamp column and a value column")
-    tcol = timestamp_col or _find_column(df.columns, TIME_NAMES) or df.columns[0]
-    pcol = p_col or _find_column(df.columns, P_NAMES)
-    ecol = e_col or _find_column(df.columns, E_NAMES)
-    qcol = q_col or _find_column(df.columns, Q_NAMES)
-    scol = s_col or _find_column(df.columns, S_NAMES)
+    if stamp not in ("start", "end"):
+        raise ValueError("stamp must be 'start' or 'end'")
+    if not 0 < pf <= 1:
+        raise ValueError("pf must be within (0, 1]")
+    if max_gap_steps < 0:
+        raise ValueError("max_gap_steps must be >= 0")
+    df = _read_table(path, sep)
+    if df.shape[1] < 2 or len(df) == 0:
+        raise ValueError("CSV needs at least a timestamp column, a value column and some rows")
+    cols = {c: _norm(c) for c in df.columns}
+    pcol = p_col or _pick(cols, P_NAMES, unit_hints=("kw",))
+    ecol = e_col or _pick(cols, E_NAMES, unit_hints=("kwh", "wh"))
+    xcol = export_col or _pick(cols, EXPORT_NAMES)
+    qcol = q_col or _pick(cols, Q_NAMES, unit_hints=("kvar",))
+    scol = s_col or _pick(cols, S_NAMES, unit_hints=("kva",))
+    if pcol is None and ecol is None and scol is None:                 # last resort: single letters
+        single = {n: orig for orig, (n, _) in cols.items() if n in SINGLE_LETTER}
+        pcol, ecol, qcol, scol = single.get("p"), single.get("e"), qcol or single.get("q"), scol or single.get("s")
     if pcol is None and ecol is None and scol is None:
         raise ValueError(f"no power/energy column found; columns are {list(df.columns)} "
-                         f"(expected one of {P_NAMES + E_NAMES + S_NAMES}, or pass p_col=/e_col=/s_col=)")
+                         f"(expected e.g. kW / Effekt / kWh / Energi / Förbrukning, or pass p_col= / e_col=)")
 
-    ts = pd.to_datetime(df[tcol], errors="coerce")
-    if ts.isna().any():
-        bad = df[tcol][ts.isna()].iloc[0]
-        raise ValueError(f"unparseable timestamp {bad!r} in column {tcol!r}")
-    if ts.dt.tz is None:
-        ts = ts.dt.tz_localize(tz, ambiguous="infer", nonexistent="shift_forward")
-    ts = ts.dt.tz_convert("UTC")
-    df = df.assign(_ts=ts).drop_duplicates("_ts").sort_values("_ts").set_index("_ts")
-    step_min = _uniform_step_min(df.index)
+    index, notes = _parse_timestamps(df, cols, timestamp_col, tz)
+    order = np.argsort(index.to_numpy(), kind="stable")
+    df = df.iloc[order].reset_index(drop=True)
+    index = index[order]
+    # duplicates: identical rows collapse with a note, differing rows are an error
+    dup = index.duplicated(keep=False)
+    if dup.any():
+        vals = _to_number(df[pcol or ecol or scol], "v")
+        groups = pd.DataFrame({"t": index, "v": vals.to_numpy()})[dup].groupby("t")["v"].nunique()
+        if (groups > 1).any():
+            raise ValueError(f"duplicated timestamp {groups[groups > 1].index[0]} with different values — "
+                             "an October file in local time with both 02:00 rows merged, or two exports concatenated?")
+        keep = ~index.duplicated(keep="first")
+        notes.append(f"{int((~keep).sum())} exactly repeated rows dropped")
+        df, index = df[keep].reset_index(drop=True), index[keep]
+    step_min = _uniform_step_min(index)
     step_h = step_min / 60
-    full = pd.date_range(df.index[0], df.index[-1], freq=f"{int(round(step_min))}min", tz="UTC")
-    notes = []
+    if stamp == "end":
+        index = index - pd.Timedelta(minutes=step_min)
+        notes.append(f"stamps taken as interval END; shifted back {step_min:g} min")
+    else:
+        notes.append("stamps taken as interval START")
+    full = pd.date_range(index[0], index[-1], freq=f"{int(round(step_min))}min", tz="UTC")
+    off_grid = ~index.isin(full)
+    if off_grid.any():
+        raise ValueError(f"{int(off_grid.sum())} timestamps are not on the {step_min:g}-min grid "
+                         f"(first: {index[off_grid][0]}) — mixed resolutions must be resampled first")
+    df.index = index
 
     def clean(col, name):
-        s = pd.to_numeric(df[col], errors="coerce").reindex(full)
+        s = _to_number(df[col], name).reindex(full)
         missing = int(s.isna().sum())
         if missing:
             isna = s.isna().to_numpy()
             padded = np.concatenate(([False], isna, [False]))
             edges = np.flatnonzero(padded[1:] != padded[:-1])
-            longest = int((edges[1::2] - edges[::2]).max())
+            lengths = edges[1::2] - edges[::2]
+            longest = int(lengths.max())
             if longest > max_gap_steps:
-                start = full[int(edges[::2][np.argmax(edges[1::2] - edges[::2])])]
-                raise ValueError(f"{name}: a gap of {longest} steps starting {start} exceeds {max_gap_steps}")
+                start = full[int(edges[::2][np.argmax(lengths)])]
+                raise ValueError(f"{name}: a gap of {longest} steps starting {start} exceeds {max_gap_steps} "
+                                 f"(if the whole column is empty, check the decimal sign and the column choice)")
             s = s.interpolate(limit_direction="both")
             notes.append(f"{name}: {missing} missing steps interpolated")
-        if (s < 0).any():
-            notes.append(f"{name}: {int((s < 0).sum())} negative values (export) kept as negative")
         return s.astype(float), missing
 
     if pcol is not None:
         p, gaps = clean(pcol, "P")
+        if cols[pcol][1] == "kwh":                                         # 'Effekt (kWh)' happens in exports
+            p = p / step_h
+            notes.append(f"P derived from energy per {step_min:g}-min step (column {pcol!r} is in kWh)")
     else:
         e, gaps = clean(ecol, "energy")
-        p = e / step_h
+        scale = 1000.0 if cols[ecol][1] == "wh" else 1.0
+        p = e / scale / step_h
         notes.append(f"P derived from energy per {step_min:g}-min step")
-    if qcol is not None:
+    if xcol is not None:
+        x, _ = clean(xcol, "export")
+        if cols[xcol][1] in ("kwh", "wh") or ecol is not None:
+            x = x / (1000.0 if cols[xcol][1] == "wh" else 1.0) / step_h
+        p = p - x.abs()
+        notes.append(f"export column {xcol!r} subtracted → net P (negative = export)")
+    if qcol is not None and _to_number(df[qcol], "q").notna().mean() > 0.5:
         q, _ = clean(qcol, "Q")
     else:
         q = p.clip(lower=0) * math.tan(math.acos(pf))
-        notes.append(f"Q estimated from P at pf {pf} (consumption only)")
-    s_meas = clean(scol, "S")[0] if scol is not None else None
-    return StationSeries(p.rename("p_kw"), q.rename("q_kvar"), s_meas, step_min, measured_at, str(path),
-                         gaps, notes)
+        notes.append(f"Q estimated from P at pf {pf} (consumption only" +
+                     ("; export hours get Q = 0)" if (p < 0).any() else ")"))
+    if (p < 0).any():
+        notes.append(f"{int((p < 0).sum())} steps with negative P (export) kept as negative")
+    s_meas = None
+    if scol is not None and measured_at == "transformer":
+        s_meas = clean(scol, "S")[0]
+        notes.append(f"measured apparent power {scol!r} used as the transformer loading")
+    elif scol is not None:
+        notes.append(f"column {scol!r} (kVA) ignored: measured_at='meters' — pass measured_at='transformer' to use it")
+    return StationSeries(p.rename("p_kw"), q.rename("q_kvar"), s_meas, step_min, measured_at, str(path), gaps, notes)
 
 
+def to_hourly(st: StationSeries) -> StationSeries:
+    """Average a sub-hourly series to hours (needed for overlays)."""
+    if st.step_min == 60:
+        return st
+    p = st.p_kw.resample("h").mean()
+    q = st.q_kvar.resample("h").mean()
+    s = st.s_kva_measured.resample("h").mean() if st.s_kva_measured is not None else None
+    return replace(st, p_kw=p, q_kvar=q, s_kva_measured=s, step_min=60.0,
+                   notes=st.notes + [f"averaged from {st.step_min:g}-min to hourly values"])
+
+
+# ---------------------------------------------------------------------------
+# physics: from the sum of meters to the transformer
+# ---------------------------------------------------------------------------
 def s_from_meters(p_kw: pd.Series, q_kvar: pd.Series, rated_kva: float, measured_at: str = "meters",
-                  cable_loss_share: float = CABLE_LOSS_SHARE_DEFAULT) -> pd.Series:
+                  cable_loss_share_at_rated: float = CABLE_LOSS_SHARE_AT_RATED) -> pd.Series:
     """Apparent power at the transformer's HV side from measured P and Q.
 
-    measured_at='meters'      : P is the sum of customer meters → add LV cable losses (a share of
-                                P, default 2 %) and the transformer's own losses (catalogue, by K²)
-    measured_at='transformer' : P, Q already at the transformer → only the HV/LV loss difference
-    The transformer's reactive consumption uk·K²·S_rated is added in both cases (one fixed-point
-    pass; K changes by < 1 % on the second pass)."""
+    measured_at='meters'      : P is the sum of customer meters → add LV cable losses (I²R, so a share
+                                of P proportional to the loading: share = share_at_rated × K) and the
+                                transformer's own losses (catalogue: no-load + load·K²)
+    measured_at='transformer' : P, Q already at the LV terminals → only the transformer's losses
+    The transformer's reactive consumption uk·K²·S_rated is added in both cases. Three fixed-point
+    passes (K → losses → S → K); the result is within 0.5 % of nameplate up to K ≈ 3."""
     tr = transformer(int(rated_kva))
     p = p_kw.to_numpy(dtype=float)
     q = q_kvar.to_numpy(dtype=float)
-    share = cable_loss_share if measured_at == "meters" else 0.0
-    p_lv = p + share * np.abs(p)
-    s = np.hypot(p_lv, q)
-    for _ in range(2):
+    share = cable_loss_share_at_rated if measured_at == "meters" else 0.0
+    s = np.hypot(p, q)
+    for _ in range(3):
         k = s / rated_kva
-        # losses are always supplied from the MV side: they add to consumption and reduce export
-        p_hv = p_lv + (tr["p_noload_w"] + tr["p_load_w"] * k**2) / 1000
+        p_lv = p + share * k * np.abs(p)                                   # cable I²R: share grows with loading
+        p_hv = p_lv + (tr["p_noload_w"] + tr["p_load_w"] * k**2) / 1000  # losses always supplied from the MV side
         q_hv = q + tr["uk_percent"] / 100 * k**2 * rated_kva
         s = np.hypot(p_hv, q_hv)
     return pd.Series(s, index=p_kw.index, name="s_kva")
@@ -203,17 +368,26 @@ def ambient_for(index: pd.DatetimeIndex, smhi_station: int = SMHI_STATION) -> pd
     return out.rename("temp_c")
 
 
-def year_result_from_station(st: StationSeries, rated_kva: float, cable_loss_share: float = CABLE_LOSS_SHARE_DEFAULT) -> YearResult:
-    """A YearResult for the verdict: transformer S per step; voltages and cable unknown → neutral values."""
-    if st.s_kva_measured is not None and st.measured_at == "transformer":
+def year_result_from_station(st: StationSeries, rated_kva: float,
+                             cable_loss_share_at_rated: float = CABLE_LOSS_SHARE_AT_RATED) -> YearResult:
+    """A YearResult for the verdict: transformer S per step; voltages and cable unknown → neutral values
+    (the verdict marks them as not checked)."""
+    if st.s_kva_measured is not None:
         s = st.s_kva_measured.rename("s_kva")
     else:
-        s = s_from_meters(st.p_kw, st.q_kvar, rated_kva, st.measured_at, cable_loss_share)
+        s = s_from_meters(st.p_kw, st.q_kvar, rated_kva, st.measured_at, cable_loss_share_at_rated)
     h = pd.DataFrame({
         "s_kva": s.to_numpy(), "loading_pct": s.to_numpy() / rated_kva * 100, "p_kw": st.p_kw.to_numpy(),
         "vmin_pu": 1.0, "vmax_pu": 1.0, "losses_kw": 0.0, "line_max_pct": 0.0,
     }, index=st.index)
     return YearResult(h, float(rated_kva))
+
+
+# ---------------------------------------------------------------------------
+# assessment
+# ---------------------------------------------------------------------------
+NOT_CHECKED_KEYS = ("hours with voltage outside ±10 %", "hours with voltage outside the planning band",
+                    "max main-cable loading (%)")
 
 
 @dataclass
@@ -223,14 +397,14 @@ class StationResult:
     year: YearResult
     thermal: ThermalResult
     verdict: Verdict
+    smhi_station: int = SMHI_STATION
     overlay: dict = field(default_factory=dict)
 
     def metrics(self) -> dict:
         v = self.verdict
-        return {
+        base = {
             "kVA": self.rated_kva, "verdict": v.level, "why": v.headline(),
-            "period": f"{self.station.index[0]:%Y-%m-%d} – {self.station.index[-1]:%Y-%m-%d}",
-            "step_min": self.station.step_min,
+            "period": self.station.period(), "step_min": self.station.step_min,
             "peak_loading_pct": v.on_paper["peak load (% of nameplate)"],
             "hours_above_80": v.on_paper["hours above 80 % of nameplate"],
             "hours_above_100": v.on_paper["hours above 100 % of nameplate"],
@@ -239,41 +413,76 @@ class StationResult:
             "max_load_pu": v.really["max load (× rated)"],
             "energy_mwh": float(self.station.p_kw.clip(lower=0).sum() * self.station.step_min / 60 / 1000),
             "gaps_filled": self.station.gaps_filled,
-            **self.overlay,
+            "smhi_station": self.smhi_station,
+            "notes": "; ".join(v.notes),
         }
+        for k, val in self.overlay.items():
+            base[f"overlay_{k}"] = val
+        return base
 
 
 def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | None = None,
-                   smhi_station: int = SMHI_STATION, enclosure: str = "kiosk",
-                   cable_loss_share: float = CABLE_LOSS_SHARE_DEFAULT, overlay: dict | None = None) -> StationResult:
+                   smhi_station: int | None = None, enclosure: str = "kiosk",
+                   cable_loss_share_at_rated: float = CABLE_LOSS_SHARE_AT_RATED,
+                   overlay: dict | None = None) -> StationResult:
     """Thermal year and verdict for one station from its measured profile."""
+    notes = []
+    if smhi_station is None:
+        smhi_station = SMHI_STATION
+        notes.append(f"ambient: SMHI station {SMHI_STATION} {SMHI_STATION_NAME} (DEFAULT — set smhi_station for the real place)")
+    else:
+        notes.append(f"ambient: SMHI station {smhi_station}")
     if ambient is None:
         ambient = ambient_for(st.index, smhi_station)
     if not ambient.index.equals(st.index):
         raise ValueError("ambient must be on the station's index (use ambient_for)")
-    year = year_result_from_station(st, rated_kva, cable_loss_share)
+    year = year_result_from_station(st, rated_kva, cable_loss_share_at_rated)
+    k = year.hourly["loading_pct"] / 100
+    if (k > K_MAX).any():
+        notes.append(f"loading above {K_MAX:g} × rated in {int((k > K_MAX).sum())} steps — thermal run clipped there "
+                     "(check rated_kva); the current-limit rule still sees the full loading")
+        k = k.clip(upper=K_MAX)
     params = ThermalParams.for_transformer(int(rated_kva), enclosure=enclosure)
-    thermal = simulate(year.hourly["loading_pct"] / 100, ambient, params, step_min=st.step_min)
+    thermal = simulate(k, ambient, params, step_min=st.step_min)
     verdict = judge(year, thermal)
+    for key in NOT_CHECKED_KEYS:
+        verdict.really[key] = None                            # a 0 would read as "checked and fine"
     verdict.notes.append("voltage and cable rules not checked: station data carries no feeder model")
+    verdict.notes.extend(notes)
     verdict.notes.extend(st.notes)
-    return StationResult(st, float(rated_kva), year, thermal, verdict, overlay or {})
+    return StationResult(st, float(rated_kva), year, thermal, verdict, smhi_station, overlay or {})
 
 
 def with_overlay(st: StationSeries, ambient: pd.Series, n_ev: int = 0, n_hp: int = 0,
-                 ev: EVParams = EVParams(), hp: HeatPumpParams = HeatPumpParams(), seed: int = 0) -> StationSeries:
+                 ev: EVParams = EVParams(), hp: HeatPumpParams = HeatPumpParams(), seed: int = 0,
+                 fuse_a: float = HOUSE_FUSE_A) -> StationSeries:
     """Add synthetic houses on top of a measured profile: n_ev EV chargers and n_hp heat pumps
-    (air/water by default), drawn with the scenario models and the station's own ambient."""
+    (air/water by default, sizes jittered ±20 % like the scenario model), each synthetic house
+    capped at its main fuse. An UPPER BOUND: no base load is added, every charger has the
+    scenario's default power, and nothing else in the station changes."""
     if st.step_min != 60:
-        raise ValueError("overlays need an hourly profile (resample first)")
-    extra = pd.Series(0.0, index=st.index)
-    ss = np.random.SeedSequence(seed)
-    for s in ss.spawn(n_ev):
-        extra = extra + ev_charging_profile(st.index, ev, seed=s).to_numpy()
-    if n_hp:
-        extra = extra + n_hp * heat_pump_profile(ambient, hp)["total"].to_numpy()
+        raise ValueError("overlays need an hourly profile (use to_hourly first)")
+    if n_ev < 0 or n_hp < 0 or int(n_ev) != n_ev or int(n_hp) != n_hp:
+        raise ValueError("n_ev and n_hp must be non-negative integers")
+    if not ambient.index.equals(st.index):
+        raise ValueError("ambient must be on the station's index (use ambient_for)")
+    n = max(n_ev, n_hp)
+    extra = np.zeros(len(st.index))
+    cap = fuse_kw(fuse_a)
+    for j, s in enumerate(np.random.SeedSequence(seed).spawn(n)):
+        ss_hp, ss_ev = s.spawn(2)
+        house = np.zeros(len(st.index))
+        if j < n_hp:
+            rng = np.random.default_rng(ss_hp)
+            p = hp.with_(ua_kw_per_k=max(0.08, hp.ua_kw_per_k * rng.normal(1.0, 0.2)),
+                         q_nom_kw=max(3.0, hp.q_nom_kw * rng.normal(1.0, 0.15)))
+            house += heat_pump_profile(ambient, p)["total"].to_numpy()
+        if j < n_ev:
+            house += ev_charging_profile(st.index, ev, seed=ss_ev).to_numpy()
+        extra += np.minimum(house, cap)
     q_extra = extra * math.tan(math.acos(POWER_FACTOR))
-    notes = st.notes + [f"overlay: +{n_ev} EV chargers, +{n_hp} heat pumps (synthetic, seed {seed})"]
+    notes = st.notes + [f"overlay: +{n_ev} EV chargers ({ev.charger_kw:g} kW), +{n_hp} heat pumps — synthetic upper bound "
+                        f"(no base load, fuse {fuse_a:g} A per synthetic house, seed {seed})"]
     return replace(st, p_kw=(st.p_kw + extra).rename("p_kw"), q_kvar=(st.q_kvar + q_extra).rename("q_kvar"),
                    s_kva_measured=None, notes=notes)
 

@@ -17,10 +17,10 @@ from hotspotlv.weather import get_weather
 
 OUT = package_data() / "examples"
 STATIONS = [
-    ("NS-101 Lövängen", 500, Scenario("today", n_houses=45, ev_share=0.25, pv_share=0.2, seed=11)),
-    ("NS-102 Björkbacken", 500, Scenario("2030", n_houses=80, ev_share=0.6, pv_share=0.4, seed=12,
+    ("NS-101 Lövängen (synthetic)", 500, Scenario("today", n_houses=45, ev_share=0.25, pv_share=0.2, seed=11)),
+    ("NS-102 Björkbacken (synthetic)", 500, Scenario("2030", n_houses=80, ev_share=0.6, pv_share=0.4, seed=12,
                                          heating_mix={"ground_source": 0.3, "air_water": 0.3, "direct_electric": 0.2, "none": 0.2})),
-    ("NS-103 Tallhöjden", 800, Scenario("2030", n_houses=110, ev_share=0.6, pv_share=0.4, seed=13,
+    ("NS-103 Tallhöjden (synthetic)", 800, Scenario("2030", n_houses=110, ev_share=0.6, pv_share=0.4, seed=13,
                                         heating_mix={"ground_source": 0.3, "air_water": 0.3, "direct_electric": 0.2, "none": 0.2})),
 ]
 
