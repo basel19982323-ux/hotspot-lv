@@ -28,9 +28,12 @@ EN0102 (official statistics, free to use with attribution):
 https://pxexternal.energimyndigheten.se/pxweb/sv/Energimyndighetens_statistikdatabas/
 
 ## Cost assumptions (indicative, `costs.py`)
-| Item | Default range | Source / status |
+| Item | Default | Source / status |
 |---|---|---|
-| New nätstation with 800 kVA transformer, incl. installation | 190–290 kSEK | Ei normvärden för nätstationer, 2010 price level — https://ei.se/download/18.5d6370d1784af9360f1c8b4/1619180794538/REL00885_Bilaga_6_Berakning_annat_skaligt_varde_for_natstationer.pdf (price level stated; not indexed) |
-| Small LV substation battery, turnkey | 4 000–6 000 SEK/kWh | assumption (400–600 €/kWh at 10 SEK/€); utility-scale turnkey reference BNEF 2024 ≈ US$ 275/kWh |
-| Coordinated (spread) EV charging per charger | 0–3 000 SEK | assumption (load-management box or tariff signal; many chargers already schedule) |
-| Night-timer charging | 0 SEK | customers on hourly prices already do this (Energiforsk 2023:966) |
+| Transformer unit 800 kVA 12/0.4 kV (swap inside the existing kiosk) | 209 kSEK | Ei Normvärdeslista elnät 2024–2027 v1.1, code NG15921, value year 2022 — https://ei.se/download/18.61d7efeb18b048db98c4e48/1697184391450/Normv%C3%A4rdeslista-2024-2027.xlsx (method: Sweco report https://ei.se/download/18.61d7efeb18b048db98c4e5a/1697035558170/Konsultrapport-Normv%C3%A4rdeslista-2024%E2%80%932027-SWECO.pdf). 500 kVA unit NG15922: 156 kSEK. |
+| Complete new 800 kVA station (kiosk + unit) | 490–634 kSEK | Ei codes NG15223 (sheet-metal kiosk, 281 kSEK) / NG15223B (concrete, 425 kSEK), "exklusive transformator", + unit 209 kSEK; value year 2022 |
+| Small LV substation battery, turnkey | 4 000–6 000 SEK/kWh (slider 2 000–8 000) | assumption; anchors: Europe utility-scale turnkey ≈ 1 900 SEK/kWh (BNEF energy-storage price survey Dec 2025, Europe US$ 177/kWh; Dec 2024 Europe US$ 275/kWh), Swedish residential installed 6 000–7 500 SEK/kWh (installer guides 2025/26); no public price for a ≤ 1 MWh LV-station unit found |
+| Coordinated (spread) EV charging per charger | 0–5 000 SEK | assumption; house load balancers 1 200–2 000 SEK (Zaptec Sense, Easee Equalizer) plus electrician; a tariff/DSO signal can be free |
+| Night-timer charging | 0 SEK | optimistic bound: Energiforsk 2023:966 survey — ≈ 25 % on hourly contracts control charging; price-optimised charging "kan skapa nya effekttoppar" |
+| Reinforcement-equivalent value of peak kW avoided | 4.4 SEK/kW/yr ≈ 220 SEK/kW one-off | Energiforsk 2024:1043 §6.2 (≈ 100 kSEK per ~450 kW station step over ~50 yr, undiscounted; flexibility most likely defers reinforcement) — https://energiforsk.se/media/33660/2024-1043-analys-av-na-tutvecklingsplaner-och-flexibilitet-mo-jligheter-fo-r-digitalisering.pdf |
+| Service lives | transformer 40 yr, battery 15 yr, charging control 10 yr | assumptions, shown so capex alone does not favour short-lived assets |
