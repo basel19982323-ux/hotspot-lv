@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QGroupBox, QHB
 
 from hotspotlv.app.widgets.charts import DurationCurve, WorstWeek, YearTimeline
 from hotspotlv.app.widgets.diagram import LEGEND as DIAGRAM_LEGEND, FeederDiagram
+from hotspotlv.app.widgets.fixes_view import FixesView
+from hotspotlv.app.widgets.sweep_view import SweepView
 from hotspotlv.app.widgets.station_panel import show_error
 from hotspotlv.app.widgets.tables import DataFrameModel
 from hotspotlv.app.widgets.verdict_card import VerdictCard
@@ -145,6 +147,10 @@ class ScenarioPanel(QWidget):
         self.tabs.addTab(self.duration, "Duration curve")
         self.tabs.addTab(self.week, "Worst week")
         self.tabs.addTab(self.houses_view, "Houses")
+        self.fixes = FixesView(self.case_for_views, weather)
+        self.sweep = SweepView(self.case_for_views, weather)
+        self.tabs.addTab(self.fixes, "Fixes")
+        self.tabs.addTab(self.sweep, "Hosting capacity")
         right.addWidget(self.tabs)
         right.setStretchFactor(0, 0); right.setStretchFactor(1, 1); right.setSizes([440, 420])
 
@@ -187,12 +193,20 @@ class ScenarioPanel(QWidget):
                     trafo_kva=self.kva.currentData(), n_feeders=self.feeders.value(),
                     enclosure=self.enclosure.currentText())
 
+    def case_for_views(self) -> Case | None:
+        """The current inputs as a Case for the Fixes and Hosting-capacity tabs (None after a warning)."""
+        err = self.build_case_error()
+        if err:
+            QMessageBox.warning(self, "Inputs", err); return None
+        return self.build_case()
+
     def is_running(self) -> bool:
-        return self._worker is not None and self._worker.isRunning()
+        own = self._worker is not None and self._worker.isRunning()
+        return own or self.fixes.is_running() or self.sweep.is_running()
 
     # ---------------- run
     def run(self):
-        if self.is_running():
+        if self._worker is not None and self._worker.isRunning():
             return
         err = self.build_case_error()
         if err:
@@ -223,6 +237,9 @@ class ScenarioPanel(QWidget):
             w.cancel()
         self._finish_ui()
         self.status.setText("Cancelled.")
+        for view in (self.fixes, self.sweep):          # closing the window cancels these too
+            if view.is_running():
+                view.cancel()
 
     def _current(self) -> bool:
         return self.sender() is None or self.sender() is self._worker

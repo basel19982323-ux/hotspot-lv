@@ -39,6 +39,13 @@ def main(out: Path):
     sp.tabs.setCurrentIndex(2); app.processEvents(); win.grab().save(str(out / "scenario_worst_week.png"))
     sp.tabs.setCurrentIndex(1); app.processEvents(); win.grab().save(str(out / "scenario_duration.png"))
     print("scenario:", sp.result.verdict.headline())
+    from hotspotlv.study import compare_fixes, sweep
+    sp.houses.setValue(60)
+    sp.fixes.set_comparison(compare_fixes(sp.build_case(), weather, fast=True))
+    sp.tabs.setCurrentIndex(4); app.processEvents(); win.grab().save(str(out / "scenario_fixes.png"))
+    sp.sweep.set_table(sweep(sp.build_case(), weather, "n_houses", [45, 60, 75, 90, 105], fast=True))
+    sp.tabs.setCurrentIndex(5); app.processEvents(); win.grab().save(str(out / "scenario_sweep.png"))
+    print("sweep caption:", sp.sweep.caption.text())
 
     # mode B
     import time

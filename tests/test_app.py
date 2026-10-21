@@ -141,6 +141,41 @@ def test_verdict_card_does_not_accumulate_widgets(app, panel):
     assert len(panel.card._paper[0].findChildren(QLabel)) == 1 + 2 * n_rows
 
 
+def test_fixes_view_shows_the_comparison_and_recosts_live(panel):
+    """Catches: a fix row showing another fix's numbers; cost controls not reaching the costing."""
+    from hotspotlv.study import compare_fixes, fixes_table
+    cmp = compare_fixes(panel.build_case(), panel.weather, fast=True)
+    panel.fixes.set_comparison(cmp)
+    shown = panel.fixes.model.df.set_index("fix")
+    fx = fixes_table(cmp)
+    assert list(shown.index) == list(fx.index)
+    assert np.allclose(shown["h > 80 %"].to_numpy(dtype=float), fx["h > 80 %"].to_numpy(dtype=float))
+    assert shown.loc["800 kVA", "capex low (kSEK)"] == 209
+    panel.fixes.new_kiosk.setChecked(True)
+    assert panel.fixes.model.df.set_index("fix").loc["800 kVA", "capex low (kSEK)"] == 490
+    panel.fixes.bat_lo.setValue(2000)
+    bat = [i for i in panel.fixes.model.df["fix"] if str(i).startswith("battery")]
+    if bat:
+        kwh = cmp.results[bat[0]].case.battery.energy_kwh
+        assert panel.fixes.model.df.set_index("fix").loc[bat[0], "capex low (kSEK)"] == pytest.approx(kwh * 2.0, abs=1)
+    assert "Notes:" in panel.fixes.notes.text()
+
+
+def test_sweep_view_draws_the_engines_rows(panel):
+    """Catches: x axis not the knob values; life plotted linearly; verdict strip misaligned."""
+    from hotspotlv.study import sweep
+    table = sweep(panel.build_case(), panel.weather, "n_houses", [6, 12], fast=True)
+    panel.sweep.set_table(table)
+    x, y = panel.sweep.h80.getData()
+    assert list(x) == [6, 12] and list(y) == list(table["hours_above_80"])
+    lx, ly = panel.sweep.life.getData()
+    assert np.allclose(10 ** np.asarray(ly), np.maximum(table["life_days_per_year"], 1e-3))
+    assert [s.opts["brush"].color().name() for s in panel.sweep._strip] == \
+        [__import__("hotspotlv.app.theme", fromlist=["VERDICT_COLORS"]).VERDICT_COLORS[v] for v in table["verdict"]]
+    assert "80 % rule" in panel.sweep.caption.text()
+    assert panel.sweep.model.df.iloc[0]["houses"] == 6
+
+
 def test_heating_shares_are_validated_before_the_engine(panel):
     for sb in panel.mix.values():
         sb.setValue(0)

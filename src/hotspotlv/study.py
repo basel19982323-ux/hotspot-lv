@@ -147,12 +147,16 @@ def enclosure_note(params: ThermalParams) -> str:
     return "transformer outdoors: no enclosure correction"
 
 
-def sweep(base: Case, weather: pd.DataFrame, knob: str, values, fast: bool = True) -> pd.DataFrame:
-    """Vary one scenario knob (e.g. 'n_houses', 'ev_share') and collect the metrics per value."""
+def sweep(base: Case, weather: pd.DataFrame, knob: str, values, fast: bool = True, progress=None) -> pd.DataFrame:
+    """Vary one scenario knob (e.g. 'n_houses', 'ev_share') and collect the metrics per value.
+    `progress(done, total, label)` is called before each run."""
     if knob not in SCENARIO_FIELDS or knob in ("name", "hp", "ev"):
         raise ValueError(f"knob must be a numeric Scenario field, got {knob!r}")
+    values = list(values)
     rows = []
-    for v in values:
+    for i, v in enumerate(values):
+        if progress:
+            progress(i, len(values), f"{knob} = {v}")
         sc = replace(base.scenario, **{knob: v}, name=f"{base.scenario.name} {knob}={v}")
         res = run_case(replace(base, scenario=sc, name=f"{base.name} {knob}={v}"), weather, fast=fast)
         rows.append({knob: v, **res.metrics()})
@@ -184,23 +188,30 @@ class FixComparison:
 
 
 def compare_fixes(base: Case, weather: pd.DataFrame, fast: bool = True,
-                  battery_cap_share: float = 0.8, bigger_kva: int = 800) -> FixComparison:
+                  battery_cap_share: float = 0.8, bigger_kva: int = 800, progress=None) -> FixComparison:
     """Baseline vs the fixes on the SAME houses and dice (same seed).
     Smart charging comes in two flavours because they behave differently:
     'night timer' = what Swedish hourly-price customers do today (start 22:00–01:00,
     Energiforsk 2023:966) and 'spread' = coordinated starts spread over 22:00–06:00."""
     notes = []
+    total = 5
+    tick = (lambda i, label: progress(i, total, label)) if progress else (lambda i, label: None)
+    tick(0, "baseline")
     baseline = run_case(base, weather, fast=fast)
     out = {"baseline": baseline}
     # 1. bigger transformer — same neighbourhood, new transformer and ITS thermal constants
+    tick(1, f"{bigger_kva} kVA")
     big = replace(base, name=f"{bigger_kva} kVA", trafo_kva=bigger_kva, thermal=None)
     out[f"{bigger_kva} kVA"] = run_case(big, weather, fast=fast, neighbourhood=baseline.neighbourhood)
     # 2. smart charging, two flavours — same cars, same energy, different start hours
+    tick(2, "night timer 22–01")
     timer = replace(base.scenario, ev=replace(base.scenario.ev, smart=True, smart_start_min_h=22.0, smart_start_max_h=25.0))
     out["night timer 22–01"] = run_case(replace(base, name="night timer 22–01", scenario=timer), weather, fast=fast)
+    tick(3, "spread 22–06")
     spread = replace(base.scenario, ev=replace(base.scenario.ev, smart=True, smart_start_min_h=22.0, smart_start_max_h=30.0))
     out["spread 22–06"] = run_case(replace(base, name="spread 22–06", scenario=spread), weather, fast=fast)
     # 3. battery sized by simulation to hold a share of nameplate (kVA)
+    tick(4, "battery")
     cap = battery_cap_share * base.trafo_kva
     if not (baseline.year.hourly["s_kva"] > cap).any():
         notes.append(f"battery: transformer never exceeds {cap:.0f} kVA — no battery needed")
