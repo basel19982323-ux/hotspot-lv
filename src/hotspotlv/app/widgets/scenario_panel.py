@@ -18,6 +18,7 @@ from hotspotlv.app.widgets.charts import DurationCurve, WorstWeek, YearTimeline
 from hotspotlv.app.widgets.diagram import LEGEND as DIAGRAM_LEGEND, FeederDiagram
 from hotspotlv.app.widgets.describe import describe_case
 from hotspotlv.app.widgets.fixes_view import FixesView
+from hotspotlv.app.widgets.mc_view import MonteCarloView
 from hotspotlv.app.widgets.sweep_view import SweepView
 from hotspotlv.app.widgets.station_panel import show_error
 from hotspotlv.app.widgets.tables import DataFrameModel
@@ -153,6 +154,8 @@ class ScenarioPanel(QWidget):
         self.sweep = SweepView(self.case_for_views, weather)
         self.tabs.addTab(self.fixes, "Fixes")
         self.tabs.addTab(self.sweep, "Sweep (where it flips)")
+        self.mc = MonteCarloView(self.case_for_views, weather)
+        self.tabs.addTab(self.mc, "Spread (random draws)")
         right.addWidget(self.tabs)
         right.setStretchFactor(0, 0); right.setStretchFactor(1, 1); right.setSizes([400, 460])
         self._right = right; self._card_sizes = None
@@ -162,14 +165,19 @@ class ScenarioPanel(QWidget):
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 1)
         split.setSizes([420, 900])
         self._check_mix()
-        for view in (self.fixes, self.sweep):               # one run at a time: the others' Run buttons wait
+        for view in self.views:                             # one run at a time: the others' Run buttons wait
             view.run_started.connect(self._sync_busy); view.run_finished.connect(self._sync_busy)
         for w in [self.kva, self.fuse, self.enclosure, self.charging]:
             w.currentIndexChanged.connect(self._inputs_changed)
         for w in [self.houses, self.feeders, self.ev, self.pv, self.seed, *self.mix.values()]:
             w.valueChanged.connect(self._inputs_changed)
 
-    # ---------------- the Fixes and Sweep tabs need the room: the card shrinks to its headline there
+    @property
+    def views(self):
+        """The result tabs that run on the current inputs (Fixes, Sweep, Spread)."""
+        return (self.fixes, self.sweep, self.mc)
+
+    # ---------------- the Fixes, Sweep and Spread tabs need the room: the card shrinks to its headline there
     def _tab_changed(self, index: int):
         sizes = self._right.sizes()
         total = sum(sizes)
@@ -197,16 +205,17 @@ class ScenarioPanel(QWidget):
             banner = (f"The inputs differ from the card's case ({self.result.case.name}) — this tab runs on the "
                       "current inputs (Base case below), not on the card's case.")
             tip = f"Card: {describe_case(self.result.case)}\nInputs now: {describe_case(now)}"
-        for view in (self.fixes, self.sweep):
+        for view in self.views:
             view.set_banner(banner); view.banner.setToolTip(tip); view.inputs_changed(now)
 
     def _sync_busy(self):
         """Run, Compare fixes and Run sweep share one CPU and one time estimate: only one at a time."""
         own = self._worker is not None and self._worker.isRunning()
         running = ("this case" if own else "the Fixes tab" if self.fixes.is_running()
-                   else "the Sweep tab" if self.sweep.is_running() else None)
+                   else "the Sweep tab" if self.sweep.is_running() else "the Spread tab" if self.mc.is_running() else None)
         reason = f"A run is in progress on {running} — wait for it or cancel it there." if running else None
-        self.fixes.block(reason); self.sweep.block(reason)
+        for view in self.views:
+            view.block(reason)
         if not own:
             if reason and self._blocked is None:
                 self._saved_status = self.status.text()
@@ -260,12 +269,12 @@ class ScenarioPanel(QWidget):
 
     def is_running(self) -> bool:
         own = self._worker is not None and self._worker.isRunning()
-        return own or self.fixes.is_running() or self.sweep.is_running()
+        return own or any(v.is_running() for v in self.views)
 
     def cancel_all(self):
         """Closing the window: stop every run on this panel."""
         self.cancel()
-        for view in (self.fixes, self.sweep):
+        for view in self.views:
             if view.is_running():
                 view.cancel()
 

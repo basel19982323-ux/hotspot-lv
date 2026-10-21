@@ -163,12 +163,16 @@ def sweep(base: Case, weather: pd.DataFrame, knob: str, values, fast: bool = Tru
     return pd.DataFrame(rows).set_index(knob)
 
 
-def monte_carlo(base: Case, weather: pd.DataFrame, seeds=range(10), fast: bool = True) -> pd.DataFrame:
-    """Same case, different dice (which houses get EVs/PV/heat pumps, when EVs charge…)."""
+def monte_carlo(base: Case, weather: pd.DataFrame, seeds=range(10), fast: bool = True, progress=None) -> pd.DataFrame:
+    """Same case, different dice (which houses get EVs/PV/heat pumps, when EVs charge…).
+    `progress(done, total, label)` is called before each run."""
+    seeds = list(seeds)
     rows = []
-    for s in seeds:
+    for i, s in enumerate(seeds):
         if int(s) != s or s < 0:
             raise ValueError("seeds must be non-negative integers")
+        if progress:
+            progress(i, len(seeds), f"draw {int(s)}")
         sc = replace(base.scenario, seed=int(s))
         res = run_case(replace(base, scenario=sc), weather, fast=fast)
         rows.append({"seed": int(s), **res.metrics()})

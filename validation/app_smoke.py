@@ -50,6 +50,10 @@ def main(out: Path):
                          if "kSEK" in str(sp.fixes.model.headerData(c, Qt.Horizontal))], "kSEK must be whole numbers"
     sp.tabs.setCurrentIndex(5); app.processEvents(); win.grab().save(str(out / "scenario_sweep.png"))
     print("sweep caption:", sp.sweep.caption.text())
+    from hotspotlv.study import monte_carlo
+    sp.mc.set_table(monte_carlo(sp.build_case(), weather, seeds=range(6), fast=True), sp.build_case())
+    sp.tabs.setCurrentIndex(6); app.processEvents(); win.grab().save(str(out / "scenario_spread.png"))
+    print("spread caption:", sp.mc.caption.text())
 
     # mode B
     import time

@@ -222,6 +222,53 @@ def test_sweep_view_scales_share_knobs_to_percent_and_keeps_the_run_knob(panel):
     assert list(panel.sweep.model.df.columns)[0] == "share of houses with an EV charger (%)"
 
 
+def test_spread_view_draws_the_engines_draws(panel):
+    """Catches: dots not the draws' numbers; band/median not the 10/50/90 of the draws; tally miscounted; limits not the verdict's."""
+    from hotspotlv.app.theme import VERDICT_COLORS
+    from hotspotlv.app.widgets.mc_view import METRICS
+    from hotspotlv.study import monte_carlo, summarise_monte_carlo
+    from hotspotlv.verdict import DESIGN_LIFE_DAYS_PER_YEAR, WATCH_LIFE_DAYS_PER_YEAR
+    mc = monte_carlo(panel.build_case(), panel.weather, seeds=range(3), fast=True)
+    panel.mc.set_table(mc, panel.build_case())
+    key = panel.mc.metric_box.currentData()
+    x, y = panel.mc.dots.getData()
+    assert list(x) == [0, 1, 2] and np.allclose(y, mc[key])
+    lo, hi = panel.mc.band.getRegion()
+    assert lo == pytest.approx(np.percentile(mc[key], 10)) and hi == pytest.approx(np.percentile(mc[key], 90))
+    assert panel.mc.median_line.value() == pytest.approx(np.median(mc[key]))
+    assert [s.opts["brush"].color().name() for s in panel.mc._strip] == [VERDICT_COLORS[v] for v in mc["verdict"]]
+    # switching the metric redraws with that metric's numbers and the verdict module's own limits
+    panel.mc.metric_box.setCurrentIndex(list(METRICS).index("life_days_per_year"))
+    assert np.allclose(panel.mc.dots.getData()[1], mc["life_days_per_year"])
+    assert sorted(l.value() for l in panel.mc._limit_lines) == [WATCH_LIFE_DAYS_PER_YEAR, DESIGN_LIFE_DAYS_PER_YEAR]
+    # tally and tables
+    counts = mc["verdict"].value_counts()
+    for lvl, n in counts.items():
+        assert f"{lvl} {n}" in panel.mc.tally_label.text() and f"{lvl} {n}" in panel.mc.caption.text()
+    assert ("robust to the draw" in panel.mc.caption.text())
+    summ = summarise_monte_carlo(mc)
+    shown = panel.mc.summary_model.df.set_index("number")
+    assert np.allclose(shown["50%"].to_numpy(dtype=float), summ["50%"].to_numpy(dtype=float))
+    assert len(panel.mc.draws_model.df) == 3 and "seed" in panel.mc.draws_model.df.columns
+    assert panel.mc.base_label.text().startswith("Base case: 6 houses / 500 kVA")
+
+
+def test_spread_view_tally_and_caption_on_a_mixed_result(panel):
+    """Catches: 'robust' claimed when the verdict flips; a constant number printed as a range."""
+    idx = pd.Index([3, 4, 5, 6], name="seed")
+    table = pd.DataFrame({"verdict": ["OK", "Watch", "At risk", "OK"], "peak_loading_pct": [60.0, 75.0, 95.0, 62.0],
+                          "hours_above_80": [0, 0, 30, 0], "hours_above_100": [0, 0, 0, 0],
+                          "life_days_per_year": [0.1, 0.2, 0.5, 0.1], "max_hot_spot_c": [70.0, 70.0, 70.0, 70.0],
+                          "voltage_bad_hours": [0, 0, 4, 0], "voltage_plan_hours": [0, 3, 9, 0], "max_cable_pct": [50.0, 60.0, 101.0, 52.0],
+                          "exact_hours": [0, 0, 0, 0], "why": ["a", "b", "c", "d"]}, index=idx)
+    panel.mc.set_table(table)
+    cap = panel.mc.caption.text()
+    assert cap.startswith("4 draws (seeds 3–6): verdict OK 2 / Watch 1 / At risk 1 — not robust to the draw")
+    assert "max hot-spot 70.0 °C in every draw" in cap and "peak load 60.0–95.0 % (median 68.5)" in cap
+    assert "depends on the draw" in panel.mc.tally_label.text()
+    assert list(panel.mc.dots.getData()[0]) == [3, 4, 5, 6]
+
+
 def test_sweep_ranges_follow_the_knob(panel):
     """Catches: a share sweep that cannot start at 0 % or reach 100 %; To silently not reached."""
     panel.sweep.knob_box.setCurrentIndex(1)

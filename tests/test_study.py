@@ -121,6 +121,9 @@ def test_monte_carlo_shape(wx):
     assert "life_days_per_year" in s.index and "90%" in s.columns
     with pytest.raises(ValueError):
         monte_carlo(base, wx, seeds=[0.5])
+    ticks = []
+    monte_carlo(Case("mc", Scenario(n_houses=6, seed=0), n_feeders=2), wx, seeds=[7, 8], progress=lambda d, t, l: ticks.append((d, t, l)))
+    assert ticks == [(0, 2, "draw 7"), (1, 2, "draw 8")]
 
 
 def test_tz_naive_weather_rejected(wx):
