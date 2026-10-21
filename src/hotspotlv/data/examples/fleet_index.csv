@@ -1,0 +1,4 @@
+station_id,rated_kva,file,smhi_station,enclosure
+NS-101 Lövängen,500,ns-101.csv,96190,kiosk
+NS-102 Björkbacken,500,ns-102.csv,96190,kiosk
+NS-103 Tallhöjden,800,ns-103.csv,96190,kiosk

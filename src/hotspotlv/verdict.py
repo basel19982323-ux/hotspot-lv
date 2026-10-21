@@ -83,6 +83,7 @@ class Verdict:
     watch: list[Reason] = field(default_factory=list)
     on_paper: dict = field(default_factory=dict)     # the nameplate view, for contrast
     really: dict = field(default_factory=dict)       # the thermal / limits view
+    notes: list[str] = field(default_factory=list)   # caveats, e.g. "voltage not checked (no feeder model)"
 
     @property
     def reasons(self) -> list[Reason]:
