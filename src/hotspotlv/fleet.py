@@ -47,6 +47,7 @@ class FleetStation:
     rated_kva: float
     series: StationSeries | None = None     # already-read series (long CSV) …
     file: Path | None = None                # … or a file to read
+    error: str | None = None                # a station that already failed to read (long CSV) → error row
     smhi_station: int | None = None         # None → module default, noted as such in the result
     enclosure: str = "kiosk"
     measured_at: str = "meters"
@@ -55,10 +56,10 @@ class FleetStation:
 
 
 def _rated_kva(value) -> float:
-    """'500', '500 kVA', 500.0 → 500.0"""
+    """'500', '500 kVA', '1 250', 500.0 → kVA as a float"""
     if isinstance(value, (int, float)) and not pd.isna(value):
         return float(value)
-    m = re.search(r"[\d.]+", str(value).replace(",", "."))
+    m = re.search(r"[\d.]+", str(value).replace(",", ".").replace(" ", "").replace("\u00a0", ""))
     if not m:
         raise ValueError(f"cannot read a kVA rating from {value!r}")
     return float(m.group())
@@ -73,7 +74,7 @@ def _opt(row, cols, name, default):
 def read_fleet_index(path) -> list[FleetStation]:
     """Index CSV → list of stations (files resolved relative to the index file)."""
     path = Path(path)
-    df = pd.read_csv(path, sep=None, engine="python", dtype=str, encoding="utf-8-sig")
+    df = _read_index(path)
     cols = {c.lower().strip(): c for c in df.columns}
     for needed in ("station_id", "rated_kva", "file"):
         if needed not in cols:
@@ -103,10 +104,24 @@ def read_fleet_index(path) -> list[FleetStation]:
     return out
 
 
+def _read_index(path: Path) -> pd.DataFrame:
+    last = None
+    for enc in ("utf-8-sig", "cp1252"):
+        try:
+            return pd.read_csv(path, sep=None, engine="python", dtype=str, encoding=enc)
+        except UnicodeDecodeError as e:
+            last = e
+        except (pd.errors.EmptyDataError, pd.errors.ParserError) as e:
+            raise ValueError(f"cannot read {path} as a CSV: {e}") from e
+    raise ValueError(f"cannot decode {path}: {last}")
+
+
 def read_fleet_long(path, ratings: dict, smhi_station: int | None = None, **read_kwargs) -> list[FleetStation]:
-    """Long CSV (station_id, timestamp, p_kw, …) → list of stations, one series each."""
+    """Long CSV (station_id, timestamp, p_kw, …) → list of stations, one series each. A station whose
+    rows cannot be read becomes an error entry (its error row appears in the table) instead of
+    aborting the whole import."""
     path = Path(path)
-    df = pd.read_csv(path, sep=None, engine="python", dtype=str, encoding="utf-8-sig")
+    df = _read_index(path)
     cols = {c.lower().strip(): c for c in df.columns}
     if "station_id" not in cols:
         raise ValueError("long CSV needs a station_id column")
@@ -124,9 +139,11 @@ def read_fleet_long(path, ratings: dict, smhi_station: int | None = None, **read
             tmp_path = Path(tmp.name)
         try:
             series = read_station_csv(tmp_path, **read_kwargs)
+            out.append(FleetStation(sid, _rated_kva(ratings[sid]), series=series, smhi_station=smhi_station))
+        except ValueError as e:
+            out.append(FleetStation(sid, _rated_kva(ratings[sid]), smhi_station=smhi_station, error=f"ValueError: {e}"))
         finally:
             tmp_path.unlink(missing_ok=True)
-        out.append(FleetStation(sid, _rated_kva(ratings[sid]), series=series, smhi_station=smhi_station))
     return out
 
 
@@ -140,6 +157,8 @@ def screen_fleet(stations: list[FleetStation], progress: Callable[[int, int, str
     temp_cache: dict[tuple, pd.Series] = {}      # SMHI hourly series per (station, years) — reindexed per station
     for i, fs in enumerate(stations, start=1):
         try:
+            if fs.error:
+                raise ValueError(fs.error)
             st = fs.series or read_station_csv(fs.file, measured_at=fs.measured_at, tz=fs.tz, stamp=fs.stamp)
             smhi = fs.smhi_station if fs.smhi_station is not None else SMHI_STATION
             key = (smhi, tuple(sorted(set(st.index.year))))

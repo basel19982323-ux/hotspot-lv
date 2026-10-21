@@ -120,6 +120,8 @@ def cost_table(cmp: FixComparison, assumptions: CostAssumptions = CostAssumption
         kind = _kind(name, r, baseline)
         lo, hi = _capex_ksek(kind, r, assumptions)
         peak_avoided_kw = max(0.0, base_peak_kw - float(r.year.hourly["s_kva"].max()))
+        if kind == "transformer":
+            peak_avoided_kw = 0.0            # the swap IS the reinforcement; it avoids no peak on the station
         rows.append({
             "fix": name,
             "capex low (kSEK)": round(lo, 0),

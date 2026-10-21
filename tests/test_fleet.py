@@ -77,6 +77,14 @@ def test_long_csv(tmp_path):
     assert not list(tmp_path.glob(".long__*"))                          # no temp files left behind
     with pytest.raises(ValueError, match="rated_kva"):
         read_fleet_long(tmp_path / "long.csv", ratings={"101": 500})
+    # one unreadable station in a long CSV becomes an error row, the others are screened
+    bad = pd.concat([a.assign(station_id="A"), pd.DataFrame({"timestamp": ["2023-01-01 00:00", "2023-01-01 02:00", "2023-01-02 00:00"],
+                                                             "p_kw": [1, 2, 3], "station_id": "B"})])
+    bad.to_csv(tmp_path / "bad.csv", index=False)
+    stations = read_fleet_long(tmp_path / "bad.csv", ratings={"A": 500, "B": 500})
+    assert [s.error is None for s in stations] == [True, False]
+    table, results = screen_fleet(stations)
+    assert set(results) == {"A"} and table.iloc[-1]["verdict"] == "error"
 
 
 def test_fleet_index_validation(tmp_path):
@@ -89,5 +97,7 @@ def test_fleet_index_validation(tmp_path):
     (tmp_path / "kva.csv").write_text("station_id,rated_kva,file,smhi_station\nX,500 kVA,x.csv,\n")
     s = read_fleet_index(tmp_path / "kva.csv")[0]
     assert s.rated_kva == 500.0 and s.smhi_station is None
+    (tmp_path / "sp.csv").write_text("station_id,rated_kva,file\nX,1 250,x.csv\n", encoding="cp1252")
+    assert read_fleet_index(tmp_path / "sp.csv")[0].rated_kva == 1250.0
     with pytest.raises(ValueError, match="duplicate"):
         screen_fleet([FleetStation("X", 500, file=EXAMPLES / "ns-101.csv")] * 2)

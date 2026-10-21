@@ -119,6 +119,56 @@ def test_interval_end_stamps_and_24h(tmp_path, ref):
 
 
 # --- what must NOT be read silently -------------------------------------------
+def test_newest_first_october_file_keeps_the_02h_pair_in_order(tmp_path, ref):
+    oct = ref.loc["2023-10-28":"2023-10-30"]
+    df = pd.DataFrame({"timestamp": _local(oct.index).strftime("%Y-%m-%d %H:%M"), "kW": oct.to_numpy()}).iloc[::-1]
+    st = read_station_csv(_write(tmp_path / "rev.csv", df))
+    assert st.index.equals(oct.index) and np.allclose(st.p_kw.to_numpy(), oct.to_numpy())   # not swapped
+
+
+def test_units_are_scaled_or_refused(tmp_path, ref):
+    loc = _local(ref.index).strftime("%Y-%m-%d %H:%M")
+    st = read_station_csv(_write(tmp_path / "mw.csv", pd.DataFrame({"timestamp": loc, "Effekt (MW)": ref.to_numpy() / 1000})))
+    assert np.allclose(st.p_kw.to_numpy(), ref.to_numpy())
+    st = read_station_csv(_write(tmp_path / "w.csv", pd.DataFrame({"timestamp": loc, "Energi Wh": ref.to_numpy() * 1000})))
+    assert np.allclose(st.p_kw.to_numpy(), ref.to_numpy())                   # unit word without brackets
+    st = read_station_csv(_write(tmp_path / "fk.csv", pd.DataFrame({"timestamp": loc, "Förbrukning kWh": ref.to_numpy()})))
+    assert np.allclose(st.p_kw.to_numpy(), ref.to_numpy())
+    with pytest.raises(ValueError, match="unit"):
+        read_station_csv(_write(tmp_path / "gj.csv", pd.DataFrame({"timestamp": loc, "Energi (GJ)": ref.to_numpy()})))
+    cells = [f"{v * 100:,.1f}" if i % 2 else f"{v:.1f}".replace(".", ",") for i, v in enumerate(ref.to_numpy()[:100])]
+    expected = [float(c.replace(",", "")) if i % 2 else float(c.replace(",", ".")) for i, c in enumerate(cells)]
+    st = read_station_csv(_write(tmp_path / "mix.csv", pd.DataFrame({"timestamp": loc[:100], "kW": cells})))
+    assert np.allclose(st.p_kw.to_numpy(), expected) and st.gaps_filled == 0    # '1,226.0' and '12,3' in one column
+
+
+def test_24h_stamps_imply_end_stamping(tmp_path, ref):
+    loc = _local(ref.index) + pd.Timedelta(hours=1)
+    end = pd.Series(loc.strftime("%Y-%m-%d %H:%M"))
+    at_mid = loc.hour == 0
+    end[at_mid] = (loc[at_mid].tz_localize(None) - pd.Timedelta(days=1)).strftime("%Y-%m-%d") + " 24:00"
+    st = read_station_csv(_write(tmp_path / "24d.csv", pd.DataFrame({"timestamp": end, "kW": ref.to_numpy()})))   # default stamp
+    assert st.index.equals(ref.index) and any("stamp='end' applied" in n for n in st.notes)
+
+
+def test_one_day_quarter_hour_file_is_fine(tmp_path):
+    idx = pd.date_range("2024-02-01", periods=96, freq="15min", tz="UTC")
+    st = read_station_csv(_write(tmp_path / "day.csv", pd.DataFrame({"timestamp": _local(idx).strftime("%Y-%m-%d %H:%M"), "kW": 50.0})))
+    assert len(st.p_kw) == 96
+
+
+def test_mixed_offset_rows_and_tid_ranges_are_refused(tmp_path):
+    (tmp_path / "m.csv").write_text("timestamp,kW\n2023-01-01T00:00:00+01:00,1\n2023-01-01 01:00,2\n2023-01-01 02:00,3\n")
+    with pytest.raises(ValueError, match="mix"):
+        read_station_csv(tmp_path / "m.csv")
+    (tmp_path / "r.csv").write_text("Tid,kWh\n00:00-01:00,1\n01:00-02:00,2\n02:00-03:00,3\n")
+    with pytest.raises(ValueError, match="time of day"):
+        read_station_csv(tmp_path / "r.csv")
+    (tmp_path / "empty.csv").write_text("")
+    with pytest.raises(ValueError):
+        read_station_csv(tmp_path / "empty.csv")
+
+
 def test_time_only_column_is_rejected(tmp_path, ref):
     loc = _local(ref.index)[:168]
     df = pd.DataFrame({"Tid": loc.strftime("%H:%M"), "kWh": ref.to_numpy()[:168]})

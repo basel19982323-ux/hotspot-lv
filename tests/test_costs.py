@@ -34,7 +34,9 @@ def test_cost_table_rows_and_ranges(cmp):
     assert (t["peak kVA avoided"] >= 0).all()
     # reinforcement-equivalent value: 4.4 SEK/kW/yr x 50 yr = 220 SEK/kW
     row = t.loc["800 kVA"]
-    assert row["reinforcement-equivalent value (kSEK)"] == pytest.approx(row["peak kVA avoided"] * 0.22, abs=1)
+    assert row["peak kVA avoided"] == 0 and row["reinforcement-equivalent value (kSEK)"] == 0   # the swap IS the reinforcement
+    other = t.drop(index="800 kVA")
+    assert (other["reinforcement-equivalent value (kSEK)"] - other["peak kVA avoided"] * 0.22).abs().max() < 1
     assert t["verdict before → after"].str.contains("→").all()
 
 

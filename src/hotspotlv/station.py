@@ -39,6 +39,7 @@ counted; every assumption made is written to `notes`.
 
 from __future__ import annotations
 
+import csv
 import math
 import re
 from dataclasses import dataclass, field, replace
@@ -72,7 +73,14 @@ ALLOWED_STEPS_MIN = (5.0, 10.0, 15.0, 30.0, 60.0)
 MAX_GAP_STEPS_DEFAULT = 6
 CABLE_LOSS_SHARE_AT_RATED = 0.042        # LV cable losses as a share of P at rated load (I²R → share ∝ K);
                                          # fitted on the project feeder: ≈ 4.2 %·K (review of 21 Oct 2026)
-OFFSET_RE = re.compile(r"(Z|[+-]\d{2}:?\d{2})\s*$")
+OFFSET_RE = re.compile(r"(?:Z|[+-]\d{2}:?\d{2})\s*$")
+DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{2,4}|\d{8}")
+UNIT_SCALE = {            # → kW for power columns, kWh for energy columns
+    "kw": ("power", 1.0), "mw": ("power", 1000.0), "w": ("power", 0.001),
+    "kwh": ("energy", 1.0), "mwh": ("energy", 1000.0), "wh": ("energy", 0.001),
+    "kvar": ("reactive", 1.0), "mvar": ("reactive", 1000.0),
+    "kva": ("apparent", 1.0), "mva": ("apparent", 1000.0),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -104,15 +112,23 @@ class StationSeries:
 
 
 def _norm(name: str) -> tuple[str, str]:
-    """('normalised_name', 'unit hint') — 'Förbrukning (kWh)' → ('forbrukning', 'kwh')."""
+    """('normalised_name', 'unit') — 'Förbrukning (kWh)' → ('forbrukning', 'kwh'), 'Effekt kW' → ('effekt', 'kw').
+    An unknown unit in brackets raises: reading 'Energi (MWh)' as kWh would be 1000x wrong, silently."""
     s = str(name).strip().lower()
     unit = ""
     m = re.search(r"\(([^)]*)\)|\[([^\]]*)\]", s)
     if m:
         unit = (m.group(1) or m.group(2) or "").strip().lower().replace(" ", "")
         s = s[:m.start()] + s[m.end():]
+        if unit and unit not in UNIT_SCALE and not re.fullmatch(r"[a-z]*", unit) is None and unit not in ("", "-"):
+            if unit not in UNIT_SCALE:
+                raise ValueError(f"column {name!r}: unit {unit!r} is not understood (known: {sorted(UNIT_SCALE)})")
     s = (s.replace("å", "a").replace("ä", "a").replace("ö", "o").replace("é", "e"))
     s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+    tail = re.search(r"(?:^|_)(mwh|kwh|wh|mw|kw|w|kvar|mvar|kva|mva)$", s)   # 'forbrukning_kwh', bare 'wh'
+    if tail and not unit:
+        unit = tail.group(1)
+        s = s[:tail.start()].strip("_") or unit
     return s, unit
 
 
@@ -138,11 +154,15 @@ def _read_table(path, sep) -> pd.DataFrame:
 
 
 def _to_number(col: pd.Series, name: str) -> pd.Series:
+    """Numbers from strings, cell by cell: '12,3' → 12.3 (decimal comma), '1,226.0' → 1226.0 (thousands comma),
+    '12 345,6' → 12345.6, trailing unit words ignored, blanks → NaN."""
     s = col.astype(str).str.strip().str.replace(r"\s", "", regex=True)
-    s = s.str.replace(r"(?i)\s*(kwh|kw|kvar|kva|wh)$", "", regex=True)
-    x = pd.to_numeric(s.replace({"": np.nan, "nan": np.nan, "None": np.nan, "-": np.nan}), errors="coerce")
-    if x.isna().sum() > 0.5 * len(x) and s.str.contains(",", regex=False).mean() > 0.5:
-        x = pd.to_numeric(s.str.replace(".", "", regex=False).str.replace(",", ".", regex=False), errors="coerce")
+    s = s.str.replace(r"(?i)(kwh|kw|kvar|kva|mwh|mw|wh|w)$", "", regex=True)
+    both = s.str.contains(",", regex=False) & s.str.contains(".", regex=False)
+    s = s.where(~both, s.str.replace(",", "", regex=False))                       # 1,226.0 → 1226.0
+    only_comma = s.str.contains(",", regex=False)
+    s = s.where(~only_comma, s.str.replace(",", ".", regex=False))                # 12,3 → 12.3
+    x = pd.to_numeric(s.replace({"": np.nan, "nan": np.nan, "None": np.nan, "-": np.nan, "null": np.nan}), errors="coerce")
     return x.rename(name)
 
 
@@ -170,8 +190,14 @@ def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, t
         raw = raw.copy()
         raw[is24] = (base + pd.Timedelta(days=1)).dt.strftime("%Y-%m-%d %H:%M:%S")
         notes.append(f"{int(is24.sum())} stamps written as 24:00 read as the next day's 00:00")
-    has_offset = raw.str.contains(OFFSET_RE).mean() > 0.9
-    if has_offset:
+    has_date = raw.str.contains(DATE_RE)
+    if has_date.mean() < 0.5:
+        raise ValueError("the timestamp column seems to hold only a time of day — is the date in another column? "
+                         "(pass timestamp_col=, or make sure the date column is named Datum/Date)")
+    offset_share = (raw.str.contains(OFFSET_RE) & has_date).mean()
+    if 0 < offset_share < 1:
+        raise ValueError("timestamps mix rows with and without a UTC offset — one convention per file")
+    if offset_share == 1:
         ts = pd.to_datetime(raw, errors="coerce", utc=True, format="mixed")
         if ts.isna().any():
             raise ValueError(f"unparseable timestamp {raw[ts.isna()].iloc[0]!r}")
@@ -180,20 +206,22 @@ def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, t
     ts = pd.to_datetime(raw, errors="coerce", format="mixed")
     if ts.isna().any():
         raise ValueError(f"unparseable timestamp {raw[ts.isna()].iloc[0]!r}")
-    if ts.dt.tz is not None:
-        return pd.DatetimeIndex(ts.dt.tz_convert("UTC")), notes
-    if len(ts) > 48 and ts.dt.normalize().nunique() == 1:
-        raise ValueError("the timestamp column seems to hold only a time of day — is the date in another column? "
-                         "(pass timestamp_col=, or make sure the date column is named Datum/Date)")
+    # DST inference needs time order, and the two October 02:00 rows (or eight quarter hours) are only
+    # told apart by file order — so a newest-first file is flipped, but rows are never re-sorted here.
+    steps = np.diff(ts.to_numpy().astype("datetime64[ns]").astype("int64"))
+    if len(steps) and (steps < 0).sum() > (steps > 0).sum():
+        ts = ts.iloc[::-1]
+        notes.append("file is newest-first; read in time order")
     zone = NORMALTID_TZ if tz.lower() in ("normaltid", "cet", "etc/gmt-1") else tz
     try:
         loc = ts.dt.tz_localize(zone, ambiguous="infer", nonexistent="raise")
     except Exception as e:  # pytz AmbiguousTimeError / NonExistentTimeError and friends
         raise ValueError(f"timestamps do not fit {zone!r} daylight-saving rules ({type(e).__name__}): a file in "
                          "'normaltid' (CET all year, no DST) must be read with tz='normaltid'; a file with a missing "
-                         "or doubled hour in March/October must be fixed, not guessed") from e
+                         "or doubled hour in March/October must be fixed, not guessed; rows must be in time order") from e
     notes.append(f"tz-naive timestamps taken as {zone}" + (" (normaltid, no DST)" if zone == NORMALTID_TZ else " local time"))
-    return pd.DatetimeIndex(loc.dt.tz_convert("UTC")), notes
+    out = pd.Series(loc.dt.tz_convert("UTC").to_numpy(), index=loc.index).reindex(range(len(raw)))  # back to file order
+    return pd.DatetimeIndex(out), notes
 
 
 def _uniform_step_min(index: pd.DatetimeIndex) -> float:
@@ -224,7 +252,10 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
         raise ValueError("pf must be within (0, 1]")
     if max_gap_steps < 0:
         raise ValueError("max_gap_steps must be >= 0")
-    df = _read_table(path, sep)
+    try:
+        df = _read_table(path, sep)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, csv.Error) as e:
+        raise ValueError(f"cannot read {path} as a CSV: {e}") from e
     if df.shape[1] < 2 or len(df) == 0:
         raise ValueError("CSV needs at least a timestamp column, a value column and some rows")
     cols = {c: _norm(c) for c in df.columns}
@@ -241,14 +272,18 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
                          f"(expected e.g. kW / Effekt / kWh / Energi / Förbrukning, or pass p_col= / e_col=)")
 
     index, notes = _parse_timestamps(df, cols, timestamp_col, tz)
+    if any("24:00" in n for n in notes) and stamp == "start":
+        stamp = "end"
+        notes.append("24:00 stamps can only label the END of an interval — stamp='end' applied")
     order = np.argsort(index.to_numpy(), kind="stable")
     df = df.iloc[order].reset_index(drop=True)
     index = index[order]
     # duplicates: identical rows collapse with a note, differing rows are an error
     dup = index.duplicated(keep=False)
     if dup.any():
-        vals = _to_number(df[pcol or ecol or scol], "v")
-        groups = pd.DataFrame({"t": index, "v": vals.to_numpy()})[dup].groupby("t")["v"].nunique()
+        value_cols = [c for c in (pcol, ecol, xcol, qcol, scol) if c is not None]
+        rows = df[value_cols].astype(str).agg("|".join, axis=1)
+        groups = pd.DataFrame({"t": index, "v": rows.to_numpy()})[dup].groupby("t")["v"].nunique()
         if (groups > 1).any():
             raise ValueError(f"duplicated timestamp {groups[groups > 1].index[0]} with different values — "
                              "an October file in local time with both 02:00 rows merged, or two exports concatenated?")
@@ -286,33 +321,40 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
             notes.append(f"{name}: {missing} missing steps interpolated")
         return s.astype(float), missing
 
+    def as_kw(values, unit, default_kind, label):
+        """Scale a column to kW using its unit (kW, MW, W, kWh, MWh, Wh); energy per step → mean kW."""
+        kind, scale = UNIT_SCALE.get(unit, (default_kind, 1.0))
+        if kind == "energy":
+            notes.append(f"{label}: energy per {step_min:g}-min step → kW" + (f" (column unit {unit})" if unit else ""))
+            return values * scale / step_h
+        if unit and unit != "kw":
+            notes.append(f"{label}: column unit {unit} scaled to kW")
+        return values * scale
+
     if pcol is not None:
         p, gaps = clean(pcol, "P")
-        if cols[pcol][1] == "kwh":                                         # 'Effekt (kWh)' happens in exports
-            p = p / step_h
-            notes.append(f"P derived from energy per {step_min:g}-min step (column {pcol!r} is in kWh)")
+        p = as_kw(p, cols[pcol][1], "power", "P")
     else:
         e, gaps = clean(ecol, "energy")
-        scale = 1000.0 if cols[ecol][1] == "wh" else 1.0
-        p = e / scale / step_h
-        notes.append(f"P derived from energy per {step_min:g}-min step")
+        p = as_kw(e, cols[ecol][1] or "kwh", "energy", "P")
     if xcol is not None:
         x, _ = clean(xcol, "export")
-        if cols[xcol][1] in ("kwh", "wh") or ecol is not None:
-            x = x / (1000.0 if cols[xcol][1] == "wh" else 1.0) / step_h
+        x = as_kw(x, cols[xcol][1] or ("kwh" if ecol is not None else "kw"), "energy" if ecol is not None else "power", "export")
         p = p - x.abs()
         notes.append(f"export column {xcol!r} subtracted → net P (negative = export)")
     if qcol is not None and _to_number(df[qcol], "q").notna().mean() > 0.5:
         q, _ = clean(qcol, "Q")
+        q = q * UNIT_SCALE.get(cols[qcol][1], ("reactive", 1.0))[1]
     else:
         q = p.clip(lower=0) * math.tan(math.acos(pf))
         notes.append(f"Q estimated from P at pf {pf} (consumption only" +
-                     ("; export hours get Q = 0)" if (p < 0).any() else ")"))
+                     ("; on export hours Q = 0, so the transformer loading there is under-read by a few % of "
+                      "nameplate — irrelevant for ageing)" if (p < 0).any() else ")"))
     if (p < 0).any():
         notes.append(f"{int((p < 0).sum())} steps with negative P (export) kept as negative")
     s_meas = None
     if scol is not None and measured_at == "transformer":
-        s_meas = clean(scol, "S")[0]
+        s_meas = clean(scol, "S")[0] * UNIT_SCALE.get(cols[scol][1], ("apparent", 1.0))[1]
         notes.append(f"measured apparent power {scol!r} used as the transformer loading")
     elif scol is not None:
         notes.append(f"column {scol!r} (kVA) ignored: measured_at='meters' — pass measured_at='transformer' to use it")
@@ -341,14 +383,14 @@ def s_from_meters(p_kw: pd.Series, q_kvar: pd.Series, rated_kva: float, measured
                                 of P proportional to the loading: share = share_at_rated × K) and the
                                 transformer's own losses (catalogue: no-load + load·K²)
     measured_at='transformer' : P, Q already at the LV terminals → only the transformer's losses
-    The transformer's reactive consumption uk·K²·S_rated is added in both cases. Three fixed-point
-    passes (K → losses → S → K); the result is within 0.5 % of nameplate up to K ≈ 3."""
+    The transformer's reactive consumption uk·K²·S_rated is added in both cases. Six fixed-point
+    passes (K → losses → S → K): converged to < 0.2 % of nameplate up to K ≈ 3.5."""
     tr = transformer(int(rated_kva))
     p = p_kw.to_numpy(dtype=float)
     q = q_kvar.to_numpy(dtype=float)
     share = cable_loss_share_at_rated if measured_at == "meters" else 0.0
     s = np.hypot(p, q)
-    for _ in range(3):
+    for _ in range(6):
         k = s / rated_kva
         p_lv = p + share * k * np.abs(p)                                   # cable I²R: share grows with loading
         p_hv = p_lv + (tr["p_noload_w"] + tr["p_load_w"] * k**2) / 1000  # losses always supplied from the MV side
@@ -439,8 +481,9 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
     year = year_result_from_station(st, rated_kva, cable_loss_share_at_rated)
     k = year.hourly["loading_pct"] / 100
     if (k > K_MAX).any():
-        notes.append(f"loading above {K_MAX:g} × rated in {int((k > K_MAX).sum())} steps — thermal run clipped there "
-                     "(check rated_kva); the current-limit rule still sees the full loading")
+        notes.append(f"loading above {K_MAX:g} × rated in {int((k > K_MAX).sum())} steps — thermal run clipped there, so "
+                     "hot-spot and life figures are NOT meaningful (check rated_kva); the current-limit rule still "
+                     "sees the full loading")
         k = k.clip(upper=K_MAX)
     params = ThermalParams.for_transformer(int(rated_kva), enclosure=enclosure)
     thermal = simulate(k, ambient, params, step_min=st.step_min)
