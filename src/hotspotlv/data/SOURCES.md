@@ -26,3 +26,11 @@ Swedish household statistics used for defaults (annual hushållsel, heating
 system shares) come from Energimyndigheten, *Energistatistik för småhus*, tables
 EN0102 (official statistics, free to use with attribution):
 https://pxexternal.energimyndigheten.se/pxweb/sv/Energimyndighetens_statistikdatabas/
+
+## Cost assumptions (indicative, `costs.py`)
+| Item | Default range | Source / status |
+|---|---|---|
+| New nätstation with 800 kVA transformer, incl. installation | 190–290 kSEK | Ei normvärden för nätstationer, 2010 price level — https://ei.se/download/18.5d6370d1784af9360f1c8b4/1619180794538/REL00885_Bilaga_6_Berakning_annat_skaligt_varde_for_natstationer.pdf (price level stated; not indexed) |
+| Small LV substation battery, turnkey | 4 000–6 000 SEK/kWh | assumption (400–600 €/kWh at 10 SEK/€); utility-scale turnkey reference BNEF 2024 ≈ US$ 275/kWh |
+| Coordinated (spread) EV charging per charger | 0–3 000 SEK | assumption (load-management box or tariff signal; many chargers already schedule) |
+| Night-timer charging | 0 SEK | customers on hourly prices already do this (Energiforsk 2023:966) |
