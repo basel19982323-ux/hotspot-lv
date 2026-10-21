@@ -241,7 +241,7 @@ def fixes_table(cmp: FixComparison) -> pd.DataFrame:
         rows.append({"fix": name, "verdict": m["verdict"], "peak %": round(m["peak_loading_pct"], 1),
                      "h > 80 %": m["hours_above_80"], "h > 100 %": m["hours_above_100"],
                      "life days/yr": round(m["life_days_per_year"], 3), "max hot-spot °C": round(m["max_hot_spot_c"], 1),
-                     "voltage bad h": m["voltage_bad_hours"], "cable %": round(m["max_cable_pct"], 0),
+                     "voltage bad h": m["voltage_bad_hours"], "cable %": round(m["max_cable_pct"], 1),
                      "battery h above cap": m["battery_hours_above_cap"], "why": m["why"]})
     return pd.DataFrame(rows).set_index("fix")
 

@@ -214,6 +214,7 @@ def test_sweep_view_scales_share_knobs_to_percent_and_keeps_the_run_knob(panel):
     panel.sweep.knob_box.setCurrentIndex(0)                                        # combo says houses …
     panel.sweep.set_table(table, "ev_share")                                       # … the run was EV share
     assert list(panel.sweep.h80.getData()[0]) == [0, 20, 60, 100]
+    assert list(panel.sweep.h100.getData()[1]) == [0, 0, 1, 0]                     # not fed with h80
     assert panel.sweep.flip_line.value() == 60 and panel.sweep.flip_line.isVisible()
     cap = panel.sweep.caption.text()
     assert "first flags the station at 60 %" in cap and "first turns At risk at 60 % because of main cable above its current rating;" in cap
@@ -240,13 +241,34 @@ def test_tabs_warn_when_inputs_leave_the_cards_case_and_cancel_is_per_run(panel)
     panel._inputs_changed()
     assert panel.fixes.banner.isHidden() and panel.sweep.banner.isHidden()      # (the panel itself is never shown offscreen)
     panel.houses.setValue(houses + 1)
-    assert not panel.fixes.banner.isHidden() and f"{houses + 1} houses" in panel.fixes.banner.text() and "card shows" in panel.sweep.banner.text()
+    assert not panel.fixes.banner.isHidden() and f"{houses} houses" in panel.fixes.banner.text() and "differ" in panel.sweep.banner.text()
+    assert f"{houses + 1} houses" in panel.fixes.banner.toolTip() and f"Card: {houses} houses" in panel.sweep.banner.toolTip()
     assert "Inputs changed" in panel.fixes.status.text()
     panel.houses.setValue(houses)
     assert panel.fixes.banner.isHidden()
     before = panel.sweep.status.text()
     panel.cancel()                                                                 # nothing of its own to cancel …
     assert panel.sweep.status.text() == before and panel.status.text() != "Cancelled."   # … and it leaves the tabs alone
+
+
+def test_one_run_at_a_time_and_the_block_message_goes_away(panel):
+    """Catches: a second worker started from another tab; the 'run in progress' line left behind after the run."""
+    from hotspotlv.app.workers import Worker
+    import time as _t
+    own_status = panel.status.text(); sweep_status = panel.sweep.status.text()
+    panel.fixes._worker = Worker(_t.sleep, 2.0); panel.fixes._worker.start(); panel.fixes.run_started.emit()
+    try:
+        assert not panel.run_btn.isEnabled() and not panel.sweep.run_btn.isEnabled()
+        assert "Fixes tab" in panel.status.text() and "Fixes tab" in panel.sweep.status.text()
+        panel.sweep.step.setValue(panel.sweep.step.value() + 1)                   # the trap of round 2
+        assert not panel.sweep.run_btn.isEnabled()
+        n_before = panel.sweep._worker
+        panel.sweep.run(); panel.run()
+        assert panel.sweep._worker is n_before and panel._worker is None          # nothing started
+    finally:
+        panel.fixes.cancel()
+    assert panel.run_btn.isEnabled() and panel.sweep.run_btn.isEnabled()
+    assert panel.status.text() == own_status and panel.sweep.status.text() == sweep_status
 
 
 def test_heating_shares_are_validated_before_the_engine(panel):

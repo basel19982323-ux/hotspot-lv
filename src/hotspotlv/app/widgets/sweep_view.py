@@ -80,6 +80,8 @@ class SweepView(QWidget):
         self._t0 = 0.0
         self._timer = QTimer(self); self._timer.timeout.connect(self._tick)
         self._progress_text = ""
+        self._blocked: str | None = None; self._saved_status = ""; self._done_status = ""
+        self._shown_case: Case | None = None
         lay = QHBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
 
         g = QGroupBox("Sweep one knob")
@@ -129,7 +131,8 @@ class SweepView(QWidget):
         rv.addWidget(self.banner); rv.addWidget(self.base_label)
         split = QSplitter(Qt.Vertical)
         self.plot = pg.PlotWidget(axisItems={"right": LogAxis("right")})
-        self.plot.setLabel("left", "hours per year above 80 % / 100 % of nameplate")
+        self.plot.setLabel("left", "h/yr above 80 % / 100 % of nameplate")
+        self.plot.setMinimumHeight(130)
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         self.h80 = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=2), symbol="o", symbolBrush=LOAD_COLOR)
         self.h100 = self.plot.plot([], [], pen=pg.mkPen(RULE_100, width=2, style=Qt.DashLine), symbol="t", symbolBrush=RULE_100)
@@ -154,7 +157,7 @@ class SweepView(QWidget):
         lower = QWidget(); lv = QVBoxLayout(lower); lv.setContentsMargins(0, 0, 0, 0)
         self.legend = QLabel(LEGEND_HTML); self.legend.setWordWrap(True); self.legend.setTextFormat(Qt.RichText)
         self.view = QTableView(); self.model = DataFrameModel(decimals=1); self.view.setModel(self.model)
-        self.view.setAlternatingRowColors(True)
+        self.view.setAlternatingRowColors(True); self.view.setMinimumHeight(84)        # header + two rows, never less
         lv.addWidget(self.legend); lv.addWidget(self.view, 1)
         split.addWidget(lower)
         split.setSizes([300, 200])
@@ -201,7 +204,7 @@ class SweepView(QWidget):
             text = "From is above To — nothing to run"
         self.values_label.setText(text)
         self.run_btn.setText(f"Run sweep ({n} runs)" if n else "Run sweep")
-        if not self.is_running():
+        if not self.is_running() and self._blocked is None:
             self.run_btn.setEnabled(n > 0)
         self.plot.setLabel("bottom", KNOBS[self.knob][0])
 
@@ -216,20 +219,31 @@ class SweepView(QWidget):
     def set_banner(self, text: str | None):
         self.banner.setText(text or ""); self.banner.setVisible(bool(text))
 
-    def inputs_changed(self):
-        if self.table is not None and not self.is_running():
+    def inputs_changed(self, case=None):
+        """`case` = the current inputs; stale only while they differ from the sweep's own base case."""
+        if self.table is None or self.is_running() or self._blocked:
+            return
+        if case is not None and self._shown_case is not None and case == self._shown_case:
+            self.status.setText(self._done_status)
+        else:
             self.status.setText("Inputs changed since this sweep — press Run sweep to update.")
 
     def block(self, reason: str | None):
+        """Another run is in progress elsewhere in the panel (or None to lift the block)."""
         if self.is_running():
             return
+        if reason and self._blocked is None:
+            self._saved_status = self.status.text()
+        if reason is None and self._blocked is not None:
+            self.status.setText(self._saved_status)
+        self._blocked = reason
         self.run_btn.setEnabled(reason is None and len(self.raw_values()) > 0)
         if reason:
             self.status.setText(reason)
 
     # ---------------- run
     def run(self):
-        if self.is_running():
+        if self.is_running() or self._blocked:
             return
         vals = self.values()
         if not vals:
@@ -315,15 +329,15 @@ class SweepView(QWidget):
             self.life.setData(x, np.log10(life)); self.life_pts.setData(x, np.log10(life))
             self.plot.setLabel("bottom", label)
             self.plot.setXRange(float(x.min()) - 1, float(x.max()) + 1)
-            self.plot.setYRange(-0.10 * top, top)
-            self.right.setYRange(np.log10(LIFE_FLOOR), np.log10(max(2 * DESIGN_RATE_DAYS, float(life.max()) * 2)))
+            self.plot.setYRange(-0.16 * top, top)
+            self.right.setYRange(np.log10(LIFE_FLOOR), np.log10(max(6 * DESIGN_RATE_DAYS, float(life.max()) * 2)))
             self._sync()
             # verdict squares in their own strip below the hours axis
             for item in self._strip:
                 self.plot.removeItem(item)
             self._strip = []
             for xi, v in zip(x, table["verdict"]):
-                s = pg.ScatterPlotItem([xi], [-0.05 * top], size=14, symbol="s", brush=VERDICT_COLORS.get(v, "#999"), pen=pg.mkPen(None))
+                s = pg.ScatterPlotItem([xi], [-0.10 * top], size=14, symbol="s", brush=VERDICT_COLORS.get(v, "#999"), pen=pg.mkPen(None))
                 s.setToolTip(str(v)); self.plot.addItem(s); self._strip.append(s)
             at_risk = table.index[table["verdict"] == "At risk"]
             if len(at_risk):
@@ -335,9 +349,11 @@ class SweepView(QWidget):
             shown.insert(0, label, x)
             self.model.set_df(shown.reset_index(drop=True))
             self.view.resizeColumnsToContents()
+            self._shown_case = case
             self.base_label.setText("Base case: " + describe_case(case) if case is not None else "Base case: the current inputs")
-            self.status.setText(f"Done: {len(table)} runs. Squares below the chart's axis show the verdict per value; "
-                                "the table has every number.")
+            self._done_status = (f"Done: {len(table)} runs. Squares below the chart's axis show the verdict per value; "
+                                 "the table has every number.")
+            self.status.setText(self._done_status)
         except Exception as e:
             show_error(self, "Could not show the sweep", f"{type(e).__name__}: {e}")
 

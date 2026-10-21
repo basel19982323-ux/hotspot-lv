@@ -57,7 +57,8 @@ HEADER_TIPS = {
     "why": "The rule that decided the verdict, with its source.",
 }
 LEGEND = ("Bar colour = that fix's verdict (green OK · amber Watch · red At risk) from the thermal + limits view, "
-          "in both charts. The 800 kVA row's peak % and hours are relative to its own nameplate.")
+          "in both charts. Bars carry the fix name, or the table's row number when the chart is narrow. "
+          "The 800 kVA row's peak % and hours are relative to its own nameplate.")
 
 
 def _short(name) -> str:
@@ -85,6 +86,8 @@ class FixesView(QWidget):
         self._t0 = 0.0
         self._timer = QTimer(self); self._timer.timeout.connect(self._tick)
         self._progress_text = ""
+        self._blocked: str | None = None; self._saved_status = ""; self._done_status = ""
+        self._bar_names: list = []
         lay = QHBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
 
         g1 = QGroupBox("Fixes to compare")
@@ -167,12 +170,13 @@ class FixesView(QWidget):
         rv.addWidget(self.banner); rv.addWidget(self.base_label)
         split = QSplitter(Qt.Vertical)
         self.view = QTableView(); self.model = DataFrameModel(decimals=1, header_tips=HEADER_TIPS); self.view.setModel(self.model)
-        self.view.setAlternatingRowColors(True)
+        self.view.setAlternatingRowColors(True); self.view.setMinimumHeight(84)        # header + two rows, never less
         split.addWidget(self.view)
         chart = QWidget(); cl = QHBoxLayout(chart); cl.setContentsMargins(0, 0, 0, 0)
         self.bars_paper = self._bar_plot("ON PAPER — hours above 80 %", LOAD_COLOR)
         self.bars_real = self._bar_plot("REALLY — life used, days/yr", HOTSPOT_COLOR)
         cl.addWidget(self.bars_paper[0]); cl.addWidget(self.bars_real[0])
+        chart.setMinimumHeight(110)
         split.addWidget(chart)
         split.setSizes([210, 260])
         # legend + engine notes in one small scrollable box, so a short window never squeezes the charts
@@ -221,21 +225,31 @@ class FixesView(QWidget):
         """A warning above the results when the inputs differ from the case shown in the card."""
         self.banner.setText(text or ""); self.banner.setVisible(bool(text))
 
-    def inputs_changed(self):
-        if self.comparison is not None and not self.is_running():
+    def inputs_changed(self, case=None):
+        """`case` = the current inputs; stale only while they differ from the comparison's own base case."""
+        if self.comparison is None or self.is_running() or self._blocked:
+            return
+        if case is not None and case == self.comparison.results["baseline"].case:
+            self.status.setText(self._done_status)
+        else:
             self.status.setText("Inputs changed since this comparison — press Compare fixes to update.")
 
     def block(self, reason: str | None):
         """Another run is in progress elsewhere in the panel (or None to lift the block)."""
         if self.is_running():
             return
+        if reason and self._blocked is None:
+            self._saved_status = self.status.text()
+        if reason is None and self._blocked is not None:
+            self.status.setText(self._saved_status)
+        self._blocked = reason
         self.run_btn.setEnabled(reason is None)
         if reason:
             self.status.setText(reason)
 
     # ---------------- run
     def run(self):
-        if self.is_running():
+        if self.is_running() or self._blocked:
             return
         try:
             case = self._case_provider()
@@ -313,8 +327,9 @@ class FixesView(QWidget):
             self.recost()
             base = cmp.results["baseline"]
             self.base_label.setText("Base case: " + describe_case(base.case))
-            self.status.setText(f"Baseline: {base.verdict.headline()}. Costs are ranges with stated sources; "
-                                "capex alone flatters short-lived assets — see the service-life column.")
+            self._done_status = (f"Baseline: {base.verdict.headline()}. Costs are ranges with stated sources; "
+                                 "capex alone flatters short-lived assets — see the service-life column.")
+            self.status.setText(self._done_status)
         except Exception as e:
             show_error(self, "Could not show the comparison", f"{type(e).__name__}: {e}")
 
@@ -334,12 +349,29 @@ class FixesView(QWidget):
         self.view.resizeColumnsToContents()
         why_col = list(self.model.df.columns).index("why")
         self.view.setColumnWidth(why_col, 260)
+        self._bar_names = list(fx.index)
         self._draw_bars(self.bars_paper, fx["h > 80 %"], fx["verdict"], whole=True)
         self._draw_bars(self.bars_real, fx["life days/yr"], fx["verdict"], whole=False)
+        self._relabel_bars()
         notes = list(self.comparison.notes)
         notes.append(ct.attrs.get("title", "") + " — " + ct.attrs.get("note", "").replace("see SOURCES.md",
                                                                                            "see the Assumptions & sources tab"))
         self.notes.setPlainText(LEGEND + chr(10) + "Notes: " + " · ".join(notes))
+
+    def _relabel_bars(self):
+        """Fix names under the bars when ~90 px per bar are available, else the table's row numbers."""
+        n = len(self._bar_names)
+        if not n:
+            return
+        for plot, _ in (self.bars_paper, self.bars_real):
+            roomy = plot.width() / n >= 80
+            ticks = [(i, _short(name) if roomy else str(i + 1)) for i, name in enumerate(self._bar_names)]
+            plot.getAxis("bottom").setTicks([ticks])
+            plot.setToolTip("" if roomy else "bars numbered as the table rows: " + ", ".join(f"{i + 1} = {_short(nm)}" for i, nm in enumerate(self._bar_names)))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._relabel_bars()
 
     @staticmethod
     def _draw_bars(bar_plot, values: pd.Series, verdicts: pd.Series, whole: bool):
@@ -349,7 +381,7 @@ class FixesView(QWidget):
         vals = values.to_numpy(dtype=float)
         brushes = [pg.mkBrush(VERDICT_COLORS.get(v, color)) for v in verdicts]
         plot.getAxis("bottom").setTicks([[(i, _short(n)) for i, n in enumerate(values.index)]])
-        if len(vals) and float(np.nanmax(vals)) <= 0:
+        if len(vals) and (np.all(np.isnan(vals)) or float(np.nanmax(vals)) <= 0):
             plot.setYRange(0, 1)
             t = pg.TextItem("no hours above 80 % of nameplate for any fix" if whole else "no life used for any fix",
                             color="#333333", anchor=(0.5, 0.5))

@@ -137,7 +137,7 @@ class StationPanel(QWidget):
         self.timeline = YearTimeline(); self.duration = DurationCurve(); self.week = WorstWeek()
         self.tabs.addTab(self.timeline, "Period"); self.tabs.addTab(self.duration, "Duration curve"); self.tabs.addTab(self.week, "Worst week")
         right.addWidget(self.tabs)
-        right.setStretchFactor(0, 0); right.setStretchFactor(1, 1); right.setSizes([420, 400])
+        right.setStretchFactor(0, 0); right.setStretchFactor(1, 1); right.setSizes([360, 460])
         split.addWidget(left); split.addWidget(right)
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 1); split.setSizes([440, 900])
 

@@ -8,7 +8,6 @@ destroyed mid-run would take the whole process down.
 
 from __future__ import annotations
 
-import html
 
 import pandas as pd
 from PySide6.QtWidgets import QMainWindow, QMessageBox, QTabWidget, QTextBrowser, QVBoxLayout, QWidget

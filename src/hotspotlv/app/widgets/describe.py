@@ -9,9 +9,11 @@ def charging_mode(case: Case) -> str:
     ev = case.scenario.ev
     if not ev.smart:
         return "uncontrolled charging"
-    if ev.smart_start_max_h <= 25.0:
+    if (ev.smart_start_min_h, ev.smart_start_max_h) == (22.0, 25.0):
         return "night timer 22–01"
-    return "spread 22–06"
+    if (ev.smart_start_min_h, ev.smart_start_max_h) == (22.0, 30.0):
+        return "spread 22–06"
+    return f"smart charging, starts {ev.smart_start_min_h:g}–{ev.smart_start_max_h:g} h"
 
 
 def describe_case(case: Case) -> str:

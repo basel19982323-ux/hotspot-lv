@@ -107,11 +107,11 @@ class VerdictCard(QFrame):
 
     def _two_column_width(self) -> int:
         return (self._paper[0].minimumSizeHint().width() + self._really[0].minimumSizeHint().width()
-                + self._cols.horizontalSpacing() + 10 + 28)             # bar + body margins
+                + self._cols.horizontalSpacing() + 10 + 28 + 8)         # bar + body margins + frame + layout spacing
 
     def minimumSizeHint(self) -> QSize:                      # one column wide is enough: the columns stack
         s = super().minimumSizeHint()
-        one = max(self._paper[0].minimumSizeHint().width(), self._really[0].minimumSizeHint().width()) + 10 + 28
+        one = max(self._paper[0].minimumSizeHint().width(), self._really[0].minimumSizeHint().width()) + 10 + 28 + 8
         return QSize(min(s.width(), one), s.height())
 
     def resizeEvent(self, event):

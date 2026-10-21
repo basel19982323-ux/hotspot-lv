@@ -39,6 +39,7 @@ class ScenarioPanel(QWidget):
         self.weather = weather
         self.result: CaseResult | None = None
         self._worker: Worker | None = None
+        self._blocked: str | None = None; self._saved_status = ""
         self._t0 = 0.0
         self._timer = QTimer(self); self._timer.timeout.connect(self._tick)
 
@@ -186,17 +187,18 @@ class ScenarioPanel(QWidget):
     # ---------------- the two result tabs follow the inputs, the card follows its run
     def _inputs_changed(self, *_):
         """Warn on the Fixes and Sweep tabs when the inputs no longer match the case on the card."""
-        banner = None
-        if self.result is not None and self.build_case_error() is None:
+        banner, tip, now = None, "", None
+        if self.build_case_error() is None:
             try:
                 now = self.build_case()
             except ValueError:
                 now = None
-            if now is not None and now != self.result.case:
-                banner = (f"The card shows {describe_case(self.result.case)}. The inputs now describe "
-                          f"{describe_case(now)}. This tab runs on the current inputs, not on the card's case.")
+        if self.result is not None and now is not None and now != self.result.case:
+            banner = (f"The inputs differ from the card's case ({self.result.case.name}) — this tab runs on the "
+                      "current inputs (Base case below), not on the card's case.")
+            tip = f"Card: {describe_case(self.result.case)}\nInputs now: {describe_case(now)}"
         for view in (self.fixes, self.sweep):
-            view.set_banner(banner); view.inputs_changed()
+            view.set_banner(banner); view.banner.setToolTip(tip); view.inputs_changed(now)
 
     def _sync_busy(self):
         """Run, Compare fixes and Run sweep share one CPU and one time estimate: only one at a time."""
@@ -206,6 +208,11 @@ class ScenarioPanel(QWidget):
         reason = f"A run is in progress on {running} — wait for it or cancel it there." if running else None
         self.fixes.block(reason); self.sweep.block(reason)
         if not own:
+            if reason and self._blocked is None:
+                self._saved_status = self.status.text()
+            if reason is None and self._blocked is not None:
+                self.status.setText(self._saved_status)
+            self._blocked = reason
             self.run_btn.setEnabled(reason is None)
             if reason:
                 self.status.setText(reason)
@@ -264,7 +271,7 @@ class ScenarioPanel(QWidget):
 
     # ---------------- run
     def run(self):
-        if self._worker is not None and self._worker.isRunning():
+        if self.is_running():                                 # own run, or a run on the Fixes / Sweep tab
             return
         err = self.build_case_error()
         if err:
