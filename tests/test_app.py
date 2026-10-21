@@ -142,15 +142,32 @@ def test_verdict_card_does_not_accumulate_widgets(app, panel):
 
 
 def test_fixes_view_shows_the_comparison_and_recosts_live(panel):
-    """Catches: a fix row showing another fix's numbers; cost controls not reaching the costing."""
+    """Catches: a fix row showing another fix's numbers; swapped bar charts; cost controls not reaching the costing."""
+    from hotspotlv.app.theme import VERDICT_COLORS
     from hotspotlv.study import compare_fixes, fixes_table
     cmp = compare_fixes(panel.build_case(), panel.weather, fast=True)
     panel.fixes.set_comparison(cmp)
     shown = panel.fixes.model.df.set_index("fix")
     fx = fixes_table(cmp)
     assert list(shown.index) == list(fx.index)
+    assert list(shown.columns[:3]) == ["verdict", "why", "capex low (kSEK)"]        # what the planner came for, first
     assert np.allclose(shown["h > 80 %"].to_numpy(dtype=float), fx["h > 80 %"].to_numpy(dtype=float))
     assert shown.loc["800 kVA", "capex low (kSEK)"] == 209
+    assert np.isnan(shown.loc["800 kVA", "peak kVA avoided"])                      # the swap IS the reinforcement
+    col = list(shown.columns).index("capex low (kSEK)") + 1                        # +1: the index became a column
+    assert panel.fixes.model.data(panel.fixes.model.index(1, col)) == "209"        # whole kSEK, no ".0"
+    assert "Energiforsk" in panel.fixes.model.headerData(col + 4, Qt.Horizontal, Qt.ToolTipRole)
+    # the bars are the table's numbers, in order, coloured by verdict; the two charts are not swapped
+    def bars(plot):
+        item = next(i for i in plot.listDataItems() + plot.getPlotItem().items if hasattr(i, "opts") and "height" in i.opts)
+        return list(item.opts["height"]), [b.color().name() for b in item.opts["brushes"]]
+    real_h, real_c = bars(panel.fixes.bars_real[0])
+    assert np.allclose(real_h, fx["life days/yr"]) and real_c == [VERDICT_COLORS[v] for v in fx["verdict"]]
+    if float(fx["h > 80 %"].max()) > 0:
+        assert np.allclose(bars(panel.fixes.bars_paper[0])[0], fx["h > 80 %"])
+    else:
+        assert any("no hours above 80 %" in i.toPlainText() for i in panel.fixes.bars_paper[0].getPlotItem().items
+                   if hasattr(i, "toPlainText"))
     panel.fixes.new_kiosk.setChecked(True)
     assert panel.fixes.model.df.set_index("fix").loc["800 kVA", "capex low (kSEK)"] == 490
     panel.fixes.bat_lo.setValue(2000)
@@ -158,22 +175,78 @@ def test_fixes_view_shows_the_comparison_and_recosts_live(panel):
     if bat:
         kwh = cmp.results[bat[0]].case.battery.energy_kwh
         assert panel.fixes.model.df.set_index("fix").loc[bat[0], "capex low (kSEK)"] == pytest.approx(kwh * 2.0, abs=1)
-    assert "Notes:" in panel.fixes.notes.text()
+    panel.fixes.timer_hi.setValue(1000)
+    n_ev = int(cmp.results["baseline"].neighbourhood.houses.has_ev.sum())
+    assert panel.fixes.model.df.set_index("fix").loc["night timer 22–01", "capex high (kSEK)"] == pytest.approx(n_ev * 1.0, abs=1)
+    assert "Notes:" in panel.fixes.notes.toPlainText() and "SOURCES.md" not in panel.fixes.notes.toPlainText()
+    assert panel.fixes.base_label.text().startswith("Base case: 6 houses / 500 kVA")
 
 
 def test_sweep_view_draws_the_engines_rows(panel):
-    """Catches: x axis not the knob values; life plotted linearly; verdict strip misaligned."""
+    """Catches: x axis not the knob values; life plotted linearly; verdict strip misaligned; h100 fed with h80."""
+    from hotspotlv.app.theme import VERDICT_COLORS
     from hotspotlv.study import sweep
     table = sweep(panel.build_case(), panel.weather, "n_houses", [6, 12], fast=True)
-    panel.sweep.set_table(table)
+    panel.sweep.set_table(table, "n_houses", panel.build_case())
     x, y = panel.sweep.h80.getData()
     assert list(x) == [6, 12] and list(y) == list(table["hours_above_80"])
+    assert list(panel.sweep.h100.getData()[1]) == list(table["hours_above_100"])
     lx, ly = panel.sweep.life.getData()
-    assert np.allclose(10 ** np.asarray(ly), np.maximum(table["life_days_per_year"], 1e-3))
-    assert [s.opts["brush"].color().name() for s in panel.sweep._strip] == \
-        [__import__("hotspotlv.app.theme", fromlist=["VERDICT_COLORS"]).VERDICT_COLORS[v] for v in table["verdict"]]
-    assert "80 % rule" in panel.sweep.caption.text()
+    assert np.allclose(10 ** np.asarray(ly), np.maximum(table["life_days_per_year"], 1e-4))
+    assert [s.opts["brush"].color().name() for s in panel.sweep._strip] == [VERDICT_COLORS[v] for v in table["verdict"]]
+    assert all(s.getData()[1][0] < 0 for s in panel.sweep._strip)                   # squares below the hours axis
+    assert "80 % rule" in panel.sweep.caption.text() and "houses" in panel.sweep.caption.text()
     assert panel.sweep.model.df.iloc[0]["houses"] == 6
+    assert "voltage outside ±10 % (h)" in [panel.sweep.model.headerData(c, Qt.Horizontal)
+                                            for c in range(panel.sweep.model.columnCount())]
+    assert panel.sweep.plot.getAxis("right").logTickStrings([-3, -1, 0, 1, 2], 1, 1) == ["0.001", "0.1", "1", "10", "100"]
+
+
+def test_sweep_view_scales_share_knobs_to_percent_and_keeps_the_run_knob(panel):
+    """Catches: share sweeps drawn as fractions; the combo changed mid-run rescaling the result."""
+    table = pd.DataFrame({"verdict": ["OK", "Watch", "At risk", "Watch"], "peak_loading_pct": [50.0, 70.0, 90.0, 85.0],
+                          "hours_above_80": [0, 0, 12, 8], "hours_above_100": [0, 0, 1, 0],
+                          "life_days_per_year": [0.01, 0.05, 0.5, 0.4], "max_hot_spot_c": [60.0, 70.0, 90.0, 88.0],
+                          "voltage_bad_hours": [0, 0, 3, 0], "voltage_plan_hours": [0, 2, 9, 4], "max_cable_pct": [40.0, 60.0, 101.0, 95.0],
+                          "exact_hours": [0, 0, 0, 0],
+                          "why": ["OK — fine", "Watch — x", "At risk — main cable above its current rating (also: y)", "Watch — z"]},
+                         index=pd.Index([0.0, 0.2, 0.6, 1.0], name="ev_share"))
+    panel.sweep.knob_box.setCurrentIndex(0)                                        # combo says houses …
+    panel.sweep.set_table(table, "ev_share")                                       # … the run was EV share
+    assert list(panel.sweep.h80.getData()[0]) == [0, 20, 60, 100]
+    assert panel.sweep.flip_line.value() == 60 and panel.sweep.flip_line.isVisible()
+    cap = panel.sweep.caption.text()
+    assert "first flags the station at 60 %" in cap and "first turns At risk at 60 % because of main cable above its current rating;" in cap
+    assert "not monotonic" in cap
+    assert list(panel.sweep.model.df.columns)[0] == "share of houses with an EV charger (%)"
+
+
+def test_sweep_ranges_follow_the_knob(panel):
+    """Catches: a share sweep that cannot start at 0 % or reach 100 %; To silently not reached."""
+    panel.sweep.knob_box.setCurrentIndex(1)
+    assert panel.sweep.start.minimum() == 0 and panel.sweep.stop.maximum() == 100
+    assert panel.sweep.values() == [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    assert "values: 0, 20, 40, 60, 80, 100 %" in panel.sweep.values_label.text()
+    panel.sweep.step.setValue(30)
+    assert "To 100 is not reached" in panel.sweep.values_label.text()
+    panel.sweep.knob_box.setCurrentIndex(0)
+    assert panel.sweep.start.minimum() == 3 and panel.sweep.stop.maximum() == 200
+    assert panel.sweep.values() == [45, 60, 75, 90, 105, 120] and panel.sweep.run_btn.text() == "Run sweep (6 runs)"
+
+
+def test_tabs_warn_when_inputs_leave_the_cards_case_and_cancel_is_per_run(panel):
+    """Catches: the Fixes/Sweep tabs silently answering a different case than the card; the main Cancel killing a tab run."""
+    houses = panel.houses.value()
+    panel._inputs_changed()
+    assert panel.fixes.banner.isHidden() and panel.sweep.banner.isHidden()      # (the panel itself is never shown offscreen)
+    panel.houses.setValue(houses + 1)
+    assert not panel.fixes.banner.isHidden() and f"{houses + 1} houses" in panel.fixes.banner.text() and "card shows" in panel.sweep.banner.text()
+    assert "Inputs changed" in panel.fixes.status.text()
+    panel.houses.setValue(houses)
+    assert panel.fixes.banner.isHidden()
+    before = panel.sweep.status.text()
+    panel.cancel()                                                                 # nothing of its own to cancel …
+    assert panel.sweep.status.text() == before and panel.status.text() != "Cancelled."   # … and it leaves the tabs alone
 
 
 def test_heating_shares_are_validated_before_the_engine(panel):

@@ -74,7 +74,7 @@ class FleetPanel(QWidget):
         split.addWidget(self.view)
         detail = QSplitter(Qt.Vertical)                     # card and charts share the space, boundary draggable
         self.card = VerdictCard(empty_text="Select a station in the table to see its verdict and charts.")
-        detail.addWidget(self.card)
+        detail.addWidget(self.card.scrolled())
         self.tabs = QTabWidget()
         self.timeline = YearTimeline(); self.duration = DurationCurve(); self.week = WorstWeek()
         self.tabs.addTab(self.timeline, "Period"); self.tabs.addTab(self.duration, "Duration curve"); self.tabs.addTab(self.week, "Worst week")

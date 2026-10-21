@@ -132,7 +132,7 @@ class StationPanel(QWidget):
         right = QSplitter(Qt.Vertical)                      # drag the boundary between card and charts
         self.card = VerdictCard(empty_text="Choose a station CSV (or the example), set the rating and the SMHI station, "
                                             "then press Assess.")
-        right.addWidget(self.card)
+        right.addWidget(self.card.scrolled())
         self.tabs = QTabWidget()
         self.timeline = YearTimeline(); self.duration = DurationCurve(); self.week = WorstWeek()
         self.tabs.addTab(self.timeline, "Period"); self.tabs.addTab(self.duration, "Duration curve"); self.tabs.addTab(self.week, "Worst week")

@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QTextBrowser, QVBoxLayout, QWidget
 
 from hotspotlv.app.theme import ACCENT, BORDER, MUTED, VERDICT_COLORS
 from hotspotlv.verdict import Verdict
@@ -76,12 +76,14 @@ class VerdictCard(QFrame):
         body.addWidget(self._headline)
         body.addWidget(self._reasons)
 
-        cols = QHBoxLayout()
+        # the two columns sit side by side when there is room, else one under the other —
+        # the readouts are never squeezed (regression of 21 Oct)
+        self._cols = QGridLayout()
         self._paper = self._column("ON PAPER (nameplate rule)")
         self._really = self._column("REALLY (thermal model + limits)")
-        cols.addWidget(self._paper[0], 1)
-        cols.addWidget(self._really[0], 1)
-        body.addLayout(cols)
+        self._stacked = False
+        self._place(stacked=False)
+        body.addLayout(self._cols)
 
         # notes can be long: a small scrollable box keeps the card's height bounded
         self._notes = QTextBrowser()
@@ -91,6 +93,38 @@ class VerdictCard(QFrame):
         self._notes.setVisible(False)
         body.addWidget(self._notes)
         self.set_verdict(None)
+
+    def _place(self, stacked: bool):
+        for w in (self._paper[0], self._really[0]):
+            self._cols.removeWidget(w)
+        if stacked:
+            self._cols.addWidget(self._paper[0], 0, 0); self._cols.addWidget(self._really[0], 1, 0)
+            self._cols.setColumnStretch(1, 0)
+        else:
+            self._cols.addWidget(self._paper[0], 0, 0); self._cols.addWidget(self._really[0], 0, 1)
+            self._cols.setColumnStretch(0, 1); self._cols.setColumnStretch(1, 1)
+        self._stacked = stacked
+
+    def _two_column_width(self) -> int:
+        return (self._paper[0].minimumSizeHint().width() + self._really[0].minimumSizeHint().width()
+                + self._cols.horizontalSpacing() + 10 + 28)             # bar + body margins
+
+    def minimumSizeHint(self) -> QSize:                      # one column wide is enough: the columns stack
+        s = super().minimumSizeHint()
+        one = max(self._paper[0].minimumSizeHint().width(), self._really[0].minimumSizeHint().width()) + 10 + 28
+        return QSize(min(s.width(), one), s.height())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        want = self.width() < self._two_column_width()
+        if want != self._stacked:
+            self._place(stacked=want)
+
+    def scrolled(self) -> QScrollArea:
+        """The card inside a scroll area: a short window scrolls it instead of squeezing it."""
+        area = QScrollArea(); area.setWidget(self); area.setWidgetResizable(True); area.setFrameShape(QFrame.NoFrame)
+        area.setMinimumHeight(120)
+        return area
 
     @staticmethod
     def _column(title: str):

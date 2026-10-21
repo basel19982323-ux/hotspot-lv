@@ -21,8 +21,10 @@ FRIENDLY = {
     "house": "house", "heating": "heating", "ua_kw_per_k": "heat loss (kW/K)", "q_nom_kw": "pump size (kW)",
     "has_ev": "EV", "charger_kw": "charger (kW)", "has_pv": "PV", "pv_kwp": "PV (kWp)", "base_kwh": "base (kWh/yr)",
     "heat_kwh": "heating (kWh/yr)", "ev_kwh": "EV (kWh/yr)", "pv_kwh": "PV (kWh/yr)", "fuse_limited_hours": "fuse-limited h",
+    "voltage_bad_hours": "voltage outside ±10 % (h)", "voltage_plan_hours": "outside planning band (h)",
+    "max_cable_pct": "max cable (%)", "exact_hours": "exact power-flow hours", "battery_hours_above_cap": "battery h above cap",
 }
-WHOLE = ("hours", "h > ", "kVA", "gaps", "step", "kWh/yr", "fuse")
+WHOLE = ("hours", "h > ", "kVA", "gaps", "step", "kWh/yr", "fuse", "kSEK", "(yr)", "(h)", "bad h", "h above")
 IDS = ("SMHI", "rank", "house")                  # whole numbers without a thousands separator
 ONE_DECIMAL = ("%", "°C", "MWh", "kW", "kWp")
 
@@ -36,10 +38,11 @@ def _is_number(v) -> bool:
 
 
 class DataFrameModel(QAbstractTableModel):
-    def __init__(self, df: pd.DataFrame | None = None, decimals: int = 2):
+    def __init__(self, df: pd.DataFrame | None = None, decimals: int = 2, header_tips: dict | None = None):
         super().__init__()
         self._df = df if df is not None else pd.DataFrame()
         self._decimals = decimals
+        self._header_tips = header_tips or {}
 
     def set_df(self, df: pd.DataFrame):
         self.beginResetModel()
@@ -57,6 +60,8 @@ class DataFrameModel(QAbstractTableModel):
         return 0 if parent.isValid() else self._df.shape[1]
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if orientation == Qt.Horizontal and role == Qt.ToolTipRole:
+            return self._header_tips.get(str(self._df.columns[section]))
         if role != Qt.DisplayRole:
             return None
         if orientation == Qt.Horizontal:

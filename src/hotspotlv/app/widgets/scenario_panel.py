@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QGroupBox, QHB
 
 from hotspotlv.app.widgets.charts import DurationCurve, WorstWeek, YearTimeline
 from hotspotlv.app.widgets.diagram import LEGEND as DIAGRAM_LEGEND, FeederDiagram
+from hotspotlv.app.widgets.describe import describe_case
 from hotspotlv.app.widgets.fixes_view import FixesView
 from hotspotlv.app.widgets.sweep_view import SweepView
 from hotspotlv.app.widgets.station_panel import show_error
@@ -125,7 +126,7 @@ class ScenarioPanel(QWidget):
         right = QSplitter(Qt.Vertical)                      # drag the boundary between card and charts
         self.card = VerdictCard(empty_text="Set up the street on the left and press Run. The verdict and the "
                                             "'on paper vs really' comparison appear here.")
-        right.addWidget(self.card)
+        right.addWidget(self.card.scrolled())
         self.tabs = QTabWidget()
         self.timeline = YearTimeline()
         self.diagram = FeederDiagram()
@@ -150,14 +151,64 @@ class ScenarioPanel(QWidget):
         self.fixes = FixesView(self.case_for_views, weather)
         self.sweep = SweepView(self.case_for_views, weather)
         self.tabs.addTab(self.fixes, "Fixes")
-        self.tabs.addTab(self.sweep, "Hosting capacity")
+        self.tabs.addTab(self.sweep, "Sweep (where it flips)")
         right.addWidget(self.tabs)
-        right.setStretchFactor(0, 0); right.setStretchFactor(1, 1); right.setSizes([440, 420])
+        right.setStretchFactor(0, 0); right.setStretchFactor(1, 1); right.setSizes([400, 460])
+        self._right = right; self._card_sizes = None
+        self.tabs.currentChanged.connect(self._tab_changed)
 
         split.addWidget(left); split.addWidget(right)
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 1)
         split.setSizes([420, 900])
         self._check_mix()
+        for view in (self.fixes, self.sweep):               # one run at a time: the others' Run buttons wait
+            view.run_started.connect(self._sync_busy); view.run_finished.connect(self._sync_busy)
+        for w in [self.kva, self.fuse, self.enclosure, self.charging]:
+            w.currentIndexChanged.connect(self._inputs_changed)
+        for w in [self.houses, self.feeders, self.ev, self.pv, self.seed, *self.mix.values()]:
+            w.valueChanged.connect(self._inputs_changed)
+
+    # ---------------- the Fixes and Sweep tabs need the room: the card shrinks to its headline there
+    def _tab_changed(self, index: int):
+        sizes = self._right.sizes()
+        total = sum(sizes)
+        if total <= 0:
+            return
+        if index >= 4:
+            if self._card_sizes is None:
+                self._card_sizes = sizes
+                headline = self.card._reasons.geometry().bottom() + 16     # level + headline + reasons, no readouts cut in half
+                small = max(90, min(sizes[0], headline))
+                self._right.setSizes([small, total - small])
+        elif self._card_sizes is not None:
+            self._right.setSizes(self._card_sizes); self._card_sizes = None
+
+    # ---------------- the two result tabs follow the inputs, the card follows its run
+    def _inputs_changed(self, *_):
+        """Warn on the Fixes and Sweep tabs when the inputs no longer match the case on the card."""
+        banner = None
+        if self.result is not None and self.build_case_error() is None:
+            try:
+                now = self.build_case()
+            except ValueError:
+                now = None
+            if now is not None and now != self.result.case:
+                banner = (f"The card shows {describe_case(self.result.case)}. The inputs now describe "
+                          f"{describe_case(now)}. This tab runs on the current inputs, not on the card's case.")
+        for view in (self.fixes, self.sweep):
+            view.set_banner(banner); view.inputs_changed()
+
+    def _sync_busy(self):
+        """Run, Compare fixes and Run sweep share one CPU and one time estimate: only one at a time."""
+        own = self._worker is not None and self._worker.isRunning()
+        running = ("this case" if own else "the Fixes tab" if self.fixes.is_running()
+                   else "the Sweep tab" if self.sweep.is_running() else None)
+        reason = f"A run is in progress on {running} — wait for it or cancel it there." if running else None
+        self.fixes.block(reason); self.sweep.block(reason)
+        if not own:
+            self.run_btn.setEnabled(reason is None)
+            if reason:
+                self.status.setText(reason)
 
     # ---------------- helpers
     def _shares(self) -> tuple[dict, int]:
@@ -204,6 +255,13 @@ class ScenarioPanel(QWidget):
         own = self._worker is not None and self._worker.isRunning()
         return own or self.fixes.is_running() or self.sweep.is_running()
 
+    def cancel_all(self):
+        """Closing the window: stop every run on this panel."""
+        self.cancel()
+        for view in (self.fixes, self.sweep):
+            if view.is_running():
+                view.cancel()
+
     # ---------------- run
     def run(self):
         if self._worker is not None and self._worker.isRunning():
@@ -222,6 +280,7 @@ class ScenarioPanel(QWidget):
         self._worker.finished_ok.connect(self._done)
         self._worker.failed.connect(self._failed)
         self._worker.start()
+        self._sync_busy()
 
     def _tick(self):
         t = time.perf_counter() - self._t0
@@ -230,16 +289,17 @@ class ScenarioPanel(QWidget):
 
     def _finish_ui(self):
         self._timer.stop(); self.progress.setVisible(False); self.cancel_btn.setVisible(False); self.run_btn.setEnabled(True)
+        self._sync_busy()
 
     def cancel(self):
+        """The Cancel next to Run stops this case only; the tabs have their own Cancel buttons."""
         w, self._worker = self._worker, None           # retire it: a late result from it is ignored
-        if w is not None and w.isRunning():
+        was_running = w is not None and w.isRunning()
+        if was_running:
             w.cancel()
         self._finish_ui()
-        self.status.setText("Cancelled.")
-        for view in (self.fixes, self.sweep):          # closing the window cancels these too
-            if view.is_running():
-                view.cancel()
+        if was_running:
+            self.status.setText("Cancelled.")
 
     def _current(self) -> bool:
         return self.sender() is None or self.sender() is self._worker
@@ -256,6 +316,7 @@ class ScenarioPanel(QWidget):
         self._finish_ui()
         try:
             self.result = res
+            self._inputs_changed()
             self.card.set_verdict(res.verdict, res.case.name)
             amb = self.weather["temp_c"]
             self.timeline.set_data(res.year.hourly, res.thermal.hourly, amb)

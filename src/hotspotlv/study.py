@@ -193,7 +193,14 @@ def compare_fixes(base: Case, weather: pd.DataFrame, fast: bool = True,
     Smart charging comes in two flavours because they behave differently:
     'night timer' = what Swedish hourly-price customers do today (start 22:00–01:00,
     Energiforsk 2023:966) and 'spread' = coordinated starts spread over 22:00–06:00."""
+    if bigger_kva <= base.trafo_kva:
+        raise ValueError(f"bigger_kva must exceed the base transformer ({base.trafo_kva} kVA), got {bigger_kva}")
     notes = []
+    ev0 = base.scenario.ev
+    if ev0.smart and ev0.smart_start_min_h == 22.0:
+        same = "night timer 22–01" if ev0.smart_start_max_h == 25.0 else ("spread 22–06" if ev0.smart_start_max_h == 30.0 else None)
+        if same:
+            notes.append(f"the baseline already charges on the {same}: that fix row repeats the baseline (and costs nothing extra)")
     total = 5
     tick = (lambda i, label: progress(i, total, label)) if progress else (lambda i, label: None)
     tick(0, "baseline")

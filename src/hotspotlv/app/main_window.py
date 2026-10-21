@@ -51,7 +51,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(f"{TITLE} — v{__version__}")
         self.resize(1400, 900)
-        self.setMinimumSize(1000, 650)
+        self.setMinimumSize(900, 560)                    # measured: 798 × 504 logical at 125 % (21 Oct); fits a 1366 × 768 laptop
         tabs = QTabWidget()
         self.scenario = ScenarioPanel(weather)
         self.station = StationPanel()
@@ -82,5 +82,5 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.Yes:
             event.ignore(); return
         for p in running:
-            p.cancel()
+            (p.cancel_all if hasattr(p, "cancel_all") else p.cancel)()
         event.accept()

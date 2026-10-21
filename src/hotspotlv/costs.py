@@ -136,6 +136,7 @@ def cost_table(cmp: FixComparison, assumptions: CostAssumptions = CostAssumption
             "clears the verdict": m["verdict"] == "OK",
         })
     table = pd.DataFrame(rows).set_index("fix")
-    table.attrs["title"] = "Indicative cost (sensitivity) — ranges, not quotes; no lifetime arithmetic"
+    table.attrs["title"] = ("Indicative cost (sensitivity) — ranges, not quotes; capex and an undiscounted "
+                            "reinforcement-equivalent value, no net-present-value arithmetic")
     table.attrs["note"] = assumptions.price_level_note
     return table

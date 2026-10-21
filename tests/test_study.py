@@ -89,6 +89,20 @@ def test_compare_fixes(wx, heavy, heavy_cmp):
     assert table.loc["800 kVA", "why"].startswith(("OK", "Watch", "At risk"))
 
 
+def test_compare_fixes_refuses_a_bigger_unit_that_is_not_bigger(wx):
+    """An 800 kVA station offered '800 kVA' as a fix would show the baseline twice at 0 kSEK."""
+    base = Case("big", Scenario(n_houses=10, seed=1), trafo_kva=800)
+    with pytest.raises(ValueError, match="bigger_kva must exceed"):
+        compare_fixes(base, wx, bigger_kva=800)
+
+
+def test_compare_fixes_notes_when_the_baseline_already_uses_a_charging_fix(wx):
+    from hotspotlv.loads.ev import EVParams
+    sc = Scenario(n_houses=10, seed=1, ev=EVParams(smart=True, smart_start_min_h=22.0, smart_start_max_h=30.0))
+    cmp = compare_fixes(Case("spread already", sc), wx)
+    assert any("already charges on the spread 22–06" in n for n in cmp.notes)
+
+
 def test_compare_fixes_reports_when_no_battery_is_needed(wx):
     light = Case("light", Scenario(n_houses=20, seed=1), thermal=ThermalParams.for_transformer(500))
     cmp = compare_fixes(light, wx)

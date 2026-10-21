@@ -7,6 +7,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from hotspotlv.app.theme import STYLESHEET  # noqa: E402
@@ -43,7 +44,10 @@ def main(out: Path):
     sp.houses.setValue(60)
     sp.fixes.set_comparison(compare_fixes(sp.build_case(), weather, fast=True))
     sp.tabs.setCurrentIndex(4); app.processEvents(); win.grab().save(str(out / "scenario_fixes.png"))
-    sp.sweep.set_table(sweep(sp.build_case(), weather, "n_houses", [45, 60, 75, 90, 105], fast=True))
+    sp.sweep.set_table(sweep(sp.build_case(), weather, "n_houses", [45, 60, 75, 90, 105], fast=True), "n_houses", sp.build_case())
+    assert not sp.fixes.banner.isHidden() and not sp.sweep.banner.isHidden(), "inputs differ from the card: banner expected"
+    assert "0.0" not in [sp.fixes.model.data(sp.fixes.model.index(0, c)) for c in range(sp.fixes.model.columnCount())
+                         if "kSEK" in str(sp.fixes.model.headerData(c, Qt.Horizontal))], "kSEK must be whole numbers"
     sp.tabs.setCurrentIndex(5); app.processEvents(); win.grab().save(str(out / "scenario_sweep.png"))
     print("sweep caption:", sp.sweep.caption.text())
 
