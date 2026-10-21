@@ -35,6 +35,7 @@ def main(out: Path):
     win.centralWidget().setCurrentIndex(2)
     app.processEvents()
     win.grab().save(str(out / "scenario.png"))
+    print("scenario status:", sp.status.text())
     sp.tabs.setCurrentIndex(2); app.processEvents(); win.grab().save(str(out / "scenario_worst_week.png"))
     sp.tabs.setCurrentIndex(1); app.processEvents(); win.grab().save(str(out / "scenario_duration.png"))
     print("scenario:", sp.result.verdict.headline())
@@ -42,8 +43,8 @@ def main(out: Path):
     # mode B
     st = win.station
     st.path.setText(str(STATION_EXAMPLE))
-    st._done(_assess(STATION_EXAMPLE, 500, "meters", "Europe/Stockholm", "start", 96190, "kiosk", 0, 0, 0))
-    win.centralWidget().setCurrentIndex(1); app.processEvents()
+    st._done(_assess(STATION_EXAMPLE, 500, "meters", "Europe/Stockholm", "start", 96190, True, "kiosk", 0, 0, 0))
+    win.centralWidget().setCurrentIndex(0); app.processEvents()
     win.grab().save(str(out / "station.png"))
     print("station:", st.result.verdict.headline())
 
@@ -51,7 +52,7 @@ def main(out: Path):
     fl = win.fleet
     fl._done(_screen(package_data() / "examples" / "fleet_index.csv", progress=None))
     fl.view.selectRow(0)
-    win.centralWidget().setCurrentIndex(0); app.processEvents()
+    win.centralWidget().setCurrentIndex(1); app.processEvents()
     win.grab().save(str(out / "fleet.png"))
     print("fleet:", fl.table_df[["station_id", "verdict", "peak_loading_pct"]].to_string())
 

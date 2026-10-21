@@ -65,6 +65,7 @@ class CaseResult:
     exact_hours: int = 0                          # hours re-run with the full power flow (fast mode)
     battery_sizing: BatterySizing | None = None
     runtime_s: float = 0.0
+    mode_note: str = ""                           # how the power flows were computed, in words
 
     def metrics(self) -> dict:
         """One flat row for tables and sweeps."""
@@ -118,16 +119,32 @@ def run_case(case: Case, weather: pd.DataFrame, fast: bool = True,
         if n_refine > MAX_REFINE_HOURS or fit_error["loading_pct_max_abs"] > MAX_PROXY_LOADING_ERROR_PP:
             year = run_year(net, nb.cons_kw, nb.gen_kw)        # heavy feeder: the full run is cheaper and exact
             fast, exact_hours = False, len(year.hourly)
+            mode_note = (f"full power flow for every hour: the fitted proxy would have needed {n_refine} exact "
+                         f"hours (limit {MAX_REFINE_HOURS}) or its loading error was {fit_error['loading_pct_max_abs']:.1f} "
+                         f"pp (limit {MAX_PROXY_LOADING_ERROR_PP:g})")
         else:
             year, exact_hours = refine_near_limits(net, year, nb.cons_kw, nb.gen_kw, fit_error=fit_error)
+            mode_note = (f"fast mode: fitted proxy ({proxy.n_samples} power flows, loading error "
+                         f"{fit_error['loading_pct_max_abs']:.2f} pp) plus {exact_hours} hours computed exactly near the limits")
     else:
         year = run_year(net, nb.cons_kw, nb.gen_kw)
+        mode_note = "full power flow for every hour"
     if case.battery is not None:
         year = apply_battery(year, case.battery)
-    thermal = simulate(year.hourly["loading_pct"] / 100, weather["temp_c"], thermal_params_for(case))
+    params = case.thermal or thermal_params_for(case)
+    thermal = simulate(year.hourly["loading_pct"] / 100, weather["temp_c"], params)
     verdict = judge(year, thermal)
+    verdict.notes.append(enclosure_note(params))
+    verdict.notes.append(mode_note)
     return CaseResult(case, nb, year, thermal, verdict, fast, fit_error, exact_hours, battery_sizing,
-                      time.perf_counter() - t0)
+                      time.perf_counter() - t0, mode_note)
+
+
+def enclosure_note(params: ThermalParams) -> str:
+    if params.enclosure == "kiosk":
+        return (f"transformer in a kiosk: IEC 60076-7 Table 6 adds +{params.enclosure_rise_k:g} K to the top-oil rise "
+                f"(ageing ≈ ×{2 ** (params.enclosure_rise_k / 6):.1f} at rated load vs an outdoor unit)")
+    return "transformer outdoors: no enclosure correction"
 
 
 def sweep(base: Case, weather: pd.DataFrame, knob: str, values, fast: bool = True) -> pd.DataFrame:

@@ -14,9 +14,17 @@ from PySide6.QtCore import QThread, Signal
 
 
 class Worker(QThread):
+    """`cancel()` stops the thread hard (the engine has no checkpoints; the partial result is discarded)."""
     finished_ok = Signal(object)
     failed = Signal(str)
     progress = Signal(int, int, str)
+    cancelled = Signal()
+
+    def cancel(self):
+        if self.isRunning():
+            self.terminate()
+            self.wait(5000)
+            self.cancelled.emit()
 
     def __init__(self, fn, *args, with_progress: bool = False, **kwargs):
         super().__init__()

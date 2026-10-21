@@ -9,7 +9,7 @@ BORDER = "#d9dde3"
 LOAD_COLOR = "#1f4e79"      # loading % lines
 HOTSPOT_COLOR = "#c0392b"   # hot-spot °C
 OIL_COLOR = "#e67e22"       # top-oil °C
-AMBIENT_COLOR = "#2980b9"   # outdoor °C
+AMBIENT_COLOR = "#16a085"   # outdoor °C (teal, distinct from the loading blue)
 EXPORT_COLOR = "#2980b9"    # a house exporting (PV)
 RULE_80 = "#999999"
 RULE_100 = "#555555"
@@ -36,6 +36,8 @@ QProgressBar::chunk {{ background: {ACCENT}; }}
 QTableView {{ background: white; gridline-color: {BORDER}; selection-background-color: #dbe7f3; selection-color: {INK};
               alternate-background-color: {PANEL}; }}
 QAbstractScrollArea {{ background: white; }}
+QScrollArea {{ background: white; border: none; }}
+QScrollArea > QWidget > QWidget {{ background: white; }}
 QGraphicsView {{ background: white; border: 1px solid {BORDER}; border-radius: 6px; }}
 QHeaderView::section {{ background: {PANEL}; padding: 4px 6px; border: none; border-bottom: 1px solid {BORDER};
                         font-weight: 600; }}

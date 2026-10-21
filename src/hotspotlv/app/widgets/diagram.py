@@ -5,10 +5,12 @@
             transformer    ├─■─■─■─■─■─■─■─■─■─■─■─■─■─■─■   feeder 2
          coloured by       └─■─■─■─■─■─■─■─■─■─■─■─■─■─■─■   feeder 3
          loading %            houses coloured by their net kW at the scrubbed hour
-                              (blue = exporting PV), badges: HP · EV · PV
+                              (blue = exporting PV); badges HP · EL · EV · PV
 
-`set_hour(i)` recolours everything for row i of the year; the timeline's
-scrubber drives it. Pure drawing — all numbers come from the engine results.
+`set_hour(i, label)` recolours everything for row i of the year; the
+timeline's scrubber drives it. Houses are laid on the feeders exactly as
+feeder.build_feeder distributes them (first feeders get the remainder).
+Pure drawing — all numbers come from the engine results.
 """
 
 from __future__ import annotations
@@ -26,10 +28,13 @@ GAP = 26
 FEEDER_Y0 = 150
 FEEDER_DY = 70
 X0 = 240
+BADGES_MAX_HOUSES = 60      # above this the badge letters would be unreadable; tooltips still carry them
+LEGEND = ("house colour = net kW this hour (dark = near the fuse cap, blue = exporting PV) · "
+          "transformer colour = loading % · badges: HP heat pump, EL direct electric heating, EV charger, PV solar")
 
 
 def loading_color(pct: float) -> QColor:
-    """grey → amber → red as the transformer loading rises."""
+    """grey → green → amber → red as the transformer loading rises."""
     if pct < 60:
         return QColor("#9aa5b1")
     if pct < 80:
@@ -47,6 +52,11 @@ def house_color(kw: float, cap_kw: float) -> QColor:
     return QColor(r, g, b)
 
 
+def houses_per_feeder(n_houses: int, n_feeders: int) -> list[int]:
+    """Same split as feeder.build_feeder: the remainder goes to the first feeders."""
+    return [n_houses // n_feeders + (1 if i < n_houses % n_feeders else 0) for i in range(n_feeders)]
+
+
 class FeederDiagram(QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -58,6 +68,7 @@ class FeederDiagram(QGraphicsView):
         self._p_house: np.ndarray | None = None      # hours × houses net kW
         self._loading: np.ndarray | None = None
         self._cap_kw = 13.9
+        self._rated_kva = 0.0
         self._items = {}
 
     def set_case(self, houses: pd.DataFrame, p_house_kw: pd.DataFrame, loading_pct: pd.Series,
@@ -66,9 +77,15 @@ class FeederDiagram(QGraphicsView):
         self._p_house = p_house_kw.to_numpy(dtype=float)
         self._loading = loading_pct.to_numpy(dtype=float)
         self._cap_kw = cap_kw
+        self._rated_kva = rated_kva
         self._draw(rated_kva, n_feeders)
         self.set_hour(int(np.argmax(self._loading)))
         self._fit()
+
+    def clear_case(self):
+        self.scene().clear()
+        self._items = {}
+        self._houses = None
 
     def _fit(self):
         if self.scene().items():
@@ -78,18 +95,15 @@ class FeederDiagram(QGraphicsView):
         super().resizeEvent(event)
         self._fit()
 
-    def clear_case(self):
-        self.scene().clear()
-        self._items = {}
-        self._houses = None
-
     def _draw(self, rated_kva: float, n_feeders: int):
         sc = self.scene()
         sc.clear()
         self._items = {}
         pen = QPen(QColor(INK), 2)
         font = QFont("Segoe UI", 9)
-        small = QFont("Segoe UI", 7)
+        small = QFont("Segoe UI", 8)
+        n = len(self._houses)
+        show_badges = n <= BADGES_MAX_HOUSES
         # MV source
         sc.addEllipse(20, FEEDER_Y0 + FEEDER_DY - 18, 36, 36, pen)
         t = sc.addText("MV\n10 kV", font); t.setPos(14, FEEDER_Y0 + FEEDER_DY + 20)
@@ -98,18 +112,16 @@ class FeederDiagram(QGraphicsView):
         self._items["trafo1"] = sc.addEllipse(95, FEEDER_Y0 + FEEDER_DY - 22, 44, 44, pen, QBrush(QColor("#dddddd")))
         self._items["trafo2"] = sc.addEllipse(121, FEEDER_Y0 + FEEDER_DY - 22, 44, 44, pen, QBrush(QColor("#dddddd")))
         self._items["trafo_label"] = sc.addText(f"{rated_kva:.0f} kVA", font)
-        self._items["trafo_label"].setPos(96, FEEDER_Y0 + FEEDER_DY + 24)
+        self._items["trafo_label"].setPos(92, FEEDER_Y0 + FEEDER_DY + 24)
         sc.addLine(165, FEEDER_Y0 + FEEDER_DY, 200, FEEDER_Y0 + FEEDER_DY, pen)
         # busbar
         y_top, y_bot = FEEDER_Y0 - 10, FEEDER_Y0 + (n_feeders - 1) * FEEDER_DY + 10
         sc.addLine(200, y_top, 200, y_bot, QPen(QColor(INK), 6))
         t = sc.addText("0.4 kV busbar", small); t.setPos(170, y_top - 22)
-        # feeders and houses
-        n = len(self._houses)
-        per = [n // n_feeders + (1 if i < n % n_feeders else 0) for i in range(n_feeders)]
+        # feeders and houses, in build_feeder's order
         j = 0
         self._items["houses"] = []
-        for f, count in enumerate(per):
+        for f, count in enumerate(houses_per_feeder(n, n_feeders)):
             y = FEEDER_Y0 + f * FEEDER_DY
             sc.addLine(200, y, X0 + count * GAP, y, pen)
             t = sc.addText(f"F{f + 1}", small); t.setPos(206, y - 20)
@@ -118,26 +130,34 @@ class FeederDiagram(QGraphicsView):
                 sc.addLine(x, y, x, y + 14, QPen(QColor(INK), 1))
                 rect = sc.addRect(QRectF(x - HOUSE / 2, y + 14, HOUSE, HOUSE), QPen(QColor(BORDER), 1), QBrush(QColor("#e6e6e6")))
                 rect.setToolTip(self._house_tip(j))
-                badges = []
-                row = self._houses.iloc[j]
-                if row.get("heating", "none") != "none":
-                    badges.append("HP" if row["heating"] != "direct_electric" else "EL")
-                if row.get("has_ev", False):
-                    badges.append("EV")
-                if row.get("has_pv", False):
-                    badges.append("PV")
-                b = sc.addText("·".join(badges), QFont("Segoe UI", 6))
-                b.setDefaultTextColor(QColor(MUTED))
-                b.setPos(x - 14, y + 30)
+                if show_badges:
+                    b = sc.addText("·".join(self._badges(j)), QFont("Segoe UI", 6))
+                    b.setDefaultTextColor(QColor(MUTED))
+                    b.setPos(x - 14, y + 30)
                 self._items["houses"].append(rect)
                 j += 1
         self._items["hour_label"] = sc.addText("", font)
         self._items["hour_label"].setDefaultTextColor(QColor(ACCENT))
         self._items["hour_label"].setPos(20, 20)
-        self._items["legend"] = sc.addText("house colour = net kW this hour (blue = exporting PV) · transformer colour = loading %", small)
-        self._items["legend"].setDefaultTextColor(QColor(MUTED))
-        self._items["legend"].setPos(20, y_bot + 40)
+        if not show_badges:
+            note = sc.addText("badges hidden above 60 houses — hover a house", small)
+            note.setDefaultTextColor(QColor(MUTED))
+            note.setPos(X0, y_bot + 36)
         sc.setSceneRect(sc.itemsBoundingRect().adjusted(-10, -10, 30, 30))
+
+    def _badges(self, j: int) -> list[str]:
+        row = self._houses.iloc[j]
+        out = []
+        heating = row.get("heating", "none")
+        if heating == "direct_electric":
+            out.append("EL")
+        elif heating != "none":
+            out.append("HP")
+        if row.get("has_ev", False):
+            out.append("EV")
+        if row.get("has_pv", False):
+            out.append("PV")
+        return out
 
     def _house_tip(self, j: int) -> str:
         r = self._houses.iloc[j]
@@ -153,7 +173,7 @@ class FeederDiagram(QGraphicsView):
         c = loading_color(lp)
         for key in ("trafo1", "trafo2"):
             self._items[key].setBrush(QBrush(c))
-        self._items["trafo_label"].setPlainText(f"{lp:.0f} %")
+        self._items["trafo_label"].setPlainText(f"{lp:.0f} %\n{self._rated_kva:.0f} kVA")
         for j, rect in enumerate(self._items["houses"]):
             kw = float(self._p_house[i, j])
             rect.setBrush(QBrush(house_color(kw, self._cap_kw)))

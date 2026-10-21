@@ -488,6 +488,8 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
     params = ThermalParams.for_transformer(int(rated_kva), enclosure=enclosure)
     thermal = simulate(k, ambient, params, step_min=st.step_min)
     verdict = judge(year, thermal)
+    from hotspotlv.study import enclosure_note
+    notes.append(enclosure_note(params))
     for key in NOT_CHECKED_KEYS:
         verdict.really[key] = None                            # a 0 would read as "checked and fine"
     verdict.notes.append("voltage and cable rules not checked: station data carries no feeder model")

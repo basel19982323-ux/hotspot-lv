@@ -1,14 +1,37 @@
-"""A pandas DataFrame shown in a QTableView, with the verdict column coloured."""
+"""A pandas DataFrame shown in a QTableView, with planner-friendly column names, sensible
+number formats (hours and ratings as whole numbers) and the verdict column coloured."""
 
 from __future__ import annotations
 
 import math
 
+import numpy as np
 import pandas as pd
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtGui import QBrush, QColor, QFont
 
 from hotspotlv.app.theme import VERDICT_COLORS
+
+FRIENDLY = {
+    "station_id": "station", "kVA": "rated kVA", "verdict": "verdict", "why": "why", "period": "period",
+    "step_min": "step (min)", "peak_loading_pct": "peak load (%)", "hours_above_80": "h > 80 %",
+    "hours_above_100": "h > 100 %", "life_days_per_year": "life used (days/yr)", "max_hot_spot_c": "max hot-spot (°C)",
+    "max_load_pu": "max load (× rated)", "energy_mwh": "energy (MWh/yr)", "gaps_filled": "gaps filled",
+    "smhi_station": "SMHI station", "notes": "notes", "error": "error", "rank": "rank",
+    "house": "house", "heating": "heating", "ua_kw_per_k": "heat loss (kW/K)", "q_nom_kw": "pump size (kW)",
+    "has_ev": "EV", "charger_kw": "charger (kW)", "has_pv": "PV", "pv_kwp": "PV (kWp)", "base_kwh": "base (kWh/yr)",
+    "heat_kwh": "heating (kWh/yr)", "ev_kwh": "EV (kWh/yr)", "pv_kwh": "PV (kWh/yr)", "fuse_limited_hours": "fuse-limited h",
+}
+WHOLE = ("hours", "h > ", "kVA", "SMHI", "gaps", "rank", "step", "kWh/yr", "fuse", "house")
+ONE_DECIMAL = ("%", "°C", "MWh", "kW", "kWp")
+
+
+def _is_bool(v) -> bool:
+    return isinstance(v, (bool, np.bool_))
+
+
+def _is_number(v) -> bool:
+    return isinstance(v, (int, float, np.integer, np.floating)) and not _is_bool(v)
 
 
 class DataFrameModel(QAbstractTableModel):
@@ -35,30 +58,45 @@ class DataFrameModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if role != Qt.DisplayRole:
             return None
-        return str(self._df.columns[section]) if orientation == Qt.Horizontal else str(section + 1)
+        if orientation == Qt.Horizontal:
+            name = str(self._df.columns[section])
+            return FRIENDLY.get(name, name)
+        return str(section + 1)
+
+    def _format(self, value, header: str) -> str:
+        if _is_bool(value):
+            return "yes" if bool(value) else "no"
+        if _is_number(value):
+            v = float(value)
+            if math.isnan(v):
+                return "–"
+            if isinstance(value, (int, np.integer)) or any(w in header for w in WHOLE):
+                return f"{v:,.0f}"
+            if "days" in header:
+                return f"{v:.3f}" if v < 1 else f"{v:.2f}"
+            if "× rated" in header:
+                return f"{v:.2f}"
+            if any(w in header for w in ONE_DECIMAL):
+                return f"{v:,.1f}"
+            return f"{v:,.{self._decimals}f}" if abs(v) < 1e6 else f"{v:.3g}"
+        return str(value)
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
             return None
         value = self._df.iat[index.row(), index.column()]
         col = str(self._df.columns[index.column()])
+        header = FRIENDLY.get(col, col)
         if role == Qt.DisplayRole:
-            if isinstance(value, float):
-                if math.isnan(value):
-                    return "–"
-                return f"{value:,.{self._decimals}f}" if abs(value) < 1e6 else f"{value:.3g}"
-            if isinstance(value, bool):
-                return "yes" if value else "no"
-            return str(value)
+            return self._format(value, header)
         if role == Qt.ForegroundRole and col == "verdict" and str(value) in VERDICT_COLORS:
             return QBrush(QColor(VERDICT_COLORS[str(value)]))
         if role == Qt.FontRole and col == "verdict":
-            from PySide6.QtGui import QFont
             f = QFont()
             f.setBold(True)
             return f
-        if role == Qt.TextAlignmentRole and isinstance(value, (int, float)) and not isinstance(value, bool):
+        if role == Qt.TextAlignmentRole and _is_number(value):
             return int(Qt.AlignRight | Qt.AlignVCenter)
-        if role == Qt.ToolTipRole and col in ("why", "notes", "error"):
+        if role == Qt.ToolTipRole and col in ("why", "notes", "error", "period"):
             return str(value)
         return None
