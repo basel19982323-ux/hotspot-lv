@@ -92,6 +92,7 @@ def test_assess_station_end_to_end(tmp_path, nb, wx):
     res = assess_station(st, 500, amb)
     assert res.verdict.level in ("OK", "Watch", "At risk")
     assert any("not checked" in n for n in res.verdict.notes)
+    assert "not checked" in res.verdict.headline() and "EIFS" not in res.verdict.headline()
     assert res.verdict.really["hours with voltage outside ±10 %"] == 0      # neutral, never a reason
     m = res.metrics()
     assert m["period"].startswith("2023-01-01") and m["step_min"] == 60

@@ -90,12 +90,17 @@ class Verdict:
         return self.at_risk + self.watch
 
     def headline(self) -> str:
+        unchecked = any("not checked" in n for n in self.notes)
         if self.level == "OK":
-            return "OK — ages slower than designed, all IEC and EIFS limits respected"
-        main = [r.rule for r in (self.at_risk if self.level == "At risk" else self.watch)]
-        text = f"{self.level} — " + "; ".join(main)
-        if self.level == "At risk" and self.watch:
-            text += " (also: " + "; ".join(r.rule for r in self.watch) + ")"
+            text = ("OK — ages slower than designed, IEC limits respected" if unchecked
+                    else "OK — ages slower than designed, all IEC and EIFS limits respected")
+        else:
+            main = [r.rule for r in (self.at_risk if self.level == "At risk" else self.watch)]
+            text = f"{self.level} — " + "; ".join(main)
+            if self.level == "At risk" and self.watch:
+                text += " (also: " + "; ".join(r.rule for r in self.watch) + ")"
+        if unchecked:
+            text += " (voltage and cable not checked: no feeder model)"
         return text
 
 
