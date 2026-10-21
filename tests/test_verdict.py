@@ -122,6 +122,9 @@ def test_short_period_is_scaled_to_a_year_from_the_index():
     q = _year(100.0, n=24 * 7 * 4, freq="15min")                  # the same week in quarter hours
     vq = judge(q, _thermal(q, ambient=20.0, step_min=15.0))
     assert vq.really["days of life used per year"] == pytest.approx(365, rel=0.02)
+    assert vq.on_paper["hours above 80 % of nameplate"] == pytest.approx(168)     # hours, not quarter-hour rows
+    assert vq.really["hours hot-spot above 98 °C"] <= 168
+    assert "e+" not in str(v.reasons[0])                                          # counts print as plain hours
 
 
 def test_validation():
@@ -134,3 +137,6 @@ def test_validation():
         judge(bad, th)
     with pytest.raises(ValueError):
         judge(YearResult(yr.hourly.iloc[:0], 500.0), th)
+    ri = YearResult(yr.hourly.reset_index(drop=True), 500.0)
+    with pytest.raises(ValueError):
+        judge(ri, th)                                             # RangeIndex

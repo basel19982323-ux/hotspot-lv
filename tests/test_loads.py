@@ -137,9 +137,14 @@ def test_smart_charging_keeps_the_same_cars_and_energy(idx):
     plain = ev_charging_profile(idx, EVParams(smart=False), seed=4)
     smart = ev_charging_profile(idx, EVParams(smart=True), seed=4)
     assert smart.sum() == pytest.approx(plain.sum(), rel=1e-6)          # same energy over the year
-    monthly_p = plain.groupby(plain.index.month).sum()
-    monthly_s = smart.groupby(smart.index.month).sum()
-    assert (abs(monthly_s - monthly_p) / monthly_p < 0.05).all()         # same sessions, shifted by hours not months
+    # same sessions shifted by a few hours: equal energy per "night" (days cut at 12:00 local)
+    def per_night(s):
+        t = s.tz_convert("Europe/Stockholm")
+        t.index = t.index - pd.Timedelta(hours=12)      # a "night" runs noon to noon: every 11 kW session fits inside
+        return t.groupby(t.index.date).sum()
+    dp, ds = per_night(plain), per_night(smart)
+    common = dp.index.intersection(ds.index)[1:-1]
+    assert np.allclose(dp[common], ds[common], atol=0.5)                  # kWh per night identical (float noise)
 
 
 def test_ev_params_validated():

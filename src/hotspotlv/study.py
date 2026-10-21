@@ -32,12 +32,14 @@ import pandas as pd
 from hotspotlv.battery import BatteryParams, BatterySizing, apply_battery, size_by_simulation
 from hotspotlv.feeder import build_feeder
 from hotspotlv.neighbourhood import Neighbourhood, Scenario, build_neighbourhood
-from hotspotlv.proxy import fit_proxy, refine_near_limits
+from hotspotlv.proxy import fit_proxy, refine_mask, refine_near_limits
 from hotspotlv.thermal import ThermalParams, ThermalResult, simulate
 from hotspotlv.timeseries import YearResult, run_year
 from hotspotlv.verdict import Verdict, judge
 
 SCENARIO_FIELDS = {f.name for f in dataclasses.fields(Scenario)}
+MAX_REFINE_HOURS = 1500          # beyond this, the full power flow is cheaper than proxy + refinement
+MAX_PROXY_LOADING_ERROR_PP = 1.0  # a worse fit means the feeder is outside the proxy's comfort zone
 
 
 @dataclass(frozen=True)
@@ -102,16 +104,21 @@ def run_case(case: Case, weather: pd.DataFrame, fast: bool = True,
              neighbourhood: Neighbourhood | None = None,
              battery_sizing: BatterySizing | None = None) -> CaseResult:
     t0 = time.perf_counter()
-    if weather.index.tz is None:
-        raise ValueError("weather index must be tz-aware (UTC) — use hotspotlv.weather.get_weather")
+    if not isinstance(weather.index, pd.DatetimeIndex) or weather.index.tz is None:
+        raise ValueError("weather index must be a tz-aware DatetimeIndex (UTC) — use hotspotlv.weather.get_weather")
     nb = neighbourhood or build_neighbourhood(case.scenario, weather)
     net = build_feeder(n_houses=case.scenario.n_houses, trafo_kva=case.trafo_kva)
     fit_error, exact_hours = {}, 0
     if fast:
         proxy = fit_proxy(net, nb.cons_kw, nb.gen_kw)
         year = proxy.evaluate(nb.cons_kw, nb.gen_kw)
-        year, exact_hours = refine_near_limits(net, year, nb.cons_kw, nb.gen_kw)
         fit_error = proxy.fit_error
+        n_refine = int(refine_mask(year, fit_error).sum())
+        if n_refine > MAX_REFINE_HOURS or fit_error["loading_pct_max_abs"] > MAX_PROXY_LOADING_ERROR_PP:
+            year = run_year(net, nb.cons_kw, nb.gen_kw)        # heavy feeder: the full run is cheaper and exact
+            fast, exact_hours = False, len(year.hourly)
+        else:
+            year, exact_hours = refine_near_limits(net, year, nb.cons_kw, nb.gen_kw, fit_error=fit_error)
     else:
         year = run_year(net, nb.cons_kw, nb.gen_kw)
     if case.battery is not None:
@@ -177,11 +184,10 @@ def compare_fixes(base: Case, weather: pd.DataFrame, fast: bool = True,
     out["spread 22–06"] = run_case(replace(base, name="spread 22–06", scenario=spread), weather, fast=fast)
     # 3. battery sized by simulation to hold a share of nameplate (kVA)
     cap = battery_cap_share * base.trafo_kva
-    try:
-        sizing = size_by_simulation(baseline.year, cap)
-    except ValueError as e:
-        notes.append(f"battery: {e}")
+    if not (baseline.year.hourly["s_kva"] > cap).any():
+        notes.append(f"battery: transformer never exceeds {cap:.0f} kVA — no battery needed")
     else:
+        sizing = size_by_simulation(baseline.year, cap)
         b = sizing.params
         label = f"battery {b.power_kw:.0f} kW / {b.energy_kwh:.0f} kWh"
         if not sizing.feasible:

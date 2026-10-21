@@ -19,7 +19,7 @@ def wx():
 @pytest.fixture(scope="module")
 def heavy():
     # many houses on 500 kVA so that fixes have something to fix (within the proxy's range)
-    return Case("heavy", Scenario("heavy", n_houses=100, ev_share=0.7, pv_share=0.3,
+    return Case("heavy", Scenario("heavy", n_houses=80, ev_share=0.7, pv_share=0.3,
                                   heating_mix={"direct_electric": 0.5, "air_water": 0.3, "none": 0.2}, seed=3))
 
 
@@ -46,7 +46,7 @@ def test_heavy_case_is_flagged_and_refined(wx, heavy_cmp):
     assert r.verdict.on_paper["hours above 80 % of nameplate"] > 0
     assert 0 < r.verdict.on_paper["hours above 100 % of nameplate"] < r.verdict.on_paper["hours above 80 % of nameplate"]
     assert r.verdict.level in ("Watch", "At risk")
-    assert r.exact_hours > 0                                 # hours near the limits were re-run exactly
+    assert r.exact_hours > 0                                 # hours near the limits were re-run exactly (or the full run)
     assert r.metrics()["voltage_bad_hours"] + r.metrics()["voltage_plan_hours"] > 0
 
 
@@ -90,9 +90,12 @@ def test_compare_fixes(wx, heavy, heavy_cmp):
 
 
 def test_compare_fixes_reports_when_no_battery_is_needed(wx):
-    cmp = compare_fixes(Case("light", Scenario(n_houses=20, seed=1)), wx)
+    light = Case("light", Scenario(n_houses=20, seed=1), thermal=ThermalParams.for_transformer(500))
+    cmp = compare_fixes(light, wx)
     assert not any(n.startswith("battery") for n in cmp.results)
     assert any("no battery needed" in n for n in cmp.notes)
+    # an explicit Case.thermal on the base must not leak into the 800 kVA case
+    assert cmp.results["800 kVA"].thermal.params == ThermalParams.for_transformer(800)
 
 
 def test_monte_carlo_shape(wx):

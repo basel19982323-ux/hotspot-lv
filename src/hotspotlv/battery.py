@@ -72,6 +72,8 @@ class BatteryParams:
 
 
 def _step_hours(index: pd.Index) -> float:
+    if not isinstance(index, pd.DatetimeIndex):
+        raise ValueError("index must be a DatetimeIndex")
     if len(index) < 2:
         return 1.0
     spacing = np.unique(np.diff(index.to_numpy()) / np.timedelta64(1, "h"))
@@ -151,6 +153,9 @@ def size_by_simulation(year: YearResult, cap_kva: float, energy_tolerance_kwh: f
     dispatch holds S under cap_kva every step. If more than `energy_max_kwh` would be
     needed (typically: no time to recharge between the peaks of a cold spell), returns
     a battery of that size with feasible=False and the hours still above the cap."""
+    if not (math.isfinite(energy_tolerance_kwh) and energy_tolerance_kwh > 0
+            and math.isfinite(energy_max_kwh) and energy_max_kwh > 0 and math.isfinite(cap_kva) and cap_kva > 0):
+        raise ValueError("cap_kva, energy_tolerance_kwh and energy_max_kwh must be finite and > 0")
     h = year.hourly
     q = _q_from(year)
     p_limit = np.sqrt(np.maximum(cap_kva**2 - q**2, 0.0))

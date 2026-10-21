@@ -33,6 +33,7 @@ def test_proxy_matches_full_power_flow(case):
     assert d["loading_pct"].max() < 0.5                     # percentage points of nameplate
     assert d["s_kva"].max() / full.hourly["s_kva"].max() < 0.01
     assert d["p_kw"].max() < 2.0                            # same LV-side convention as run_year
+    assert d["p_kw"].mean() < 0.3                           # adding the transformer's losses to p_kw would show here
     assert d["vmin_pu"].max() < 0.01                        # voltage depends on WHICH houses load; one curve cannot know
     assert d["vmax_pu"].max() < 0.01
     assert d["line_max_pct"].max() < 5
@@ -72,10 +73,15 @@ def test_refine_near_limits_restores_exact_rows():
     refined, n = refine_near_limits(net, fast, cons, gen)
     full = run_year(build_feeder(n_houses=90), cons, gen)
     assert n > 0
-    near = (full.hourly["loading_pct"] > 90) | (full.hourly["vmin_pu"] < 0.94) | (full.hourly["line_max_pct"] > 90)
+    near = ((full.hourly["loading_pct"] > 90) | (full.hourly["vmin_pu"] < 0.94)
+            | (full.hourly["vmax_pu"] > 1.04) | (full.hourly["line_max_pct"] > 90))
     d = (refined.hourly - full.hourly).abs()
     assert d.loc[near, "loading_pct"].max() < 1e-6            # exact where it matters
     assert d.loc[near, "vmin_pu"].max() < 1e-9
+    assert d.loc[near, "p_kw"].max() < 1e-6                   # every column is replaced, not only the loading
+    assert d.loc[near, "vmax_pu"].max() < 1e-9
+    with pytest.raises(ValueError):
+        refine_near_limits(net, fast, cons.iloc[:-1], gen.iloc[:-1])   # index mismatch
     assert d["loading_pct"].max() <= (fast.hourly - full.hourly).abs()["loading_pct"].max() + 1e-9
 
 

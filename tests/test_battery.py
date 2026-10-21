@@ -95,6 +95,11 @@ def test_size_by_simulation_single_peak():
     assert hours_above(apply_battery(yr, s.params), 400) == 0
     with pytest.raises(ValueError):
         size_by_simulation(yr, cap_kva=600)
+    for bad in (dict(energy_tolerance_kwh=0), dict(energy_tolerance_kwh=float("nan")), dict(energy_max_kwh=0)):
+        with pytest.raises(ValueError):
+            size_by_simulation(yr, cap_kva=400, **bad)                 # would loop forever / do nothing
+    q = _year(_series(np.repeat(p.to_numpy(), 4), freq="15min"), _series([0] * 192, freq="15min"))
+    assert hours_above(q, 400) == pytest.approx(4.0)                 # hours, not quarter-hour rows
 
 
 def test_size_by_simulation_reports_infeasible_cold_spell():

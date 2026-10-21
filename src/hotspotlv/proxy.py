@@ -209,14 +209,28 @@ def fit_proxy(net: pp.pandapowerNet, cons_kw: pd.DataFrame, gen_kw: pd.DataFrame
                        cable_coef, service_kva, fit_error, len(rows))
 
 
+def refine_mask(year: YearResult, fit_error: dict | None = None) -> np.ndarray:
+    """Hours that sit near a verdict limit. The bands are widened by twice the proxy's own
+    fit error, so an hour the exact power flow would put near a limit is never missed."""
+    fe = fit_error or {}
+    v_margin = max(0.0, 2 * fe.get("vmin_max_abs", 0.0) - (0.94 - 0.92))
+    vmax_margin = max(0.0, 2 * fe.get("vmax_max_abs", 0.0) - (1.05 - 1.04))
+    load_margin = max(0.0, 2 * fe.get("loading_pct_max_abs", 0.0) - 10.0)
+    cable_margin = max(0.0, 2 * fe.get("cable_pct_max_abs", 0.0) - 10.0)
+    h = year.hourly
+    return ((h["loading_pct"] > REFINE_LOADING_PCT - load_margin) | (h["vmin_pu"] < REFINE_VMIN_PU + v_margin)
+            | (h["vmax_pu"] > REFINE_VMAX_PU - vmax_margin) | (h["line_max_pct"] > REFINE_CABLE_PCT - cable_margin)).to_numpy()
+
+
 def refine_near_limits(net: pp.pandapowerNet, year: YearResult, cons_kw: pd.DataFrame, gen_kw: pd.DataFrame,
-                       pf: float = POWER_FACTOR) -> tuple[YearResult, int]:
+                       pf: float = POWER_FACTOR, fit_error: dict | None = None) -> tuple[YearResult, int]:
     """Replace every proxy row that sits near a verdict limit with the exact power flow.
     Returns the refined YearResult and the number of hours re-run."""
+    _check_inputs(cons_kw, gen_kw, len(net.load))
+    if not cons_kw.index.equals(year.hourly.index):
+        raise ValueError("cons_kw/gen_kw must share the YearResult's index")
     h = year.hourly
-    mask = ((h["loading_pct"] > REFINE_LOADING_PCT) | (h["vmin_pu"] < REFINE_VMIN_PU)
-            | (h["vmax_pu"] > REFINE_VMAX_PU) | (h["line_max_pct"] > REFINE_CABLE_PCT)).to_numpy()
-    rows = np.flatnonzero(mask)
+    rows = np.flatnonzero(refine_mask(year, fit_error))
     if len(rows) == 0:
         return year, 0
     ex = _exact_rows(net, cons_kw.to_numpy(dtype=float), gen_kw.to_numpy(dtype=float), rows, pf)

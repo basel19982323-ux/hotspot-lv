@@ -71,8 +71,9 @@ class Reason:
     source: str
 
     def __str__(self) -> str:
-        lim = "none allowed" if self.threshold == 0 else f"limit {self.threshold:.3g} {self.unit}"
-        return f"{self.rule}: {self.value:.3g} {self.unit} ({lim}) — {self.source}"
+        fmt = ".0f" if self.unit == "hours" else ".3g"
+        lim = "none allowed" if self.threshold == 0 else f"limit {self.threshold:{fmt}} {self.unit}"
+        return f"{self.rule}: {self.value:{fmt}} {self.unit} ({lim}) — {self.source}"
 
 
 @dataclass
@@ -98,6 +99,8 @@ class Verdict:
 
 
 def _step_hours(index: pd.Index) -> float:
+    if not isinstance(index, pd.DatetimeIndex):
+        raise ValueError("results must be indexed by a DatetimeIndex")
     if len(index) < 2:
         return 1.0
     spacing = np.unique(np.diff(index.to_numpy()) / np.timedelta64(1, "h"))
@@ -118,14 +121,15 @@ def judge(year: YearResult, thermal: ThermalResult) -> Verdict:
     needed = ["loading_pct", "vmin_pu", "vmax_pu", "line_max_pct"]
     if not np.isfinite(h[needed].to_numpy()).all() or not np.isfinite(t[["theta_h_max", "theta_o", "V_mean"]].to_numpy()).all():
         raise ValueError("results contain NaN/inf")
-    hours = len(h) * _step_hours(h.index)
+    step_h = _step_hours(h.index)
+    hours = len(h) * step_h
     scale = HOURS_PER_YEAR / hours
     life_days_per_year = thermal.loss_of_life_days * scale
     max_hot_spot = float(t["theta_h_max"].max())
     max_top_oil = float(t["theta_o"].max())
     max_k = float(h["loading_pct"].max() / 100)
-    v_law_bad = int(((h["vmin_pu"] < VMIN_LIMIT_PU - TOL) | (h["vmax_pu"] > VMAX_LIMIT_PU + TOL)).sum())
-    v_plan_bad = int(((h["vmin_pu"] < VMIN_PLAN_PU - TOL) | (h["vmax_pu"] > VMAX_PLAN_PU + TOL)).sum())
+    v_law_bad = float(((h["vmin_pu"] < VMIN_LIMIT_PU - TOL) | (h["vmax_pu"] > VMAX_LIMIT_PU + TOL)).sum() * step_h)
+    v_plan_bad = float(((h["vmin_pu"] < VMIN_PLAN_PU - TOL) | (h["vmax_pu"] > VMAX_PLAN_PU + TOL)).sum() * step_h)
     cable_max = float(h["line_max_pct"].max())
 
     at_risk, watch = [], []
@@ -162,16 +166,16 @@ def judge(year: YearResult, thermal: ThermalResult) -> Verdict:
 
     level = "At risk" if at_risk else ("Watch" if watch else "OK")
     on_paper = {
-        f"hours above {NAMEPLATE_RULE_PCT:.0f} % of nameplate": int((h["loading_pct"] > NAMEPLATE_RULE_PCT + TOL).sum()),
-        "hours above 100 % of nameplate": int((h["loading_pct"] > 100 + TOL).sum()),
+        f"hours above {NAMEPLATE_RULE_PCT:.0f} % of nameplate": float((h["loading_pct"] > NAMEPLATE_RULE_PCT + TOL).sum() * step_h),
+        "hours above 100 % of nameplate": float((h["loading_pct"] > 100 + TOL).sum() * step_h),
         "peak load (% of nameplate)": float(h["loading_pct"].max()),
     }
     really = {
         "days of life used per year": life_days_per_year,
         "max hot-spot (°C)": max_hot_spot,
         "max top-oil (°C)": max_top_oil,
-        "hours hot-spot above 98 °C": thermal.steps_hot_spot_above(98),
-        "hours hot-spot above 120 °C": thermal.steps_hot_spot_above(IEC_LIMITS_C["normal_cyclic_hot_spot"]),
+        "hours hot-spot above 98 °C": thermal.steps_hot_spot_above(98) * step_h,
+        "hours hot-spot above 120 °C": thermal.steps_hot_spot_above(IEC_LIMITS_C["normal_cyclic_hot_spot"]) * step_h,
         "max load (× rated)": max_k,
         "hours with voltage outside ±10 %": v_law_bad,
         "hours with voltage outside the planning band": v_plan_bad,
