@@ -20,6 +20,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+app = ["PySide6-Essentials>=6.7", "pyqtgraph>=0.13"]
+
+[project.scripts]
+hotspot-lv = "hotspotlv.app.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

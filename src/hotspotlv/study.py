@@ -47,6 +47,7 @@ class Case:
     name: str
     scenario: Scenario
     trafo_kva: int = 500
+    n_feeders: int = 3                            # radial cables from the busbar
     battery: BatteryParams | None = None
     enclosure: str = "kiosk"                      # Swedish nätstation norm; "outdoor" for a pole/pad unit
     thermal: ThermalParams | None = None          # explicit constants override size + enclosure
@@ -107,7 +108,7 @@ def run_case(case: Case, weather: pd.DataFrame, fast: bool = True,
     if not isinstance(weather.index, pd.DatetimeIndex) or weather.index.tz is None:
         raise ValueError("weather index must be a tz-aware DatetimeIndex (UTC) — use hotspotlv.weather.get_weather")
     nb = neighbourhood or build_neighbourhood(case.scenario, weather)
-    net = build_feeder(n_houses=case.scenario.n_houses, trafo_kva=case.trafo_kva)
+    net = build_feeder(n_houses=case.scenario.n_houses, n_feeders=case.n_feeders, trafo_kva=case.trafo_kva)
     fit_error, exact_hours = {}, 0
     if fast:
         proxy = fit_proxy(net, nb.cons_kw, nb.gen_kw)

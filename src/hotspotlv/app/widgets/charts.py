@@ -1,0 +1,202 @@
+"""The three charts, built on pyqtgraph.
+
+  DurationCurve   loading % sorted high → low, with the 80 / 100 / 150 % lines
+                  ("for how many hours is the station above x")
+  YearTimeline    loading % (left axis) and hot-spot / ambient °C (right axis) over the
+                  whole period, with a draggable scrubber line → emits hour_changed(i)
+  WorstWeek       the 7 days that used the most insulation life: hot-spot, top-oil,
+                  ambient (°C) and loading (%)
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pyqtgraph as pg
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+
+from hotspotlv.app.theme import AMBIENT_COLOR, HOTSPOT_COLOR, LOAD_COLOR, MUTED, OIL_COLOR, RULE_80, RULE_100
+
+pg.setConfigOptions(antialias=True, background="w", foreground="#333333")
+
+
+def _axis_date(index: pd.DatetimeIndex) -> np.ndarray:
+    """Seconds since the epoch of the LOCAL wall-clock time (pyqtgraph's DateAxisItem shows them as local)."""
+    local = index.tz_convert("Europe/Stockholm").tz_localize(None)
+    return np.asarray(local.to_numpy().astype("datetime64[s]").astype("int64"), dtype=float)
+
+
+class DurationCurve(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.plot = pg.PlotWidget()
+        self.plot.setLabel("left", "transformer loading", units="% of nameplate")
+        self.plot.setLabel("bottom", "hours per year above this loading")
+        self.plot.showGrid(x=True, y=True, alpha=0.2)
+        self.plot.addLegend(offset=(-10, 10))
+        self.curve = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=2), name="loading duration curve")
+        for y, c, txt in ((80, RULE_80, "80 % rule"), (100, RULE_100, "nameplate"), (150, HOTSPOT_COLOR, "IEC 1.5 pu limit")):
+            line = pg.InfiniteLine(pos=y, angle=0, pen=pg.mkPen(c, style=Qt.DashLine), label=txt,
+                                   labelOpts={"position": 0.95, "color": c})
+            self.plot.addItem(line)
+        self.caption = QLabel("")
+        self.caption.setProperty("muted", True)
+        lay.addWidget(self.plot, 1)
+        lay.addWidget(self.caption)
+
+    def set_year(self, hourly: pd.DataFrame, step_h: float = 1.0):
+        lp = np.sort(hourly["loading_pct"].to_numpy())[::-1]
+        hours = np.arange(1, len(lp) + 1) * step_h
+        self.curve.setData(hours, lp)
+        self.plot.setXRange(0, max(hours[-1], 1))
+        self.plot.setYRange(0, max(110, float(lp[0]) * 1.05))
+        above80 = float((hourly["loading_pct"] > 80).sum() * step_h)
+        above100 = float((hourly["loading_pct"] > 100).sum() * step_h)
+        self.caption.setText(f"Above 80 %: {above80:,.0f} h · above 100 %: {above100:,.0f} h · peak {lp[0]:.0f} %")
+
+
+class YearTimeline(QWidget):
+    """Loading and temperatures over the period with a scrubber. Emits the row index under the scrubber."""
+    hour_changed = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.plot = pg.PlotWidget(axisItems={"bottom": pg.DateAxisItem()})
+        self.plot.setLabel("left", "loading", units="%")
+        self.plot.showGrid(x=True, y=True, alpha=0.2)
+        self.plot.addLegend(offset=(70, 10))
+        self.load = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=1), name="loading %")
+        self.plot.addItem(pg.InfiniteLine(pos=80, angle=0, pen=pg.mkPen(RULE_80, style=Qt.DashLine)))
+        self.plot.addItem(pg.InfiniteLine(pos=100, angle=0, pen=pg.mkPen(RULE_100, style=Qt.DashLine)))
+        # second y axis for temperatures
+        self.right = pg.ViewBox()
+        self.plot.showAxis("right")
+        self.plot.scene().addItem(self.right)
+        self.plot.getAxis("right").linkToView(self.right)
+        self.right.setXLink(self.plot)
+        self.plot.setLabel("right", "temperature", units="°C")
+        self.hot = pg.PlotCurveItem(pen=pg.mkPen(HOTSPOT_COLOR, width=1), name="hot-spot °C")
+        self.amb = pg.PlotCurveItem(pen=pg.mkPen(AMBIENT_COLOR, width=1), name="outdoor °C")
+        self.right.addItem(self.hot)
+        self.right.addItem(self.amb)
+        self.plot.plotItem.legend.addItem(self.hot, "hot-spot °C")
+        self.plot.plotItem.legend.addItem(self.amb, "outdoor °C")
+        self.plot.getViewBox().sigResized.connect(self._sync)
+        self.scrubber = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen("#000000", width=2))
+        self.plot.addItem(self.scrubber)
+        self.scrubber.sigPositionChanged.connect(self._moved)
+        self.readout = QLabel("")
+        self.readout.setProperty("muted", True)
+        lay.addWidget(self.plot, 1)
+        lay.addWidget(self.readout)
+        self._x = np.array([])
+        self._hourly = None
+        self._thermal = None
+        self._ambient = None
+
+    def _sync(self):
+        self.right.setGeometry(self.plot.getViewBox().sceneBoundingRect())
+        self.right.linkedViewChanged(self.plot.getViewBox(), self.right.XAxis)
+
+    def set_data(self, hourly: pd.DataFrame, thermal: pd.DataFrame | None, ambient: pd.Series | None):
+        self._hourly, self._thermal, self._ambient = hourly, thermal, ambient
+        self._x = _axis_date(hourly.index)
+        self.load.setData(self._x, hourly["loading_pct"].to_numpy())
+        if thermal is not None:
+            self.hot.setData(self._x, thermal["theta_h_max"].to_numpy())
+        if ambient is not None:
+            self.amb.setData(self._x, ambient.to_numpy())
+        self.plot.setXRange(self._x[0], self._x[-1])
+        self.plot.setYRange(0, max(110, float(hourly["loading_pct"].max()) * 1.05))
+        lo = min(float(ambient.min()) if ambient is not None else 0, 0)
+        hi = max(float(thermal["theta_h_max"].max()) if thermal is not None else 100, 100)
+        self.right.setYRange(lo - 5, hi + 5)
+        self._sync()
+        peak = int(np.argmax(hourly["loading_pct"].to_numpy()))
+        self.scrubber.setPos(self._x[peak])
+
+    def _moved(self):
+        if len(self._x) == 0:
+            return
+        i = int(np.clip(np.searchsorted(self._x, self.scrubber.value()), 0, len(self._x) - 1))
+        h = self._hourly.iloc[i]
+        t = self._hourly.index[i].tz_convert("Europe/Stockholm")
+        txt = f"{t:%a %d %b %Y %H:%M} local — loading {h['loading_pct']:.0f} % ({h['s_kva']:.0f} kVA)"
+        if self._thermal is not None:
+            txt += f" · hot-spot {self._thermal['theta_h_max'].iloc[i]:.0f} °C · top-oil {self._thermal['theta_o'].iloc[i]:.0f} °C"
+        if self._ambient is not None:
+            txt += f" · outdoor {self._ambient.iloc[i]:.1f} °C"
+        if "vmin_pu" in h and h["vmin_pu"] != 1.0:
+            txt += f" · lowest house {h['vmin_pu']:.3f} pu"
+        self.readout.setText(txt)
+        self.hour_changed.emit(i)
+
+    def go_to(self, i: int):
+        if len(self._x):
+            self.scrubber.setPos(self._x[int(np.clip(i, 0, len(self._x) - 1))])
+
+    def label_at(self, i: int) -> str:
+        if self._hourly is None:
+            return ""
+        t = self._hourly.index[int(np.clip(i, 0, len(self._hourly) - 1))].tz_convert("Europe/Stockholm")
+        return f"{t:%a %d %b %Y %H:%M} local"
+
+
+
+class WorstWeek(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.plot = pg.PlotWidget(axisItems={"bottom": pg.DateAxisItem()})
+        self.plot.setLabel("left", "temperature", units="°C")
+        self.plot.showGrid(x=True, y=True, alpha=0.2)
+        self.plot.addLegend(offset=(70, 10))
+        self.hot = self.plot.plot([], [], pen=pg.mkPen(HOTSPOT_COLOR, width=2), name="hot-spot")
+        self.oil = self.plot.plot([], [], pen=pg.mkPen(OIL_COLOR, width=1.5), name="top-oil")
+        self.amb = self.plot.plot([], [], pen=pg.mkPen(AMBIENT_COLOR, width=1.5), name="outdoor")
+        self.plot.addItem(pg.InfiniteLine(pos=98, angle=0, pen=pg.mkPen(RULE_80, style=Qt.DashLine), label="98 °C (V = 1)",
+                                          labelOpts={"position": 0.05, "color": RULE_80}))
+        self.plot.addItem(pg.InfiniteLine(pos=120, angle=0, pen=pg.mkPen(HOTSPOT_COLOR, style=Qt.DashLine), label="120 °C IEC limit",
+                                          labelOpts={"position": 0.05, "color": HOTSPOT_COLOR}))
+        self.right = pg.ViewBox()
+        self.plot.showAxis("right")
+        self.plot.scene().addItem(self.right)
+        self.plot.getAxis("right").linkToView(self.right)
+        self.right.setXLink(self.plot)
+        self.plot.setLabel("right", "loading", units="%")
+        self.load = pg.PlotCurveItem(pen=pg.mkPen(LOAD_COLOR, width=1, style=Qt.DotLine))
+        self.right.addItem(self.load)
+        self.plot.plotItem.legend.addItem(self.load, "loading %")
+        self.plot.getViewBox().sigResized.connect(self._sync)
+        self.caption = QLabel("")
+        self.caption.setProperty("muted", True)
+        lay.addWidget(self.plot, 1)
+        lay.addWidget(self.caption)
+
+    def _sync(self):
+        self.right.setGeometry(self.plot.getViewBox().sceneBoundingRect())
+        self.right.linkedViewChanged(self.plot.getViewBox(), self.right.XAxis)
+
+    def set_week(self, week: pd.DataFrame, hourly: pd.DataFrame, ambient: pd.Series, step_h: float = 1.0):
+        x = _axis_date(week.index)
+        self.hot.setData(x, week["theta_h_max"].to_numpy())
+        self.oil.setData(x, week["theta_o"].to_numpy())
+        self.amb.setData(x, ambient.loc[week.index].to_numpy())
+        self.load.setData(x, hourly.loc[week.index, "loading_pct"].to_numpy())
+        self.plot.setXRange(x[0], x[-1])
+        lo = min(float(ambient.loc[week.index].min()), 0) - 5
+        hi = max(float(week["theta_h_max"].max()), 125) + 5
+        self.plot.setYRange(lo, hi)
+        self.right.setYRange(0, max(110, float(hourly.loc[week.index, "loading_pct"].max()) * 1.05))
+        self._sync()
+        life = float(week["V_mean"].sum() * step_h / 24)
+        start = week.index[0].tz_convert("Europe/Stockholm")
+        self.caption.setText(f"Worst week starts {start:%d %b %Y}: {life:.3f} days of insulation life used, "
+                             f"max hot-spot {week['theta_h_max'].max():.0f} °C, "
+                             f"outdoor {ambient.loc[week.index].min():.0f} … {ambient.loc[week.index].max():.0f} °C")
