@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from hotspotlv.app.theme import AMBIENT_COLOR, HOTSPOT_COLOR, LOAD_COLOR, OIL_COLOR, RULE_80, RULE_100
 
@@ -117,7 +117,8 @@ class YearTimeline(QWidget):
         self.scrubber.sigPositionChanged.connect(self._moved)
         self.readout = QLabel("")
         self.readout.setProperty("muted", True)
-        self.readout.setWordWrap(False)        # a wrapped label imposes its height on the whole column
+        self.readout.setWordWrap(False)        # a wrapped label imposes its height on the whole column …
+        self.readout.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)   # … and an unwrapped one its width: neither here
         lay.addWidget(self.plot, 1)
         lay.addWidget(self.readout)
         self._x = np.array([])
@@ -158,7 +159,7 @@ class YearTimeline(QWidget):
             txt += f" · outdoor {self._ambient.iloc[i]:.1f} °C"
         if "vmin_pu" in h and h["vmin_pu"] != 1.0:
             txt += f" · lowest house {h['vmin_pu']:.3f} pu"
-        self.readout.setText(txt)
+        self.readout.setText(txt); self.readout.setToolTip(txt)
         self.hour_changed.emit(i)
 
     def go_to(self, i: int):
@@ -212,6 +213,7 @@ class WorstWeek(QWidget):
         self.caption = QLabel("")
         self.caption.setProperty("muted", True)
         self.caption.setWordWrap(False)
+        self.caption.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         lay.addWidget(self.plot, 1)
         lay.addWidget(self.caption)
 
@@ -238,3 +240,4 @@ class WorstWeek(QWidget):
         self.caption.setText(f"Worst week starts {start:%d %b %Y}: {life:.3f} days of insulation life used, "
                              f"max hot-spot {week['theta_h_max'].max():.0f} °C, "
                              f"outdoor {ambient.loc[week.index].min():.0f} … {ambient.loc[week.index].max():.0f} °C")
+        self.caption.setToolTip(self.caption.text())

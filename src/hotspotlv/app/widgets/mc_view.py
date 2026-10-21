@@ -2,14 +2,14 @@
 numbers — and the verdict — depend on who happened to get a heat pump, an EV or PV.
 
     ┌ controls ────────────┐ ┌ base case: 60 houses / 500 kVA · … (banner if the inputs differ) ┐
-    │ draws 10, first 0    │ │ Verdict over 10 draws: OK 6 · Watch 3 · At risk 1                 │
-    │ [Run 10 draws]       │ │ metric [peak load ▾]      ● one dot per draw, band = 10–90 %,     │
-    │ ▓▓░ 2/10 · 0:40      │ │                           line = median, dashed = the rule limits │
+    │ draws 10, first 0    │ │ Same verdict in all 10 draws: OK   /  the verdict changed: OK 6 … │
+    │ [Run 10 draws]       │ │ chart [peak load ▾]     ● one dot per draw, band = middle 80 %,   │
+    │ ▓▓░ 2/10 · 0:40      │ │                         line = median, dashed = the rule limits   │
     └──────────────────────┘ │ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■   verdict squares per draw                   │
-                             ├ spread table: metric · mean · min · 10 % · 50 % · 90 % · max ─────┤
+                             │ limits line: "dashed: 80 % paper rule · 100 % of nameplate"       │
+                             ├ spread table: quantity · mean · min · 10 % · 50 % · 90 % · max ──┤
                              └ every draw ────────────────────────────────────────────────────────┘
-    caption: "10 draws (seeds 0–9): verdict OK 6 / Watch 3 / At risk 1 — not robust; peak load 60–78 %
-              (median 70) …"
+    caption: "10 draws (seeds 0–9): same verdict in all: OK; peak load 60–78 % (median 70) …"
 
 The engine runs the draws (study.monte_carlo) and the statistics (study.summarise_monte_carlo);
 this file only draws them. Thresholds on the chart are the verdict module's own constants.
@@ -26,42 +26,64 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QProgressBar,
                                QPushButton, QScrollArea, QSpinBox, QSplitter, QTableView, QTabWidget, QVBoxLayout, QWidget)
 
-from hotspotlv.app.theme import HOTSPOT_COLOR, INK, LOAD_COLOR, RULE_80, RULE_100, VERDICT_COLORS
+from hotspotlv.app.theme import INK, LOAD_COLOR, RULE_80, RULE_100, VERDICT_COLORS
 from hotspotlv.app.widgets.describe import describe_case
 from hotspotlv.app.widgets.station_panel import show_error
 from hotspotlv.app.widgets.tables import DataFrameModel
 from hotspotlv.app.workers import Worker
 from hotspotlv.study import Case, monte_carlo, summarise_monte_carlo
-from hotspotlv.thermal import IEC_LIMITS_C
+from hotspotlv.thermal import IEC_LIMITS_C, IEC_LIMITS_K
 from hotspotlv.timeseries import NAMEPLATE_RULE_PCT
 from hotspotlv.verdict import DESIGN_LIFE_DAYS_PER_YEAR, LEVELS, WATCH_LIFE_DAYS_PER_YEAR
 
-# metric → (label, [(limit value, limit label, colour)]) — limits are the verdict module's own numbers
+# metric → (label, unit for the caption, [(limit value, limit label, colour)]) — limits are the verdict module's numbers
 METRICS = {
-    "peak_loading_pct": ("peak load (% of nameplate)", [(NAMEPLATE_RULE_PCT, f"{NAMEPLATE_RULE_PCT:g} % paper rule", RULE_80),
-                                                        (100.0, "100 % of nameplate", RULE_100)]),
-    "hours_above_80": (f"hours above {NAMEPLATE_RULE_PCT:g} % of nameplate", []),
-    "hours_above_100": ("hours above 100 % of nameplate", []),
-    "life_days_per_year": ("life used (days/yr)", [(WATCH_LIFE_DAYS_PER_YEAR, "Watch: half the design rate", VERDICT_COLORS["Watch"]),
-                                                   (DESIGN_LIFE_DAYS_PER_YEAR, "At risk: IEC design rate", VERDICT_COLORS["At risk"])]),
-    "max_hot_spot_c": ("max hot-spot (°C)", [(IEC_LIMITS_C["normal_cyclic_hot_spot"], "Watch: IEC normal cyclic", VERDICT_COLORS["Watch"]),
-                                             (IEC_LIMITS_C["long_time_emergency_hot_spot"], "At risk: IEC long-time emergency", VERDICT_COLORS["At risk"])]),
-    "voltage_bad_hours": ("hours with voltage outside ±10 %", [(0.0, "At risk: none allowed (EIFS 2023:3)", VERDICT_COLORS["At risk"])]),
-    "voltage_plan_hours": ("hours outside the planning band", [(0.0, "Watch: none allowed (planning band 0.92–1.05)", VERDICT_COLORS["Watch"])]),
-    "max_cable_pct": ("max main-cable loading (%)", [(100.0, "Watch: cable rating", VERDICT_COLORS["Watch"])]),
+    "peak_loading_pct": ("peak load (% of nameplate)", " %",
+                         [(NAMEPLATE_RULE_PCT, f"{NAMEPLATE_RULE_PCT:g} % paper rule", RULE_80), (100.0, "100 % of nameplate", RULE_100)]),
+    "hours_above_80": (f"hours above {NAMEPLATE_RULE_PCT:g} % of nameplate", " h", []),
+    "hours_above_100": ("hours above 100 % of nameplate", " h", []),
+    "life_days_per_year": ("life used (days/yr)", " days/yr",
+                           [(WATCH_LIFE_DAYS_PER_YEAR, "Watch: half the design rate", VERDICT_COLORS["Watch"]),
+                            (DESIGN_LIFE_DAYS_PER_YEAR, "At risk: IEC design rate", VERDICT_COLORS["At risk"])]),
+    "max_hot_spot_c": ("max hot-spot (°C)", " °C",
+                       [(IEC_LIMITS_C["normal_cyclic_hot_spot"], "Watch: IEC normal cyclic", VERDICT_COLORS["Watch"]),
+                        (IEC_LIMITS_C["long_time_emergency_hot_spot"], "At risk: IEC long-time emergency", VERDICT_COLORS["At risk"])]),
+    "hours_hot_spot_above_98": ("hours hot-spot above 98 °C", " h", []),
+    "max_load_pu": ("max load (× rated)", " × rated",
+                    [(IEC_LIMITS_K["normal_cyclic"], "Watch: IEC normal cyclic", VERDICT_COLORS["Watch"]),
+                     (IEC_LIMITS_K["long_time_emergency"], "At risk: IEC long-time emergency", VERDICT_COLORS["At risk"])]),
+    "voltage_bad_hours": ("hours with voltage outside ±10 %", " h", [(0.0, "At risk: none allowed (EIFS 2023:3)", VERDICT_COLORS["At risk"])]),
+    "voltage_plan_hours": ("hours outside the planning band", " h", [(0.0, "Watch: none allowed (planning band 0.92–1.05 pu)", VERDICT_COLORS["Watch"])]),
+    "max_cable_pct": ("max main-cable loading (%)", " %", [(100.0, "Watch: cable rating", VERDICT_COLORS["Watch"])]),
 }
+HOUR_KEYS = ("hours_above_80", "hours_above_100", "hours_hot_spot_above_98", "voltage_bad_hours", "voltage_plan_hours")
 SUMMARY_COLUMNS = ["mean", "min", "10%", "50%", "90%", "max"]
+SUMMARY_TIPS = {"mean": "Average of the draws.", "min": "Smallest draw.", "max": "Largest draw.",
+                "10%": "10th percentile: one draw in ten falls below this (linear interpolation between sorted draws).",
+                "50%": "Median: half the draws are below, half above.",
+                "90%": "90th percentile: one draw in ten lies above this.",
+                "quantity": "One row per number the engine reports for each draw; the chart above shows one of them."}
 DRAW_COLUMNS = ["verdict", "peak_loading_pct", "hours_above_80", "hours_above_100", "life_days_per_year", "max_hot_spot_c",
-                "voltage_bad_hours", "voltage_plan_hours", "max_cable_pct", "exact_hours", "why"]
-BAND_COLOR = (31, 78, 121, 40)      # LOAD_COLOR at 16 % alpha
-LEGEND = ("One dot per random draw (x = seed). Shaded band = the 10–90 % range of the draws, solid line = the median, "
-          "dashed lines = the rule limits. Squares below the axis = the verdict of that draw: green OK · amber Watch · red At risk. "
-          "Same inputs and weather every time — only the draw differs: which houses get a heat pump, an EV or PV, "
-          "the charger sizes and when the cars charge.")
+                "hours_hot_spot_above_98", "max_load_pu", "voltage_bad_hours", "voltage_plan_hours", "max_cable_pct", "exact_hours", "why"]
+MIN_DRAWS, BAND_FROM = 5, 10          # below BAND_FROM draws the band is the full range, not percentiles
+BAND_COLOR = (31, 78, 121, 40)        # LOAD_COLOR at 16 % alpha
+WHAT_VARIES = ("What the draw changes: which houses get a heat pump, an EV or PV; their base-load profile and annual kWh; "
+               "heat-pump sizes; PV kWp; charger sizes; charging days, energies and arrival times. What stays fixed: the inputs "
+               "on the left, the weather year (one winter), the IEC constants, the cable and the rules.")
 
 
 def tally(verdicts: pd.Series) -> dict:
     return {lvl: int((verdicts == lvl).sum()) for lvl in LEVELS}
+
+
+def fmt_value(key: str, v: float) -> str:
+    if key == "life_days_per_year":
+        return f"{v:.3f}" if v < 1 else f"{v:.2f}"
+    if key in HOUR_KEYS:
+        return f"{v:,.0f}"
+    if key == "max_load_pu":
+        return f"{v:.2f}"
+    return f"{v:.1f}"
 
 
 class MonteCarloView(QWidget):
@@ -84,20 +106,27 @@ class MonteCarloView(QWidget):
         self._blocked: str | None = None; self._saved_status = ""; self._done_status = ""
         lay = QHBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
 
-        g = QGroupBox("Same case, different dice")
+        g = QGroupBox("Same case, different draws")
         g.setToolTip("Runs the inputs on the left of the window once per random draw (seed). Nothing else changes.")
         f = QFormLayout(g); f.setRowWrapPolicy(QFormLayout.WrapLongRows)
-        self.n_draws = QSpinBox(); self.n_draws.setRange(2, 40); self.n_draws.setValue(10); self.n_draws.setSuffix(" draws")
-        self.n_draws.setToolTip("How many random draws to run; each is a full case (seconds in fast mode, up to ~2 min "
-                                "per draw when a heavy street falls back to the full power flow).")
+        self.n_draws = QSpinBox(); self.n_draws.setRange(MIN_DRAWS, 40); self.n_draws.setValue(10); self.n_draws.setSuffix(" draws")
+        self.n_draws.setToolTip(f"How many random draws to run (at least {MIN_DRAWS}); each is a full case: seconds in fast mode, "
+                                "up to ~2 min per draw when a heavy street falls back to the full power flow. "
+                                f"Below {BAND_FROM} draws the chart shows the full range instead of the 10–90 % band.")
         self.first = QSpinBox(); self.first.setRange(0, 9000); self.first.setValue(0)
-        self.first.setToolTip("Seed of the first draw; the draws are first, first + 1, … Use the same first seed to repeat a run exactly.")
+        self.first.setToolTip("Draw (seed) of the first run; the draws are first, first + 1, … The 'Random draw' box on the left "
+                              "is ignored here. Use the same first draw to repeat a run exactly.")
         self.fast = QCheckBox("fast mode"); self.fast.setChecked(True)
         self.fast.setToolTip("Fits a power-flow proxy on ~300 real power flows and computes every hour near a limit exactly. "
                              "Heavy streets fall back to the full power flow on their own (up to ~2 min per draw).")
+        self.metric_box = QComboBox(); [self.metric_box.addItem(label, key) for key, (label, _, _) in METRICS.items()]
+        self.metric_box.setToolTip("Which number the chart shows; the tables below have all of them.")
+        self.metric_box.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon); self.metric_box.setMinimumContentsLength(14)
+        self.metric_box.currentIndexChanged.connect(self._redraw)
         f.addRow("Draws", self.n_draws)
-        f.addRow("First seed", self.first)
+        f.addRow("First draw (seed)", self.first)
         f.addRow("", self.fast)
+        f.addRow("Chart", self.metric_box)
         row = QHBoxLayout()
         self.run_btn = QPushButton("Run 10 draws"); self.run_btn.clicked.connect(self.run)
         self.run_btn.setToolTip("Runs one full case per draw on the inputs on the left of the window (not on the case shown in the card).")
@@ -118,23 +147,22 @@ class MonteCarloView(QWidget):
         scroll.setFrameShape(QScrollArea.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         column.setMinimumWidth(0); scroll.setMinimumWidth(240)
 
-        results = QWidget(); rv = QVBoxLayout(results); rv.setContentsMargins(0, 0, 0, 0)
+        results = QWidget(); rv = QVBoxLayout(results); rv.setContentsMargins(0, 0, 0, 0); rv.setSpacing(3)
         self.banner = QLabel(""); self.banner.setWordWrap(True); self.banner.setVisible(False)
         self.banner.setStyleSheet(f"color: {INK}; font-weight: 600; background: #fff4d6; padding: 4px; border-radius: 4px;")
         self.base_label = QLabel(""); self.base_label.setProperty("muted", True); self.base_label.setWordWrap(True)
         self.tally_label = QLabel(""); self.tally_label.setWordWrap(True); self.tally_label.setTextFormat(Qt.RichText)
         self.tally_label.setStyleSheet("font-weight: 600;")
+        self.tally_label.setToolTip("How many of the draws ended in each verdict. Agreement across a handful of draws is "
+                                    "evidence, not proof: a station near a limit can flip on the next draw.")
         rv.addWidget(self.banner); rv.addWidget(self.base_label); rv.addWidget(self.tally_label)
         split = QSplitter(Qt.Vertical)
-        top = QWidget(); tv = QVBoxLayout(top); tv.setContentsMargins(0, 0, 0, 0)
-        pick = QHBoxLayout()
-        self.metric_box = QComboBox(); [self.metric_box.addItem(label, key) for key, (label, _) in METRICS.items()]
-        self.metric_box.setToolTip("Which number the chart shows; the tables below have all of them.")
-        self.metric_box.currentIndexChanged.connect(self._redraw)
-        pick.addWidget(QLabel("Chart")); pick.addWidget(self.metric_box, 1)
-        tv.addLayout(pick)
-        self.plot = pg.PlotWidget(); self.plot.showGrid(x=True, y=True, alpha=0.2); self.plot.setMinimumHeight(130)
-        self.plot.setLabel("bottom", "random draw (seed)")
+        top = QWidget(); tv = QVBoxLayout(top); tv.setContentsMargins(0, 0, 0, 0); tv.setSpacing(2)
+        self.plot = pg.PlotWidget(); self.plot.showGrid(x=True, y=True, alpha=0.2); self.plot.setMinimumHeight(110)
+        self.plot.setLabel("bottom", "random draw (seed) — a label, not a quantity")
+        self.plot.setToolTip("One dot per draw. Shaded band = the middle 80 % of the draws (or the full range below "
+                             f"{BAND_FROM} draws), solid line = median, dashed = the rule limits. Squares below the axis = "
+                             "that draw's verdict (green OK, amber Watch, red At risk).")
         self.band = pg.LinearRegionItem(orientation="horizontal", movable=False, brush=pg.mkBrush(*BAND_COLOR), pen=pg.mkPen(None))
         self.band.setZValue(-10); self.plot.addItem(self.band)
         self.median_line = pg.InfiniteLine(angle=0, pen=pg.mkPen(LOAD_COLOR, width=2), label="median",
@@ -143,20 +171,27 @@ class MonteCarloView(QWidget):
         self.dots = pg.ScatterPlotItem(size=9, brush=LOAD_COLOR, pen=pg.mkPen(None)); self.plot.addItem(self.dots)
         self._limit_lines = []; self._strip = []
         tv.addWidget(self.plot, 1)
-        split.addWidget(top)
-        self.legend = QLabel(LEGEND); self.legend.setProperty("muted", True); self.legend.setWordWrap(True)
-        tabs = QTabWidget()
-        self.summary_view = QTableView(); self.summary_model = DataFrameModel(decimals=1); self.summary_view.setModel(self.summary_model)
-        self.summary_view.setAlternatingRowColors(True); self.summary_view.setMinimumHeight(84)
-        self.draws_view = QTableView(); self.draws_model = DataFrameModel(decimals=1); self.draws_view.setModel(self.draws_model)
-        self.draws_view.setAlternatingRowColors(True); self.draws_view.setMinimumHeight(84)
-        tabs.addTab(self.summary_view, "Spread of every number"); tabs.addTab(self.draws_view, "Every draw")
-        lower = QWidget(); lv = QVBoxLayout(lower); lv.setContentsMargins(0, 0, 0, 0)
-        lv.addWidget(self.legend); lv.addWidget(tabs, 1)
-        split.addWidget(lower)
-        split.setSizes([300, 220])
+        self.limits_note = QLabel(""); self.limits_note.setProperty("muted", True); self.limits_note.setWordWrap(True)
+        self.legend = QLabel(""); self.legend.setProperty("muted", True); self.legend.setWordWrap(True)
+        self.legend.setToolTip(WHAT_VARIES)
         self.caption = QLabel(""); self.caption.setProperty("muted", True); self.caption.setWordWrap(True)
-        rv.addWidget(split, 1); rv.addWidget(self.caption)
+        strip = QWidget(); sl = QVBoxLayout(strip); sl.setContentsMargins(0, 0, 0, 0); sl.setSpacing(1)
+        sl.addWidget(self.limits_note); sl.addWidget(self.legend); sl.addWidget(self.caption)
+        notes = QScrollArea(); notes.setWidget(strip); notes.setWidgetResizable(True); notes.setFrameShape(QScrollArea.NoFrame)
+        notes.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); notes.setMaximumHeight(64); notes.setMinimumHeight(40)
+        notes.setToolTip(WHAT_VARIES)
+        tv.addWidget(notes)
+        split.addWidget(top)
+        tabs = QTabWidget()
+        self.summary_view = QTableView(); self.summary_model = DataFrameModel(decimals=1, header_tips=SUMMARY_TIPS)
+        self.summary_view.setModel(self.summary_model)
+        self.summary_view.setAlternatingRowColors(True); self.summary_view.setMinimumHeight(72)
+        self.draws_view = QTableView(); self.draws_model = DataFrameModel(decimals=1); self.draws_view.setModel(self.draws_model)
+        self.draws_view.setAlternatingRowColors(True); self.draws_view.setMinimumHeight(72)
+        tabs.addTab(self.summary_view, "Spread of every number"); tabs.addTab(self.draws_view, "Every draw")
+        split.addWidget(tabs)
+        split.setSizes([320, 200])
+        rv.addWidget(split, 1)
         outer = QSplitter(Qt.Horizontal)
         outer.addWidget(scroll); outer.addWidget(results)
         outer.setStretchFactor(0, 0); outer.setStretchFactor(1, 1); outer.setSizes([290, 900])
@@ -178,9 +213,10 @@ class MonteCarloView(QWidget):
         self.banner.setText(text or ""); self.banner.setVisible(bool(text))
 
     def inputs_changed(self, case=None):
+        """`case` = the current inputs; stale only while they differ (seed aside) from the draws' own base case."""
         if self.table is None or self.is_running() or self._blocked:
             return
-        if case is not None and self._shown_case is not None and case == self._shown_case:
+        if case is not None and self._shown_case is not None and same_but_seed(case, self._shown_case):
             self.status.setText(self._done_status)
         else:
             self.status.setText("Inputs changed since these draws — press Run to update.")
@@ -261,31 +297,46 @@ class MonteCarloView(QWidget):
         self.set_table(table, self._run_case)
 
     # ---------------- show
+    @staticmethod
+    def _seeds_text(table: pd.DataFrame) -> str:
+        idx = [int(i) for i in table.index]
+        if idx == list(range(idx[0], idx[0] + len(idx))):
+            return f"draws {idx[0]}–{idx[-1]}"
+        return "draws " + ", ".join(str(i) for i in idx)
+
     def set_table(self, table: pd.DataFrame, case: Case | None = None):
         """Show a Monte Carlo result (used by the worker and by tests)."""
         try:
             self.table = table
             self.summary = summarise_monte_carlo(table)
             self._shown_case = case
-            t = tally(table["verdict"])
             n = len(table)
-            robust = max(t.values()) == n
+            t = tally(table["verdict"])
+            agreed = max(t.values()) == n
             parts = " · ".join(f"<span style='color:{VERDICT_COLORS[lvl]}'>{lvl} {t[lvl]}</span>" for lvl in LEVELS if t[lvl])
-            self.tally_label.setText(f"Verdict over {n} draws: {parts}" + ("" if robust else
-                                     " — the verdict depends on the draw: look at the band, not at one run"))
-            summary = self.summary.copy()
-            summary.index = [METRICS.get(k, (k, None))[0] for k in summary.index]
-            summary.index.name = "number"
-            self.summary_model.set_df(summary[SUMMARY_COLUMNS])
+            self.tally_label.setText(f"Same verdict in all {n} draws: {parts}" if agreed else
+                                     f"The verdict changed between draws — {parts} of {n}: look at the band, not at one run")
+            # the spread table, formatted per row (hours whole, life to 3 decimals …), all the engine's numbers
+            rows = {}
+            for key in self.summary.index:
+                label = METRICS.get(key, (key, "", []))[0]
+                rows[label] = {c: fmt_value(key, float(self.summary.loc[key, c])) for c in SUMMARY_COLUMNS}
+            summary = pd.DataFrame(rows).T[SUMMARY_COLUMNS]
+            summary.index.name = "quantity"
+            self.summary_model.set_df(summary)
             self.summary_view.resizeColumnsToContents()
             draws = table[[c for c in DRAW_COLUMNS if c in table.columns]].copy()
             draws.index.name = "seed"
             self.draws_model.set_df(draws)
             self.draws_view.resizeColumnsToContents()
-            self.base_label.setText("Base case: " + describe_case(case) if case is not None else "Base case: the current inputs")
+            base = describe_case(case, seed=False) if case is not None else "the current inputs"
+            self.base_label.setText(f"Base case: {base} · {self._seeds_text(table)}")
+            band = "middle 80 % of the draws (10th–90th percentile)" if n >= BAND_FROM else f"full range of these {n} draws"
+            self.legend.setText(f"Band = {band}; line = median; dashed = the rule limits (listed under the chart); "
+                                f"squares = verdict per draw. Only the draw changes — hover for what that means.")
             self.caption.setText(self._caption(table, t))
             self._redraw()
-            self._done_status = f"Done: {n} draws (seeds {table.index.min()}–{table.index.max()}). The tables have every number."
+            self._done_status = f"Done: {n} draws ({self._seeds_text(table)}). The tables have every number the engine reports per draw."
             self.status.setText(self._done_status)
         except Exception as e:
             show_error(self, "Could not show the draws", f"{type(e).__name__}: {e}")
@@ -294,51 +345,65 @@ class MonteCarloView(QWidget):
         if self.table is None:
             return
         key = self.metric_box.currentData()
-        label, limits = METRICS[key]
+        label, _, limits = METRICS[key]
+        n = len(self.table)
         x = np.asarray(self.table.index, dtype=float)
         y = self.table[key].to_numpy(dtype=float)
         self.dots.setData(x, y)
-        lo, med, hi = (float(np.nanpercentile(y, p)) for p in (10, 50, 90))
+        if n >= BAND_FROM:
+            lo, hi = (float(np.nanpercentile(y, p)) for p in (10, 90))
+        else:
+            lo, hi = float(np.nanmin(y)), float(np.nanmax(y))
+        med = float(np.nanmedian(y))
         self.band.setRegion((lo, hi)); self.median_line.setPos(med)
         for item in self._limit_lines + self._strip:
             self.plot.removeItem(item)
         self._limit_lines, self._strip = [], []
-        ymax = max(float(np.nanmax(y)), max((v for v, _, _ in limits), default=0.0))
-        top = max(ymax * 1.15, 1.0)
+        # the range follows the DATA; a limit far above the draws is named under the chart, not squashed onto it
+        data_top = float(np.nanmax(y)) if np.isfinite(np.nanmax(y)) else 0.0
+        top = max(data_top * 1.25, 1.0)
+        on, off = [], []
         for value, text, color in limits:
-            line = pg.InfiniteLine(angle=0, pos=value, pen=pg.mkPen(color, style=Qt.DashLine), label=text,
-                                   labelOpts={"position": 0.03, "color": color, "anchors": [(0, 1), (0, 1)]})
-            self.plot.addItem(line); self._limit_lines.append(line)
+            if value <= top:
+                line = pg.InfiniteLine(angle=0, pos=value, pen=pg.mkPen(color, style=Qt.DashLine))
+                self.plot.addItem(line); self._limit_lines.append(line); on.append(f"{text} at {value:g}")
+            else:
+                off.append(f"{text} at {value:g}")
+        note = []
+        if on:
+            note.append("dashed: " + " · ".join(on))
+        if off:
+            note.append("off the chart, far above the draws: " + " · ".join(off))
+        if not limits:
+            note.append("no rule limit on this number")
+        self.limits_note.setText("; ".join(note))
         for xi, v in zip(x, self.table["verdict"]):
             s = pg.ScatterPlotItem([xi], [-0.10 * top], size=14, symbol="s", brush=VERDICT_COLORS.get(v, "#999"), pen=pg.mkPen(None))
             s.setToolTip(str(v)); self.plot.addItem(s); self._strip.append(s)
         self.plot.setLabel("left", label)
+        self.plot.getAxis("bottom").setTicks([[(float(s), str(int(s))) for s in x]])
         self.plot.setXRange(float(x.min()) - 0.5, float(x.max()) + 0.5)
         self.plot.setYRange(-0.16 * top, top)
 
-    @staticmethod
-    def _fmt(key: str, v: float) -> str:
-        if key == "life_days_per_year":
-            return f"{v:.3f}" if v < 1 else f"{v:.2f}"
-        if key in ("hours_above_80", "hours_above_100", "voltage_bad_hours", "voltage_plan_hours"):
-            return f"{v:,.0f}"
-        return f"{v:.1f}"
-
     def _caption(self, table: pd.DataFrame, t: dict) -> str:
         n = len(table)
-        seeds = f"seeds {table.index.min()}–{table.index.max()}"
         tally_text = " / ".join(f"{lvl} {t[lvl]}" for lvl in LEVELS if t[lvl])
-        robust = max(t.values()) == n
-        parts = [f"{n} draws ({seeds}): verdict {tally_text}" + (" — robust to the draw" if robust else " — not robust to the draw")]
-        for key in ("peak_loading_pct", "hours_above_80", "life_days_per_year", "max_hot_spot_c", "voltage_bad_hours"):
+        agreed = max(t.values()) == n
+        parts = [f"{n} draws ({self._seeds_text(table)}): " + (f"same verdict in all: {tally_text}" if agreed
+                                                                else f"the verdict changed between draws: {tally_text}")]
+        names = {"peak_loading_pct": "peak load", "hours_above_80": f"hours above {NAMEPLATE_RULE_PCT:g} %",
+                 "life_days_per_year": "life used", "max_hot_spot_c": "max hot-spot",
+                 "voltage_bad_hours": "hours with voltage outside ±10 %"}
+        for key, name in names.items():
             y = table[key].to_numpy(dtype=float)
-            lo, hi = float(np.nanmin(y)), float(np.nanmax(y))
-            med = float(np.nanmedian(y))
-            unit = {"peak_loading_pct": " %", "max_hot_spot_c": " °C", "life_days_per_year": " days/yr"}.get(key, "")
-            name = {"peak_loading_pct": "peak load", "hours_above_80": "hours above 80 %", "life_days_per_year": "life used",
-                    "max_hot_spot_c": "max hot-spot", "voltage_bad_hours": "hours with voltage outside ±10 %"}[key]
-            if lo == hi:
-                parts.append(f"{name} {self._fmt(key, lo)}{unit} in every draw")
-            else:
-                parts.append(f"{name} {self._fmt(key, lo)}–{self._fmt(key, hi)}{unit} (median {self._fmt(key, med)})")
+            unit = METRICS[key][1]
+            lo, hi, med = fmt_value(key, float(np.nanmin(y))), fmt_value(key, float(np.nanmax(y))), fmt_value(key, float(np.nanmedian(y)))
+            parts.append(f"{name} {lo}{unit} in every draw" if lo == hi else f"{name} {lo}–{hi}{unit} (median {med})")
         return "; ".join(parts) + "."
+
+
+def same_but_seed(a: Case, b: Case) -> bool:
+    """The two cases are the same inputs apart from the random draw (which this tab replaces)."""
+    from dataclasses import replace
+    strip = lambda c: replace(c, scenario=replace(c.scenario, seed=0))
+    return strip(a) == strip(b)

@@ -25,12 +25,21 @@ FRIENDLY = {
     "max_cable_pct": "max cable (%)", "exact_hours": "exact power-flow hours", "battery_hours_above_cap": "battery h above cap",
 }
 WHOLE = ("hours", "h > ", "kVA", "gaps", "step", "kWh/yr", "fuse", "kSEK", "(yr)", "(h)", "bad h", "h above")
-IDS = ("SMHI", "rank", "house")                  # whole numbers without a thousands separator
+IDS = ("SMHI", "rank", "house", "seed")                  # whole numbers without a thousands separator
 ONE_DECIMAL = ("%", "°C", "MWh", "kW", "kWp")
 
 
 def _is_bool(v) -> bool:
     return isinstance(v, (bool, np.bool_))
+
+
+def _looks_numeric(v) -> bool:
+    """A pre-formatted number such as '1,032' or '0.054' (the Spread tab formats its summary per row)."""
+    try:
+        float(str(v).replace(",", "").replace("–", "-"))
+        return True
+    except ValueError:
+        return False
 
 
 def _is_number(v) -> bool:
@@ -103,7 +112,7 @@ class DataFrameModel(QAbstractTableModel):
             f = QFont()
             f.setBold(True)
             return f
-        if role == Qt.TextAlignmentRole and _is_number(value):
+        if role == Qt.TextAlignmentRole and (_is_number(value) or _looks_numeric(value)):
             return int(Qt.AlignRight | Qt.AlignVCenter)
         if role == Qt.ToolTipRole and col in ("why", "notes", "error", "period"):
             return str(value)

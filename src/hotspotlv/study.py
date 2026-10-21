@@ -167,10 +167,10 @@ def monte_carlo(base: Case, weather: pd.DataFrame, seeds=range(10), fast: bool =
     """Same case, different dice (which houses get EVs/PV/heat pumps, when EVs charge…).
     `progress(done, total, label)` is called before each run."""
     seeds = list(seeds)
+    if any(int(s) != s or s < 0 for s in seeds):
+        raise ValueError("seeds must be non-negative integers")
     rows = []
     for i, s in enumerate(seeds):
-        if int(s) != s or s < 0:
-            raise ValueError("seeds must be non-negative integers")
         if progress:
             progress(i, len(seeds), f"draw {int(s)}")
         sc = replace(base.scenario, seed=int(s))
@@ -181,7 +181,7 @@ def monte_carlo(base: Case, weather: pd.DataFrame, seeds=range(10), fast: bool =
 
 def summarise_monte_carlo(mc: pd.DataFrame) -> pd.DataFrame:
     cols = ["peak_loading_pct", "hours_above_80", "hours_above_100", "life_days_per_year", "max_hot_spot_c",
-            "voltage_bad_hours"]
+            "hours_hot_spot_above_98", "max_load_pu", "voltage_bad_hours", "voltage_plan_hours", "max_cable_pct"]
     return mc[cols].describe(percentiles=[0.1, 0.5, 0.9]).T[["mean", "min", "10%", "50%", "90%", "max"]]
 
 

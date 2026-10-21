@@ -18,7 +18,7 @@ from hotspotlv.app.widgets.charts import DurationCurve, WorstWeek, YearTimeline
 from hotspotlv.app.widgets.diagram import LEGEND as DIAGRAM_LEGEND, FeederDiagram
 from hotspotlv.app.widgets.describe import describe_case
 from hotspotlv.app.widgets.fixes_view import FixesView
-from hotspotlv.app.widgets.mc_view import MonteCarloView
+from hotspotlv.app.widgets.mc_view import MonteCarloView, same_but_seed
 from hotspotlv.app.widgets.sweep_view import SweepView
 from hotspotlv.app.widgets.station_panel import show_error
 from hotspotlv.app.widgets.tables import DataFrameModel
@@ -194,7 +194,7 @@ class ScenarioPanel(QWidget):
 
     # ---------------- the two result tabs follow the inputs, the card follows its run
     def _inputs_changed(self, *_):
-        """Warn on the Fixes and Sweep tabs when the inputs no longer match the case on the card."""
+        """Warn on the Fixes, Sweep and Spread tabs when the inputs no longer match the case on the card."""
         banner, tip, now = None, "", None
         if self.build_case_error() is None:
             try:
@@ -205,11 +205,14 @@ class ScenarioPanel(QWidget):
             banner = (f"The inputs differ from the card's case ({self.result.case.name}) — this tab runs on the "
                       "current inputs (Base case below), not on the card's case.")
             tip = f"Card: {describe_case(self.result.case)}\nInputs now: {describe_case(now)}"
-        for view in self.views:
+        for view in (self.fixes, self.sweep):
             view.set_banner(banner); view.banner.setToolTip(tip); view.inputs_changed(now)
+        # the Spread tab replaces the random draw, so a seed-only change is no difference there
+        mc_banner = banner if (self.result is not None and now is not None and not same_but_seed(now, self.result.case)) else None
+        self.mc.set_banner(mc_banner); self.mc.banner.setToolTip(tip if mc_banner else ""); self.mc.inputs_changed(now)
 
     def _sync_busy(self):
-        """Run, Compare fixes and Run sweep share one CPU and one time estimate: only one at a time."""
+        """Run, Compare fixes, Run sweep and Run draws share one CPU and one time estimate: only one at a time."""
         own = self._worker is not None and self._worker.isRunning()
         running = ("this case" if own else "the Fixes tab" if self.fixes.is_running()
                    else "the Sweep tab" if self.sweep.is_running() else "the Spread tab" if self.mc.is_running() else None)
@@ -261,7 +264,7 @@ class ScenarioPanel(QWidget):
                     enclosure=self.enclosure.currentText())
 
     def case_for_views(self) -> Case | None:
-        """The current inputs as a Case for the Fixes and Hosting-capacity tabs (None after a warning)."""
+        """The current inputs as a Case for the Fixes, Sweep and Spread tabs (None after a warning)."""
         err = self.build_case_error()
         if err:
             QMessageBox.warning(self, "Inputs", err); return None
