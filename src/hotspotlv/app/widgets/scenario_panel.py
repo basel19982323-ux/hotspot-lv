@@ -64,7 +64,7 @@ class ScenarioPanel(QWidget):
         self.fuse = QComboBox(); [self.fuse.addItem(f"{a} A", a) for a in (16, 20, 25, 35)]; self.fuse.setCurrentIndex(1)
         self.fuse.setToolTip("Main fuse of every house; its kW cap is applied hour by hour (the EV charger backs off first).")
         self.enclosure = QComboBox(); self.enclosure.addItems(["kiosk", "outdoor"])
-        self.enclosure.setToolTip("Kiosk (the Swedish norm) adds the IEC 60076-7 Table 6 enclosure rise: ageing ≈ ×2.4 at rated load.")
+        self.enclosure.setToolTip("Kiosk (the Swedish norm) adds half the IEC 60076-7:2005 Table 6 kiosk air rise to the top-oil rise: ageing ≈ ×2.4 at rated load.")
         f1.addRow("Transformer", self.kva)
         f1.addRow("Houses", self.houses)
         f1.addRow("Feeders", self.feeders)

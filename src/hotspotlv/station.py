@@ -54,7 +54,7 @@ from hotspotlv.loads.ev import EVParams, ev_charging_profile
 from hotspotlv.loads.heatpump import HeatPumpParams, heat_pump_profile
 from hotspotlv.thermal import K_MAX, ThermalParams, ThermalResult, simulate
 from hotspotlv.timeseries import YearResult
-from hotspotlv.verdict import Verdict, judge
+from hotspotlv.verdict import HOURS_PER_YEAR, Verdict, judge, withdraw_thermal
 from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME, load_smhi_temperature
 
 LOCAL_TZ = "Europe/Stockholm"
@@ -471,7 +471,8 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
     notes = []
     if smhi_station is None:
         smhi_station = SMHI_STATION
-        notes.append(f"ambient: SMHI station {SMHI_STATION} {SMHI_STATION_NAME} (DEFAULT — set smhi_station for the real place)")
+        notes.append(f"ambient: SMHI station {SMHI_STATION} {SMHI_STATION_NAME} — the default; choose the SMHI station "
+                     "nearest the place")
     else:
         notes.append(f"ambient: SMHI station {smhi_station}")
     if ambient is None:
@@ -480,16 +481,24 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
         raise ValueError("ambient must be on the station's index (use ambient_for)")
     year = year_result_from_station(st, rated_kva, cable_loss_share_at_rated)
     k = year.hourly["loading_pct"] / 100
-    if (k > K_MAX).any():
-        notes.append(f"loading above {K_MAX:g} × rated in {int((k > K_MAX).sum())} steps — thermal run clipped there, so "
-                     "hot-spot and life figures are NOT meaningful (check rated_kva); the current-limit rule still "
-                     "sees the full loading")
+    clipped = int((k > K_MAX).sum())
+    if clipped:
+        notes.append(f"loading above {K_MAX:g} × rated in {clipped} steps — beyond the thermal model's range: life, "
+                     "hot-spot and top-oil are not computed and the temperature curves are clipped (check the rating); "
+                     "the current-limit rule sees the full loading")
         k = k.clip(upper=K_MAX)
+    hours = len(st.index) * st.step_min / 60
+    if abs(HOURS_PER_YEAR / hours - 1) > 0.1:
+        notes.append(f"the data cover {hours / 24:,.0f} days: life used per year is scaled ×{HOURS_PER_YEAR / hours:.2g} "
+                     "as if this period repeated all year — a winter-only file overstates the yearly figure, a "
+                     "summer-only file understates it")
     params = ThermalParams.for_transformer(int(rated_kva), enclosure=enclosure)
     thermal = simulate(k, ambient, params, step_min=st.step_min)
     verdict = judge(year, thermal)
+    if clipped:
+        withdraw_thermal(verdict, float(year.hourly["loading_pct"].max() / 100), K_MAX, clipped)
     from hotspotlv.study import enclosure_note
-    notes.append(enclosure_note(params))
+    notes.append(enclosure_note(params, rated_kva))
     for key in NOT_CHECKED_KEYS:
         verdict.really[key] = None                            # a 0 would read as "checked and fine"
     verdict.notes.append("voltage and cable rules not checked: station data carries no feeder model")

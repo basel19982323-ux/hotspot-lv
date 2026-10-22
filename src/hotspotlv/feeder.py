@@ -195,7 +195,7 @@ if __name__ == "__main__":
         print(
             f"{kw:>3} kW/house -> trafo {r['trafo_loading_percent']:6.1f} %  "
             f"Vmin {r['vmin_pu']:.3f} p.u. at {r['vmin_bus']}  "
-            f"main cable {r['line_loading_max_percent']:5.1f} %  losses {r['losses_kw']:.1f} kW"
+            f"max cable {r['line_loading_max_percent']:5.1f} %  losses {r['losses_kw']:.1f} kW"
         )
     set_house_loads(net, 1.0, p_gen_kw=6.0)
     r = run_snapshot(net)

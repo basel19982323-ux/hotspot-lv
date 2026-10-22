@@ -22,9 +22,12 @@ Sweden.)
 
 from __future__ import annotations
 
+import html
+
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
+import shiboken6
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
@@ -55,6 +58,8 @@ class ElidedLabel(QLabel):
         self._elide()
 
 from hotspotlv.app.theme import AMBIENT_COLOR, HOTSPOT_COLOR, LOAD_COLOR, OIL_COLOR, RULE_80, RULE_100
+from hotspotlv.timeseries import NAMEPLATE_RULE_PCT
+from hotspotlv.verdict import TOL
 
 pg.setConfigOptions(antialias=True, background="w", foreground="#333333")
 LOCAL = "Europe/Stockholm"
@@ -62,11 +67,36 @@ RIGHT_AXIS_MARGIN = 8     # px: pyqtgraph reserves only 0.8 × its height for a 
                           # label spills ~5 px past the plot and is cut in a fixed-size grab (the PDF card)
 LABEL_LEFT = {"position": 0.02, "anchors": [(0, 0), (0, 1)]}      # text starts 2 % in from the left edge
 LABEL_RIGHT = {"position": 0.98, "anchors": [(1, 0), (1, 1)]}     # text ends 2 % in from the right edge
+LABEL_MIN_PLOT_PX = 120   # below this data-area height the rule labels collide with each other and the data (laptop)
+
+
+def rule_line(plot, y: float, color, text: str, where: dict, fill=None) -> pg.InfiniteLine:
+    """A dashed horizontal rule line with a label. The label is shown only while its line is inside the y-range
+    and the data area is tall enough — never a label without its line, never labels piled on each other
+    (review of 22 Oct 2026: at 1093 × 614 all three duration labels overlapped and the 1.5 × one floated alone)."""
+    opts = {"color": color, **where}
+    if fill is not None:
+        opts["fill"] = fill
+    line = pg.InfiniteLine(pos=y, angle=0, pen=pg.mkPen(color, style=Qt.DashLine), label=text, labelOpts=opts)
+    plot.addItem(line)
+    vb = plot.getViewBox()
+
+    def update(*_):
+        if not (shiboken6.isValid(vb) and shiboken6.isValid(line) and shiboken6.isValid(line.label)):
+            return                                              # the view box resizes while it is being torn down
+        lo, hi = vb.viewRange()[1]
+        line.label.setVisible(vb.height() >= LABEL_MIN_PLOT_PX and lo <= y <= hi)
+
+    vb.sigResized.connect(update)
+    vb.sigYRangeChanged.connect(update)
+    update()
+    return line
 
 
 def legend_html(items) -> str:
-    """items: (colour, marker, text) → one rich-text line, e.g. '▬ loading % (left axis)  ▬ hot-spot °C …'."""
-    return " &nbsp; ".join(f"<span style='color:{c}'>{m} {t}</span>" for c, m, t in items)
+    """items: (colour, marker, text) → one rich-text line, e.g. '▬ loading % (left axis)  ▬ hot-spot °C …'.
+    The marker is an HTML entity; the text is escaped (a future 'θ < 98 °C' must not vanish)."""
+    return " &nbsp; ".join(f"<span style='color:{c}'>{m} {html.escape(t, quote=False)}</span>" for c, m, t in items)
 
 
 class LegendStrip(QLabel):
@@ -87,12 +117,13 @@ TIMELINE_LEGEND = ((LOAD_COLOR, "&#9644;", "loading % (left axis)"),
                    ("#000000", "&#9474;", "scrubber: drag it, or ← →"))
 DURATION_LEGEND = ((LOAD_COLOR, "&#9644;", "loading sorted high → low: read it as 'above x % for y hours'"),
                    (RULE_100, "&#9476;", "dashed: 80 % rule · nameplate · 1.5 × rated (IEC 60076-7 normal cyclic current limit, "
-                                         "drawn when the axis reaches it)"))
+                                         "on the chart when the peak reaches it)"))
 WORST_WEEK_LEGEND = ((HOTSPOT_COLOR, "&#9644;", "hot-spot °C"),
                      (OIL_COLOR, "&#9644;", "top-oil °C"),
                      (AMBIENT_COLOR, "&#9644;", "outdoor °C (all on the left axis)"),
                      (RULE_100, "&#9476;", "dashed: 98 °C = ageing rate 1 · 120 °C IEC normal cyclic limit"),
-                     (LOAD_COLOR, "&#9617;", "loading % (right axis, kept below the °C lines)"))
+                     (LOAD_COLOR, "&#9617;", "loading % (right axis, drawn in the lower third: under the 98 °C and "
+                                             "120 °C lines, it can overlap the outdoor line)"))
 
 
 def _axis_date(index: pd.DatetimeIndex) -> np.ndarray:
@@ -121,14 +152,14 @@ class DurationCurve(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         self.plot = pg.PlotWidget()
-        self.plot.setLabel("left", "transformer loading", units="% of nameplate")
-        self.plot.setLabel("bottom", "hours per year above this loading")
+        self.plot.setLabel("left", "loading", units="% of nameplate")
+        self.plot.setLabel("bottom", "hours in the period above this loading")
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         self.legend = LegendStrip(DURATION_LEGEND)
         self.curve = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=2))
-        for y, c, txt in ((80, RULE_80, "80 % rule"), (100, RULE_100, "nameplate"), (150, HOTSPOT_COLOR, "IEC 1.5 pu limit")):
-            self.plot.addItem(pg.InfiniteLine(pos=y, angle=0, pen=pg.mkPen(c, style=Qt.DashLine), label=txt,
-                                              labelOpts={"color": c, **LABEL_RIGHT}))
+        for y, c, txt in ((NAMEPLATE_RULE_PCT, RULE_80, "80 % rule"), (100, RULE_100, "nameplate"),
+                          (150, HOTSPOT_COLOR, "IEC 1.5 × rated")):
+            rule_line(self.plot, y, c, txt, LABEL_RIGHT)
         self.caption = QLabel("")
         self.caption.setProperty("muted", True)
         lay.addWidget(self.legend)
@@ -141,8 +172,8 @@ class DurationCurve(QWidget):
         self.curve.setData(hours, lp)
         self.plot.setXRange(0, max(hours[-1], 1))
         self.plot.setYRange(0, max(110, float(lp[0]) * 1.05))
-        above80 = float((hourly["loading_pct"] > 80).sum() * step_h)
-        above100 = float((hourly["loading_pct"] > 100).sum() * step_h)
+        above80 = float((hourly["loading_pct"] > NAMEPLATE_RULE_PCT + TOL).sum() * step_h)     # the verdict's own count
+        above100 = float((hourly["loading_pct"] > 100 + TOL).sum() * step_h)
         self.caption.setText(f"Above 80 %: {above80:,.0f} h · above 100 %: {above100:,.0f} h · peak {lp[0]:.0f} %")
 
 
@@ -161,9 +192,9 @@ class YearTimeline(QWidget):
         self.legend = LegendStrip(TIMELINE_LEGEND)
         self.load = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=1))
         # the rule labels sit mid-year (the summer trough), where the loading curve is far below them
-        for y, c, txt in ((80, RULE_80, "80 % rule"), (100, RULE_100, "nameplate")):
-            self.plot.addItem(pg.InfiniteLine(pos=y, angle=0, pen=pg.mkPen(c, style=Qt.DashLine), label=txt,
-                                              labelOpts={"position": 0.5, "color": c}))
+        for y, c, txt in ((NAMEPLATE_RULE_PCT, RULE_80, "80 % rule"), (100, RULE_100, "nameplate")):
+            rule_line(self.plot, y, c, txt, {"position": 0.5}, fill=pg.mkBrush(255, 255, 255, 220))   # white backing:
+                                                                                     # a hot summer can run through it
         self.right = pg.ViewBox()
         self.plot.showAxis("right")
         self.plot.plotItem.layout.setContentsMargins(1, 1, RIGHT_AXIS_MARGIN, 1)
@@ -259,10 +290,8 @@ class WorstWeek(QWidget):
         self.hot = self.plot.plot([], [], pen=pg.mkPen(HOTSPOT_COLOR, width=2))
         self.oil = self.plot.plot([], [], pen=pg.mkPen(OIL_COLOR, width=1.5))
         self.amb = self.plot.plot([], [], pen=pg.mkPen(AMBIENT_COLOR, width=1.5))
-        self.plot.addItem(pg.InfiniteLine(pos=98, angle=0, pen=pg.mkPen(RULE_80, style=Qt.DashLine), label="98 °C: ageing rate 1",
-                                          labelOpts={"color": RULE_80, **LABEL_LEFT}))
-        self.plot.addItem(pg.InfiniteLine(pos=120, angle=0, pen=pg.mkPen(HOTSPOT_COLOR, style=Qt.DashLine), label="120 °C IEC limit",
-                                          labelOpts={"color": HOTSPOT_COLOR, **LABEL_LEFT}))
+        rule_line(self.plot, 98, RULE_80, "98 °C: ageing rate 1", LABEL_LEFT)
+        rule_line(self.plot, 120, HOTSPOT_COLOR, "120 °C IEC limit", LABEL_LEFT)
         self.right = pg.ViewBox()
         self.plot.showAxis("right")
         self.plot.plotItem.layout.setContentsMargins(1, 1, RIGHT_AXIS_MARGIN, 1)

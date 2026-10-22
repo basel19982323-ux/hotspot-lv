@@ -254,10 +254,10 @@ def test_assess_station_end_to_end(tmp_path, ref):
     assert res.verdict.really["hours with voltage outside ±10 %"] is None   # not 0: unknown
     m = res.metrics()
     assert m["period"].startswith("2023-01-01") and m["step_min"] == 60 and m["smhi_station"] == 96190
-    assert "SMHI station 96190" in m["notes"] and "DEFAULT" not in m["notes"]
+    assert "SMHI station 96190" in m["notes"] and "the default" not in m["notes"]
     assert 0 < m["life_days_per_year"] < 5 and m["energy_mwh"] > 300
     default = assess_station(st, 500, amb)
-    assert "DEFAULT" in default.metrics()["notes"]
+    assert "the default; choose the SMHI station nearest the place" in default.metrics()["notes"]
     # a 15-min version of the same station gives the same physics
     q = st.p_kw.resample("15min").ffill()
     df = pd.DataFrame({"timestamp": _local(q.index).strftime("%Y-%m-%d %H:%M"), "kw": q.to_numpy()})

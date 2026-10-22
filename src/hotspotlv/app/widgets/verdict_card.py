@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import html
 import math
 
 from PySide6.QtCore import QSize, Qt
@@ -22,9 +23,6 @@ from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollA
 
 from hotspotlv.app.theme import ACCENT, BORDER, MUTED, VERDICT_COLORS
 from hotspotlv.verdict import Verdict
-
-SOURCE_WORDING = {"cable catalogue (feeder.py)": "cable rating (Prysmian AXQJ in ground, 20 °C soil)"}
-
 
 def fmt_card_value(key: str, v) -> str:
     """Whole hours, °C and % to one decimal, days to three — no false precision.
@@ -40,7 +38,7 @@ def fmt_card_value(key: str, v) -> str:
         if "hours" in key:
             return f"{f:,.0f}"
         if "days" in key:
-            return f"{f:.3f}" if f < 1 else f"{f:.2f}"
+            return f"{f:.3f}" if f < 1 else (f"{f:.2f}" if f < 100 else f"{f:,.0f}")
         if "× rated" in key:
             return f"{f:.2f}"
         if "°C" in key or "%" in key:
@@ -175,14 +173,9 @@ class VerdictCard(QFrame):
         self._level.setText(v.level.upper() + (f"  ·  {title}" if title else ""))
         self._level.setStyleSheet(f"font-size: 20pt; font-weight: 700; color: {color}; border: none;")
         self._headline.setText(v.headline())
-        reasons = []
-        for r in v.reasons:
-            text = str(r)
-            for old, new in SOURCE_WORDING.items():
-                text = text.replace(old, new)
-            reasons.append(f"• {text}")
+        reasons = [f"• {html.escape(str(r))}" for r in v.reasons]     # rich text: a "<" in a note must not vanish
         self._reasons.setText("<br>".join(reasons) if reasons else "No rule is violated.")
         self._fill(self._paper[1], v.on_paper)
         self._fill(self._really[1], v.really)
         self._notes.setVisible(bool(v.notes))
-        self._notes.setHtml(("<b>Notes</b><br>• " + "<br>• ".join(v.notes)) if v.notes else "")
+        self._notes.setHtml(("<b>Notes</b><br>• " + "<br>• ".join(html.escape(n) for n in v.notes)) if v.notes else "")

@@ -70,6 +70,7 @@ def main(out: Path):
     st = win.station
     st.path.setText(str(STATION_EXAMPLE))
     st._t0 = time.perf_counter()
+    st._pending_inputs = st._inputs()                   # what run() records before it starts the worker
     st._done(_assess(STATION_EXAMPLE, 500, "meters", "Europe/Stockholm", "start", 96190, True, "kiosk", 0, 0, 0))
     win.centralWidget().setCurrentIndex(0); app.processEvents()
     win.grab().save(str(out / "station.png"))
@@ -79,6 +80,11 @@ def main(out: Path):
     print("card labels squeezed:", len(short))
     assert not short, "the verdict card's REALLY column is squeezed — regression of 21 Oct"
     assert st.export_btn.isEnabled(), "Export PDF must be enabled once a result is shown"
+    win.resize(1093, 614); app.processEvents()           # the laptop: charts usable, buttons on screen
+    vb_h = st.timeline.plot.getViewBox().height()
+    print(f"laptop station: plot data area h {vb_h:.0f}, export button visible {not st.export_btn.visibleRegion().isEmpty()}")
+    assert vb_h >= 120 and not st.export_btn.visibleRegion().isEmpty(), "station tab unusable at 1093 × 614"
+    win.resize(1400, 900); app.processEvents()
     from hotspotlv.app.report import write_station_card
     pdf = write_station_card(st.result, st._amb, out / "station_card.pdf", source_name=STATION_EXAMPLE.name)
     try:

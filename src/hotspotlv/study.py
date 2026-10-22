@@ -33,7 +33,7 @@ from hotspotlv.battery import BatteryParams, BatterySizing, apply_battery, size_
 from hotspotlv.feeder import build_feeder
 from hotspotlv.neighbourhood import Neighbourhood, Scenario, build_neighbourhood
 from hotspotlv.proxy import fit_proxy, refine_mask, refine_near_limits
-from hotspotlv.thermal import ThermalParams, ThermalResult, simulate
+from hotspotlv.thermal import KIOSK_AIR_RISE_K, ThermalParams, ThermalResult, simulate
 from hotspotlv.timeseries import YearResult, run_year
 from hotspotlv.verdict import Verdict, judge
 
@@ -134,16 +134,21 @@ def run_case(case: Case, weather: pd.DataFrame, fast: bool = True,
     params = case.thermal or thermal_params_for(case)
     thermal = simulate(year.hourly["loading_pct"] / 100, weather["temp_c"], params)
     verdict = judge(year, thermal)
-    verdict.notes.append(enclosure_note(params))
+    verdict.notes.append(enclosure_note(params, case.trafo_kva))
     verdict.notes.append(mode_note)
     return CaseResult(case, nb, year, thermal, verdict, fast, fit_error, exact_hours, battery_sizing,
                       time.perf_counter() - t0, mode_note)
 
 
-def enclosure_note(params: ThermalParams) -> str:
+def enclosure_note(params: ThermalParams, kva: float | None = None) -> str:
     if params.enclosure == "kiosk":
-        return (f"transformer in a kiosk: IEC 60076-7 Table 6 adds +{params.enclosure_rise_k:g} K to the top-oil rise "
-                f"(ageing ≈ ×{2 ** (params.enclosure_rise_k / 6):.1f} at rated load vs an outdoor unit)")
+        text = (f"transformer in a kiosk: half the kiosk air rise of IEC 60076-7:2005 Table 6 (2018: Table 5) is added to "
+                f"the top-oil rise, +{params.enclosure_rise_k:g} K (ageing ≈ ×{2 ** (params.enclosure_rise_k / 6):.1f} at "
+                "rated load vs an outdoor unit)")
+        sizes = sorted(KIOSK_AIR_RISE_K)
+        if kva is not None and not sizes[0] <= kva <= sizes[-1]:
+            text += f"; the table covers {sizes[0]}–{sizes[-1]} kVA, so its {min(max(kva, sizes[0]), sizes[-1]):g} kVA value is used"
+        return text
     return "transformer outdoors: no enclosure correction"
 
 

@@ -71,10 +71,44 @@ def test_six_hours_at_150_pct_is_at_risk():
 
 
 def test_top_oil_rule():
-    # 125 % at 35 °C: top-oil ≈ 35 + 55·1.57 = 121 °C > 105 (hot-spot ≈ 154 → At risk too, so check the reason list)
+    # 130 % at 40 °C: top-oil = 40 + 55·((1 + 8.5·1.69)/9.5)^0.8 ≈ 121 °C > 115 → At risk (long-time emergency)
+    yr = _year(130.0)
+    v = judge(yr, _thermal(yr, ambient=40.0))
+    assert any(r.rule == "top-oil above long-time emergency limit" for r in v.at_risk)
+    assert not any("top-oil" in r.rule for r in v.watch)
+    # 125 % at 35 °C: top-oil ≈ 35 + 55·1.385 ≈ 111 °C — between 105 and 115 → Watch, not At risk
     yr = _year(125.0)
     v = judge(yr, _thermal(yr, ambient=35.0))
-    assert any("top-oil" in r.rule for r in v.watch)
+    top = v.really["max top-oil (°C)"]
+    assert 105 < top < 115, top
+    assert any(r.rule == "top-oil above normal cyclic limit" for r in v.watch)
+    assert not any("top-oil" in r.rule for r in v.at_risk)
+
+
+def test_reasons_print_at_the_cards_precision():
+    """Catches: '120 °C (limit 120 °C)' for 120.2 °C, '1.66e+16 days', '1.36 × rated' as '1.4'."""
+    from hotspotlv.verdict import Reason
+    assert str(Reason("r", 120.24, 120.0, "°C", "s")).startswith("r: 120.2 °C (limit 120 °C)")
+    assert str(Reason("r", 1.3649, 1.5, "× rated", "s")).startswith("r: 1.36 × rated (limit 1.5 × rated)")
+    assert str(Reason("r", 12345.6, 365.0, "days of life per year", "s")).startswith("r: 12,346 days of life per year (limit 365")
+    assert str(Reason("r", 0.14567, 182.0, "days of life per year", "s")).startswith("r: 0.146 days")
+    assert str(Reason("r", 1234.0, 0.0, "hours", "s")).startswith("r: 1,234 hours (none allowed)")
+    assert "e+" not in str(Reason("r", 1.66e16, 365.0, "days of life per year", "s"))
+
+
+def test_withdraw_thermal_leaves_no_number_that_looks_real():
+    """Catches: a clipped thermal run printing '440 °C' or '1.66e+16 days' as the verdict's reasons."""
+    import math
+    from hotspotlv.verdict import OUT_OF_RANGE_RULE, THERMAL_KEYS, withdraw_thermal
+    yr = _year(190.0)                                                         # hot, and above the 1.8 current limit
+    v = judge(yr, _thermal(yr, ambient=20.0))
+    assert any(r.rule.startswith(("ageing", "hot-spot")) for r in v.at_risk)
+    w = withdraw_thermal(v, 4.1, 3.0, 12)
+    assert w.level == "At risk" and w.at_risk[0].rule == OUT_OF_RANGE_RULE
+    assert not any(r.rule.startswith(("ageing", "hot-spot", "top-oil")) for r in w.reasons)
+    assert any("current limit" in r.rule for r in w.at_risk)                 # the load rule saw the full loading: kept
+    assert all(math.isnan(w.really[k]) for k in THERMAL_KEYS)
+    assert "4.10 × rated (limit 3 × rated)" in str(w.at_risk[0])
 
 
 def test_voltage_rules_follow_eifs():

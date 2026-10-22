@@ -35,7 +35,13 @@ def panel(app):
     p.houses.setValue(6); p.feeders.setValue(2); p.ev.setValue(50); p.pv.setValue(50)
     p._done(run_case(p.build_case(), weather, fast=True))
     app.processEvents()
-    return p
+    yield p
+    for view in (p.fixes, p.sweep, p.mc, p):                 # no worker may outlive the module
+        for w in (getattr(view, "_worker", None),):
+            if w is not None and w.isRunning():
+                w.cancel()
+    from conftest import delete_widgets
+    delete_widgets([p])                                       # deleted before the QApplication goes (exit crash / hang)
 
 
 def _scrub_to(panel, i):

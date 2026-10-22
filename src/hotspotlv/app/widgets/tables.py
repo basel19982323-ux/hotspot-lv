@@ -16,7 +16,7 @@ FRIENDLY = {
     "station_id": "station", "kVA": "rated kVA", "verdict": "verdict", "why": "why", "period": "period",
     "step_min": "step (min)", "peak_loading_pct": "peak load (%)", "hours_above_80": "h > 80 %",
     "hours_above_100": "h > 100 %", "life_days_per_year": "life used (days/yr)", "max_hot_spot_c": "max hot-spot (°C)",
-    "max_load_pu": "max load (× rated)", "energy_mwh": "energy (MWh/yr)", "gaps_filled": "gaps filled",
+    "max_load_pu": "max load (× rated)", "energy_mwh": "energy in the period (MWh)", "gaps_filled": "missing steps filled",
     "smhi_station": "SMHI station", "notes": "notes", "error": "error", "rank": "rank",
     "house": "house", "heating": "heating", "ua_kw_per_k": "heat loss (kW/K)", "q_nom_kw": "pump size (kW)",
     "has_ev": "EV", "charger_kw": "charger (kW)", "has_pv": "PV", "pv_kwp": "PV (kWp)", "base_kwh": "base (kWh/yr)",

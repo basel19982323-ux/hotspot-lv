@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import traceback
 
@@ -37,7 +38,13 @@ def main() -> int:
         return 1
     win.show()
     splash.finish(win)
-    return app.exec()
+    code = app.exec()
+    from hotspotlv.app.workers import any_running
+    if any_running():           # the window closed over a cancelled run that is still computing: a Python thread
+        sys.stdout.flush()      # cannot be stopped from outside, and a QThread destroyed while running aborts —
+        sys.stderr.flush()      # so leave now; the run's result was already discarded
+        os._exit(code)
+    return code
 
 
 if __name__ == "__main__":

@@ -61,7 +61,7 @@ def test_bad_station_is_reported_not_raised(tmp_path):
     bad_row = table[table["station_id"] == "bad"].iloc[0]
     assert bad_row["verdict"] == "error" and bad_row["error"] != ""
     assert table.iloc[-1]["station_id"] == "bad"                        # errors sort last
-    assert "DEFAULT" in table.iloc[0]["notes"]                          # no smhi_station given → said so
+    assert "the default; choose the SMHI station" in table.iloc[0]["notes"]    # no smhi_station given → said so
 
 
 def test_long_csv(tmp_path):

@@ -17,7 +17,8 @@ fit small curves, and evaluate every hour from the curves:
     vmin    ≈ 1 + c₁·P_net + c₂·P_feeder_max     (transformer drop + the heaviest feeder's drop)
     vmax    ≈ 1 + d₁·P_net + d₂·P_feeder_min     (export side: the most-exporting feeder)
     cable % ≈ max( e·max_f |P_feeder_f| ,        (first segment of the heaviest feeder — the main cable)
-                   max_j S_house_j / S_service )  (a single house on its service cable — exact)
+                   max_j S_house_j / S_service )  (a single house on its service cable, at nominal voltage: a few % below
+                                                  the power flow's value, which uses the actual voltage)
 
 The feeder sums matter: the worst cable and the lowest voltage sit on the
 heaviest of the feeders, not on the total. The proxy reads which house hangs
