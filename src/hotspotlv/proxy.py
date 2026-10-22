@@ -16,7 +16,7 @@ fit small curves, and evaluate every hour from the curves:
     total losses ≈ a'·P_net² + b'·|P_net|, q_loss ≈ f·(P²+Q²) → S_hv = √((P+Δp)² + (Q+Δq)²)
     vmin    ≈ 1 + c₁·P_net + c₂·P_feeder_max     (transformer drop + the heaviest feeder's drop)
     vmax    ≈ 1 + d₁·P_net + d₂·P_feeder_min     (export side: the most-exporting feeder)
-    cable % ≈ max( e·max_f |P_feeder_f| ,        (first segment of the heaviest feeder)
+    cable % ≈ max( e·max_f |P_feeder_f| ,        (first segment of the heaviest feeder — the main cable)
                    max_j S_house_j / S_service )  (a single house on its service cable — exact)
 
 The feeder sums matter: the worst cable and the lowest voltage sit on the

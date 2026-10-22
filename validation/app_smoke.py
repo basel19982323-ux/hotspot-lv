@@ -78,6 +78,17 @@ def main(out: Path):
     short = [w for w in st.card._really[0].findChildren(QLabel) if w.height() < w.sizeHint().height() - 1]
     print("card labels squeezed:", len(short))
     assert not short, "the verdict card's REALLY column is squeezed — regression of 21 Oct"
+    assert st.export_btn.isEnabled(), "Export PDF must be enabled once a result is shown"
+    from hotspotlv.app.report import write_station_card
+    pdf = write_station_card(st.result, st._amb, out / "station_card.pdf", source_name=STATION_EXAMPLE.name)
+    try:
+        from pypdf import PdfReader
+        r = PdfReader(str(pdf))
+        n_img = sum(len(pg.images) for pg in r.pages)
+        print(f"station card: {pdf.stat().st_size // 1024} kB, {len(r.pages)} pages, {n_img} images")
+        assert n_img == 3, "the card must carry the three charts"
+    except ImportError:
+        print(f"station card: {pdf.stat().st_size // 1024} kB (pypdf not installed: pages not counted)")
 
 
     # mode C

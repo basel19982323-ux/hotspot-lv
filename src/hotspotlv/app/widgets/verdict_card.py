@@ -26,8 +26,9 @@ from hotspotlv.verdict import Verdict
 SOURCE_WORDING = {"cable catalogue (feeder.py)": "cable rating (Prysmian AXQJ in ground, 20 °C soil)"}
 
 
-def _fmt(key: str, v) -> str:
-    """Whole hours, °C and % to one decimal, days to three — no false precision."""
+def fmt_card_value(key: str, v) -> str:
+    """Whole hours, °C and % to one decimal, days to three — no false precision.
+    One formatter for the screen card and the PDF card, so the two can never disagree."""
     if v is None:
         return "not checked"
     if isinstance(v, bool):
@@ -150,7 +151,7 @@ class VerdictCard(QFrame):
         for r, (k, v) in enumerate(items.items(), start=1):
             key = QLabel(k)
             key.setStyleSheet(f"color: {MUTED};")
-            val = QLabel(_fmt(k, v))
+            val = QLabel(fmt_card_value(k, v))
             val.setStyleSheet("font-weight: 600;" + (f" color: {MUTED};" if v is None else ""))
             val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             grid.addWidget(key, r, 0)

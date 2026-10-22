@@ -54,7 +54,7 @@ METRICS = {
                      (IEC_LIMITS_K["long_time_emergency"], "At risk: IEC long-time emergency", VERDICT_COLORS["At risk"])]),
     "voltage_bad_hours": ("hours with voltage outside ±10 %", " h", [(0.0, "At risk: none allowed (EIFS 2023:3)", VERDICT_COLORS["At risk"])]),
     "voltage_plan_hours": ("hours outside the planning band", " h", [(0.0, "Watch: none allowed (planning band 0.92–1.05 pu)", VERDICT_COLORS["Watch"])]),
-    "max_cable_pct": ("max main-cable loading (%)", " %", [(100.0, "Watch: cable rating", VERDICT_COLORS["Watch"])]),
+    "max_cable_pct": ("max cable loading (%)", " %", [(100.0, "Watch: cable rating", VERDICT_COLORS["Watch"])]),
 }
 HOUR_KEYS = ("hours_above_80", "hours_above_100", "hours_hot_spot_above_98", "voltage_bad_hours", "voltage_plan_hours")
 AXIS_LABELS = {"peak_loading_pct": "peak load (%)", "hours_above_80": f"h above {NAMEPLATE_RULE_PCT:g} %", "hours_above_100": "h above 100 %",

@@ -429,7 +429,7 @@ def year_result_from_station(st: StationSeries, rated_kva: float,
 # assessment
 # ---------------------------------------------------------------------------
 NOT_CHECKED_KEYS = ("hours with voltage outside ±10 %", "hours with voltage outside the planning band",
-                    "max main-cable loading (%)")
+                    "max cable loading (%)")
 
 
 @dataclass

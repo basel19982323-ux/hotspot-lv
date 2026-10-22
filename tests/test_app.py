@@ -209,7 +209,7 @@ def test_sweep_view_scales_share_knobs_to_percent_and_keeps_the_run_knob(panel):
                           "life_days_per_year": [0.01, 0.05, 0.5, 0.4], "max_hot_spot_c": [60.0, 70.0, 90.0, 88.0],
                           "voltage_bad_hours": [0, 0, 3, 0], "voltage_plan_hours": [0, 2, 9, 4], "max_cable_pct": [40.0, 60.0, 101.0, 95.0],
                           "exact_hours": [0, 0, 0, 0],
-                          "why": ["OK — fine", "Watch — x", "At risk — main cable above its current rating (also: y)", "Watch — z"]},
+                          "why": ["OK — fine", "Watch — x", "At risk — a cable above its current rating (also: y)", "Watch — z"]},
                          index=pd.Index([0.0, 0.2, 0.6, 1.0], name="ev_share"))
     panel.sweep.knob_box.setCurrentIndex(0)                                        # combo says houses …
     panel.sweep.set_table(table, "ev_share")                                       # … the run was EV share
@@ -217,7 +217,7 @@ def test_sweep_view_scales_share_knobs_to_percent_and_keeps_the_run_knob(panel):
     assert list(panel.sweep.h100.getData()[1]) == [0, 0, 1, 0]                     # not fed with h80
     assert panel.sweep.flip_line.value() == 60 and panel.sweep.flip_line.isVisible()
     cap = panel.sweep.caption.text()
-    assert "first flags the station at 60 %" in cap and "first turns At risk at 60 % because of main cable above its current rating;" in cap
+    assert "first flags the station at 60 %" in cap and "first turns At risk at 60 % because of a cable above its current rating;" in cap
     assert "not monotonic" in cap
     assert list(panel.sweep.model.df.columns)[0] == "share of houses with an EV charger (%)"
 

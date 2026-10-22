@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pypdf>=4"]          # pypdf: the tests read the station-card PDF back
 app = ["PySide6-Essentials>=6.7", "pyqtgraph>=0.13"]
 
 [project.scripts]

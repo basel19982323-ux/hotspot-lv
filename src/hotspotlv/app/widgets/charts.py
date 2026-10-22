@@ -8,6 +8,11 @@
   WorstWeek       the 7 days that used the most insulation life: hot-spot, top-oil,
                   outdoor (°C) and, low and faint, the loading (%)
 
+Legends are a text strip ABOVE each plot (LegendStrip), never a box inside it: a
+box inside the plot sat on the January peaks — the busiest part of the year
+(usability review of 21 Oct 2026). The strip is rich text, so the PDF card can
+print the very same legend under its copy of the chart.
+
 Time axis: the x values are the Swedish wall-clock time expressed as epoch
 seconds, and the DateAxisItem is told utcOffset=0 so it prints them as they
 are — whatever time zone the PC runs in. (The first version let the axis add
@@ -53,6 +58,41 @@ from hotspotlv.app.theme import AMBIENT_COLOR, HOTSPOT_COLOR, LOAD_COLOR, OIL_CO
 
 pg.setConfigOptions(antialias=True, background="w", foreground="#333333")
 LOCAL = "Europe/Stockholm"
+RIGHT_AXIS_MARGIN = 8     # px: pyqtgraph reserves only 0.8 × its height for a rotated axis label, so a right-axis
+                          # label spills ~5 px past the plot and is cut in a fixed-size grab (the PDF card)
+LABEL_LEFT = {"position": 0.02, "anchors": [(0, 0), (0, 1)]}      # text starts 2 % in from the left edge
+LABEL_RIGHT = {"position": 0.98, "anchors": [(1, 0), (1, 1)]}     # text ends 2 % in from the right edge
+
+
+def legend_html(items) -> str:
+    """items: (colour, marker, text) → one rich-text line, e.g. '▬ loading % (left axis)  ▬ hot-spot °C …'."""
+    return " &nbsp; ".join(f"<span style='color:{c}'>{m} {t}</span>" for c, m, t in items)
+
+
+class LegendStrip(QLabel):
+    """The legend as a wrapped text line above a plot. `text()` returns the rich text (for the PDF card)."""
+
+    def __init__(self, items, parent=None):
+        super().__init__(parent)
+        self.setWordWrap(True)
+        self.setTextFormat(Qt.RichText)
+        self.setProperty("muted", True)
+        self.setText(legend_html(items))
+
+
+TIMELINE_LEGEND = ((LOAD_COLOR, "&#9644;", "loading % (left axis)"),
+                   (RULE_100, "&#9476;", "dashed: 80 % rule and nameplate (loading %, not °C)"),
+                   (HOTSPOT_COLOR, "&#9644;", "hot-spot °C (right axis)"),
+                   (AMBIENT_COLOR, "&#9644;", "outdoor °C (right axis)"),
+                   ("#000000", "&#9474;", "scrubber: drag it, or ← →"))
+DURATION_LEGEND = ((LOAD_COLOR, "&#9644;", "loading sorted high → low: read it as 'above x % for y hours'"),
+                   (RULE_100, "&#9476;", "dashed: 80 % rule · nameplate · 1.5 × rated (IEC 60076-7 normal cyclic current limit, "
+                                         "drawn when the axis reaches it)"))
+WORST_WEEK_LEGEND = ((HOTSPOT_COLOR, "&#9644;", "hot-spot °C"),
+                     (OIL_COLOR, "&#9644;", "top-oil °C"),
+                     (AMBIENT_COLOR, "&#9644;", "outdoor °C (all on the left axis)"),
+                     (RULE_100, "&#9476;", "dashed: 98 °C = ageing rate 1 · 120 °C IEC normal cyclic limit"),
+                     (LOAD_COLOR, "&#9617;", "loading % (right axis, kept below the °C lines)"))
 
 
 def _axis_date(index: pd.DatetimeIndex) -> np.ndarray:
@@ -84,14 +124,14 @@ class DurationCurve(QWidget):
         self.plot.setLabel("left", "transformer loading", units="% of nameplate")
         self.plot.setLabel("bottom", "hours per year above this loading")
         self.plot.showGrid(x=True, y=True, alpha=0.2)
-        legend = self.plot.addLegend()
-        legend.anchor(itemPos=(1, 1), parentPos=(1, 1), offset=(-12, -12))
-        self.curve = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=2), name="loading duration curve")
+        self.legend = LegendStrip(DURATION_LEGEND)
+        self.curve = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=2))
         for y, c, txt in ((80, RULE_80, "80 % rule"), (100, RULE_100, "nameplate"), (150, HOTSPOT_COLOR, "IEC 1.5 pu limit")):
             self.plot.addItem(pg.InfiniteLine(pos=y, angle=0, pen=pg.mkPen(c, style=Qt.DashLine), label=txt,
-                                              labelOpts={"position": 0.97, "color": c}))
+                                              labelOpts={"color": c, **LABEL_RIGHT}))
         self.caption = QLabel("")
         self.caption.setProperty("muted", True)
+        lay.addWidget(self.legend)
         lay.addWidget(self.plot, 1)
         lay.addWidget(self.caption)
 
@@ -118,13 +158,15 @@ class YearTimeline(QWidget):
         self.plot = pg.PlotWidget(axisItems={"bottom": _date_axis()})
         self.plot.setLabel("left", "loading", units="%")
         self.plot.showGrid(x=True, y=True, alpha=0.2)
-        legend = self.plot.addLegend()
-        legend.anchor(itemPos=(1, 1), parentPos=(1, 1), offset=(-12, -12))        # bottom-right, off the data
-        self.load = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=1), name="loading %")
-        self.plot.addItem(pg.InfiniteLine(pos=80, angle=0, pen=pg.mkPen(RULE_80, style=Qt.DashLine)))
-        self.plot.addItem(pg.InfiniteLine(pos=100, angle=0, pen=pg.mkPen(RULE_100, style=Qt.DashLine)))
+        self.legend = LegendStrip(TIMELINE_LEGEND)
+        self.load = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=1))
+        # the rule labels sit mid-year (the summer trough), where the loading curve is far below them
+        for y, c, txt in ((80, RULE_80, "80 % rule"), (100, RULE_100, "nameplate")):
+            self.plot.addItem(pg.InfiniteLine(pos=y, angle=0, pen=pg.mkPen(c, style=Qt.DashLine), label=txt,
+                                              labelOpts={"position": 0.5, "color": c}))
         self.right = pg.ViewBox()
         self.plot.showAxis("right")
+        self.plot.plotItem.layout.setContentsMargins(1, 1, RIGHT_AXIS_MARGIN, 1)
         self.plot.scene().addItem(self.right)
         self.plot.getAxis("right").linkToView(self.right)
         self.right.setXLink(self.plot)
@@ -133,8 +175,6 @@ class YearTimeline(QWidget):
         self.amb = pg.PlotCurveItem(pen=pg.mkPen(AMBIENT_COLOR, width=1))
         self.right.addItem(self.hot)
         self.right.addItem(self.amb)
-        self.plot.plotItem.legend.addItem(self.hot, "hot-spot °C")
-        self.plot.plotItem.legend.addItem(self.amb, "outdoor °C")
         self.plot.getViewBox().sigResized.connect(self._sync)
         self.scrubber = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen("#000000", width=2),
                                         hoverPen=pg.mkPen("#000000", width=4), label="drag me  ◂ ▸",
@@ -143,6 +183,7 @@ class YearTimeline(QWidget):
         self.scrubber.sigPositionChanged.connect(self._moved)
         self.readout = ElidedLabel("")         # a wrapped label imposes its height on the column, an unwrapped one its width
         self.readout.setProperty("muted", True)
+        lay.addWidget(self.legend)
         lay.addWidget(self.plot, 1)
         lay.addWidget(self.readout)
         self._x = np.array([])
@@ -214,17 +255,17 @@ class WorstWeek(QWidget):
         self.plot = pg.PlotWidget(axisItems={"bottom": _date_axis()})
         self.plot.setLabel("left", "temperature", units="°C")
         self.plot.showGrid(x=True, y=True, alpha=0.2)
-        legend = self.plot.addLegend()
-        legend.anchor(itemPos=(1, 1), parentPos=(1, 1), offset=(-12, -12))
-        self.hot = self.plot.plot([], [], pen=pg.mkPen(HOTSPOT_COLOR, width=2), name="hot-spot")
-        self.oil = self.plot.plot([], [], pen=pg.mkPen(OIL_COLOR, width=1.5), name="top-oil")
-        self.amb = self.plot.plot([], [], pen=pg.mkPen(AMBIENT_COLOR, width=1.5), name="outdoor")
+        self.legend = LegendStrip(WORST_WEEK_LEGEND)
+        self.hot = self.plot.plot([], [], pen=pg.mkPen(HOTSPOT_COLOR, width=2))
+        self.oil = self.plot.plot([], [], pen=pg.mkPen(OIL_COLOR, width=1.5))
+        self.amb = self.plot.plot([], [], pen=pg.mkPen(AMBIENT_COLOR, width=1.5))
         self.plot.addItem(pg.InfiniteLine(pos=98, angle=0, pen=pg.mkPen(RULE_80, style=Qt.DashLine), label="98 °C: ageing rate 1",
-                                          labelOpts={"position": 0.03, "color": RULE_80}))
+                                          labelOpts={"color": RULE_80, **LABEL_LEFT}))
         self.plot.addItem(pg.InfiniteLine(pos=120, angle=0, pen=pg.mkPen(HOTSPOT_COLOR, style=Qt.DashLine), label="120 °C IEC limit",
-                                          labelOpts={"position": 0.03, "color": HOTSPOT_COLOR}))
+                                          labelOpts={"color": HOTSPOT_COLOR, **LABEL_LEFT}))
         self.right = pg.ViewBox()
         self.plot.showAxis("right")
+        self.plot.plotItem.layout.setContentsMargins(1, 1, RIGHT_AXIS_MARGIN, 1)
         self.plot.scene().addItem(self.right)
         self.plot.getAxis("right").linkToView(self.right)
         self.right.setXLink(self.plot)
@@ -232,10 +273,10 @@ class WorstWeek(QWidget):
         self.load = pg.PlotCurveItem(pen=pg.mkPen(LOAD_COLOR, width=1, style=Qt.DotLine),
                                      brush=pg.mkBrush(31, 78, 121, 25), fillLevel=0)
         self.right.addItem(self.load)
-        self.plot.plotItem.legend.addItem(self.load, "loading % (right axis, shown low)")
         self.plot.getViewBox().sigResized.connect(self._sync)
         self.caption = ElidedLabel("")
         self.caption.setProperty("muted", True)
+        lay.addWidget(self.legend)
         lay.addWidget(self.plot, 1)
         lay.addWidget(self.caption)
 

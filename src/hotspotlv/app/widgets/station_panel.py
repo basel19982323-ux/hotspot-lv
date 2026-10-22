@@ -1,4 +1,5 @@
-"""Mode B — a real station from the DSO's own CSV: file and options on the left, verdict and charts on the right."""
+"""Mode B — a real station from the DSO's own CSV: file and options on the left, verdict and charts on the right.
+Export PDF… writes the station card (app/report.py): the same verdict, numbers and charts plus the assumption list."""
 
 from __future__ import annotations
 
@@ -7,10 +8,12 @@ from pathlib import Path
 
 import pandas as pd
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+from PySide6.QtGui import QCursor
+from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget,
                                QVBoxLayout, QWidget)
 
+from hotspotlv.app.report import write_station_card
 from hotspotlv.app.widgets.charts import DurationCurve, WorstWeek, YearTimeline
 from hotspotlv.app.widgets.verdict_card import VerdictCard
 from hotspotlv.app.workers import Worker
@@ -49,6 +52,7 @@ class StationPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.result: StationResult | None = None
+        self._amb: pd.Series | None = None
         self._worker: Worker | None = None
         self._t0 = 0.0
         self._timer = QTimer(self); self._timer.timeout.connect(self._tick)
@@ -121,7 +125,11 @@ class StationPanel(QWidget):
         self.run_btn = QPushButton("Assess this station"); self.run_btn.clicked.connect(self.run)
         self.cancel_btn = QPushButton("Cancel"); self.cancel_btn.setProperty("secondary", True)
         self.cancel_btn.clicked.connect(self.cancel); self.cancel_btn.setVisible(False)
-        btns.addWidget(self.run_btn, 1); btns.addWidget(self.cancel_btn)
+        self.export_btn = QPushButton("Export PDF…"); self.export_btn.setProperty("secondary", True)
+        self.export_btn.setToolTip("Save this station's card as a PDF: verdict, the two columns, the three charts, "
+                                   "the notes and the full assumption list (thermal constants, rules, what was not checked).")
+        self.export_btn.clicked.connect(self.export_pdf); self.export_btn.setEnabled(False)
+        btns.addWidget(self.run_btn, 1); btns.addWidget(self.cancel_btn); btns.addWidget(self.export_btn)
         self.progress = QProgressBar(); self.progress.setRange(0, 0); self.progress.setVisible(False)
         self.status = QLabel(""); self.status.setProperty("muted", True); self.status.setWordWrap(True)
         ll.addWidget(g1); ll.addWidget(g2); ll.addLayout(btns); ll.addWidget(self.progress); ll.addWidget(self.status); ll.addStretch(1)
@@ -161,7 +169,8 @@ class StationPanel(QWidget):
         p = Path(self.path.text().strip())
         if not p.exists():
             QMessageBox.warning(self, "File", "Choose an existing CSV file."); return
-        self.run_btn.setEnabled(False); self.cancel_btn.setVisible(True); self.progress.setVisible(True)
+        self.run_btn.setEnabled(False); self.export_btn.setEnabled(False)
+        self.cancel_btn.setVisible(True); self.progress.setVisible(True)
         self._t0 = time.perf_counter(); self._timer.start(500)
         self.status.setText("Reading the file …")
         self._worker = Worker(_assess, p, self.kva.value(), self.measured.currentData(), self.tz.currentData(),
@@ -176,6 +185,7 @@ class StationPanel(QWidget):
 
     def _finish_ui(self):
         self._timer.stop(); self.progress.setVisible(False); self.cancel_btn.setVisible(False); self.run_btn.setEnabled(True)
+        self.export_btn.setEnabled(self.result is not None)       # the card of the LAST result stays exportable
 
     def cancel(self):
         w, self._worker = self._worker, None           # retire it: a late result from it is ignored
@@ -199,7 +209,8 @@ class StationPanel(QWidget):
         self._finish_ui()
         try:
             res, amb = payload
-            self.result = res
+            self.result, self._amb = res, amb
+            self.export_btn.setEnabled(True)
             self.card.set_verdict(res.verdict, f"{res.rated_kva:.0f} kVA")
             step_h = res.station.step_min / 60
             self.timeline.set_data(res.year.hourly, res.thermal.hourly, amb)
@@ -212,3 +223,23 @@ class StationPanel(QWidget):
         except Exception as e:  # never leave a half-drawn screen saying "Done"
             self.status.setText("")
             show_error(self, "Could not show the result", f"{type(e).__name__}: {e}")
+
+    def export_pdf(self):
+        """The station card of the result on screen. Runs on the GUI thread (about a second): the charts are
+        Qt widgets and the PDF writer paints with Qt fonts, neither of which belongs in a worker."""
+        if self.result is None or self.is_running():
+            return
+        stem = Path(self.result.station.source or self.path.text() or "station").stem or "station"
+        fn, _ = QFileDialog.getSaveFileName(self, "Save the station card", f"station-card-{stem}.pdf", "PDF (*.pdf)")
+        if not fn:
+            return
+        if not fn.lower().endswith(".pdf"):
+            fn += ".pdf"
+        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+        try:
+            out = write_station_card(self.result, self._amb, fn, source_name=Path(self.result.station.source or self.path.text()).name)
+            self.status.setText(f"Station card saved to {out}")
+        except Exception as e:
+            show_error(self, "Could not write the PDF", f"{type(e).__name__}: {e}")
+        finally:
+            QApplication.restoreOverrideCursor()

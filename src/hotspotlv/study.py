@@ -87,7 +87,7 @@ class CaseResult:
             "max_load_pu": v.really["max load (× rated)"],
             "voltage_bad_hours": v.really["hours with voltage outside ±10 %"],
             "voltage_plan_hours": v.really["hours with voltage outside the planning band"],
-            "max_cable_pct": v.really["max main-cable loading (%)"],
+            "max_cable_pct": v.really["max cable loading (%)"],
             "energy_mwh": self.year.summary()["energy_mwh"],
             "battery_kw": self.case.battery.power_kw if self.case.battery else 0.0,
             "battery_kwh": self.case.battery.energy_kwh if self.case.battery else 0.0,

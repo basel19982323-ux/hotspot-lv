@@ -9,7 +9,7 @@ Two views of the same year, side by side:
     hours above 100 %                    max hot-spot vs IEC limits (120 / 140 °C)
                                          max load vs IEC current limits (1.5 / 1.8 pu)
                                          house voltage vs EIFS 2023:3 (0.90–1.10 pu)
-                                         main-cable loading
+                                         cable loading (main or service cable)
 
 The verdict is decided ONLY by the right-hand column. The left-hand column is
 reported next to it so the reader sees the gap — that is the point of the tool.
@@ -35,7 +35,9 @@ Rules (every threshold with its source):
     • any hour below 0.92 or above 1.05 pu  planning margin: an hourly balanced mean understates the
                                              10-minute, per-phase extremes the law is about (Chalmers
                                              LV-grid generator uses 1.05 pu as the rise limit)
-    • main cable    > 100 % of its rating   feeder.py cable catalogue (rating conditions stated there)
+    • any cable     > 100 % of its rating   feeder.py cable catalogue (rating conditions stated there);
+                                             the max over main AND service cables — on a small street
+                                             one fuse-capped house on its service cable sets it
   OK otherwise.
 
 The nameplate counters (hours above 80 % / 100 %) never change the verdict.
@@ -168,7 +170,7 @@ def judge(year: YearResult, thermal: ThermalResult) -> Verdict:
         watch.append(Reason("house voltage outside the 0.92–1.05 pu planning band", v_plan_bad, 0, "hours",
                             "planning margin for hourly balanced simulation (Chalmers 1.05 pu rise limit)"))
     if cable_max > 100.0 + TOL:
-        watch.append(Reason("main cable above its current rating", cable_max, 100.0, "%", "cable catalogue (feeder.py)"))
+        watch.append(Reason("a cable above its current rating", cable_max, 100.0, "%", "cable catalogue (feeder.py)"))
 
     level = "At risk" if at_risk else ("Watch" if watch else "OK")
     on_paper = {
@@ -185,6 +187,6 @@ def judge(year: YearResult, thermal: ThermalResult) -> Verdict:
         "max load (× rated)": max_k,
         "hours with voltage outside ±10 %": v_law_bad,
         "hours with voltage outside the planning band": v_plan_bad,
-        "max main-cable loading (%)": cable_max,
+        "max cable loading (%)": cable_max,
     }
     return Verdict(level, at_risk, watch, on_paper, really)
