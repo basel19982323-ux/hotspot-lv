@@ -46,8 +46,8 @@ SHOW = ["verdict", "peak_loading_pct", "hours_above_80", "hours_above_100", "lif
 DESIGN_RATE_DAYS = 365.0            # IEC 60076-7: V = 1 uses one day of life per day
 LIFE_FLOOR = 1e-4                   # smallest value drawn on the log axis
 LEGEND_HTML = (f"<span style='color:{LOAD_COLOR}'>&#9679; hours above 80 % (the paper rule)</span> &nbsp; "
-               f"<span style='color:{RULE_100}'>&#9650; hours above 100 %</span> &nbsp; "
-               f"<span style='color:{HOTSPOT_COLOR}'>&#9679; life used, days/yr (right axis, log; dashed = 365, the IEC design rate; &#9650; = not computed, loading above 2 × rated)</span>"
+               f"<span style='color:{RULE_100}'>&#9660; hours above 100 %</span> &nbsp; "
+               f"<span style='color:{HOTSPOT_COLOR}'>&#9679; life used, days/yr (right axis, log; dashed = 365, the IEC design rate; &#9670; = not computed, loading above 2 × rated)</span>"
                " &nbsp; squares below the axis = verdict: "
                f"<span style='color:{VERDICT_COLORS['OK']}'>&#9632; OK</span> "
                f"<span style='color:{VERDICT_COLORS['Watch']}'>&#9632; Watch</span> "
@@ -149,7 +149,7 @@ class SweepView(QWidget):
         self.design_line = pg.InfiniteLine(angle=0, pos=np.log10(DESIGN_RATE_DAYS),
                                            pen=pg.mkPen(HOTSPOT_COLOR, style=Qt.DashLine),
                                            label="365 days/yr = IEC design rate", labelOpts={"position": 0.5, "color": HOTSPOT_COLOR})
-        self.life_na = pg.ScatterPlotItem(size=11, symbol="t1", brush=HOTSPOT_COLOR, pen=pg.mkPen(None))   # ▲ at the top
+        self.life_na = pg.ScatterPlotItem(size=11, symbol="d", brush=HOTSPOT_COLOR, pen=pg.mkPen(None))   # ◆ at the top
         self.right.addItem(self.life); self.right.addItem(self.life_pts); self.right.addItem(self.design_line)
         self.right.addItem(self.life_na)
         self.plot.getViewBox().sigResized.connect(self._sync)
@@ -338,7 +338,8 @@ class SweepView(QWidget):
             self.plot.setYRange(-0.16 * top, top)
             life_top = np.log10(max(6 * DESIGN_RATE_DAYS, float(life[ok].max()) * 2 if ok.any() else 0))
             self.right.setYRange(np.log10(LIFE_FLOOR), life_top)
-            self.life_na.setData(x[~ok], np.full(int((~ok).sum()), life_top * 0.93 + np.log10(LIFE_FLOOR) * 0.07))
+            self.life_na.setData(x[~ok], np.full(int((~ok).sum()), life_top - 0.12))   # above every computed point
+                                                                                        # (the range is 2 × the max)
             self.life_na.setToolTip(f"life used {NOT_COMPUTED}" if (~ok).any() else "")
             self._sync()
             # verdict squares in their own strip below the hours axis
@@ -384,7 +385,7 @@ class SweepView(QWidget):
                          f"the insulation stays below its IEC design rate of 365 days/yr "
                          f"(max {computed.max():.2f} days/yr at {fmt(computed.idxmax())})")
         if len(withdrawn):
-            parts.append(f"life used is not computed from {fmt(withdrawn[0])} (loading above 2 × rated, marked ▲)")
+            parts.append(f"life used is not computed from {fmt(withdrawn[0])} (loading above 2 × rated, marked ◆)")
         risk = t.index[t["verdict"] == "At risk"]
         if len(risk):
             why = str(t.loc[risk[0], "why"]).split(" — ", 1)[-1].split(" (also")[0]

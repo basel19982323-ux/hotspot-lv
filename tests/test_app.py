@@ -391,17 +391,20 @@ def test_scenario_views_count_withdrawn_cases_never_hide_them(panel):
     t = _draws([215.8, 438.7, 801.1, nan, nan], [169.1, 175.0, 181.5, nan, nan])
     panel.mc.set_table(t)
     cap = panel.mc.caption.text()
-    assert "life used (computed in 3 of 5 draws; the others load above 2 × rated)" in cap and "nan" not in cap
+    assert "life used (3 of 5 draws)" in cap and "2 of 5 draws load above 2 × rated" in cap and "nan" not in cap
     cells = [str(v) for v in list(panel.mc.summary_model.df.index) + list(panel.mc.summary_model.df.to_numpy().ravel())]
-    assert any("3 of 5 draws" in c for c in cells)
+    assert any("(3/5 draws)" in c for c in cells)
+    assert max(len(str(x)) for x in panel.mc.summary_model.df.index) < 50 or \
+        max(len(str(c)) for c in cells if "draws)" in c) < 50                    # short: the numbers stay on screen
     panel.mc.metric_box.setCurrentIndex(panel.mc.metric_box.findData("life_days_per_year"))
-    assert "3 draws" in panel.mc.legend.text() and "2 draws not computed" in panel.mc.legend.text()
+    assert "3 draws" in panel.mc.legend.text() and "2 of 5 draws above 2 × rated" in panel.mc.legend.text()
     assert len(panel.mc.dots.getData()[0]) == 3
     allnan = _draws([nan] * 4, [nan] * 4)
     panel.mc.set_table(allnan)                                                   # no exception, no "nan"
     panel.mc.metric_box.setCurrentIndex(panel.mc.metric_box.findData("life_days_per_year"))
     panel.mc._redraw()
     assert "life used not computed in any draw" in panel.mc.caption.text() and "nan" not in panel.mc.caption.text()
+    assert panel.mc.legend.text().startswith("No band or median")
     assert "not computed in any draw" in panel.mc.limits_note.text()
     assert all("nan" not in str(v) for v in panel.mc.summary_model.df.to_numpy().ravel())
     panel.mc.metric_box.setCurrentIndex(0)
@@ -414,9 +417,10 @@ def test_scenario_views_count_withdrawn_cases_never_hide_them(panel):
                       index=pd.Index([105, 120, 150], name="n_houses"))
     panel.sweep.set_table(sw, "n_houses")
     cap = panel.sweep.caption.text()
-    assert "life used is not computed from 150 houses (loading above 2 × rated, marked ▲)" in cap
+    assert "life used is not computed from 150 houses (loading above 2 × rated, marked ◆)" in cap
     assert "where it is computed" in cap and "nan" not in cap
     assert list(panel.sweep.life_na.getData()[0]) == [150] and len(panel.sweep.life_pts.getData()[0]) == 2
+    assert panel.sweep.life_na.getData()[1][0] > panel.sweep.life_pts.getData()[1].max()   # the mark sits on top
     sw["life_days_per_year"] = nan
     panel.sweep.set_table(sw, "n_houses")                                        # all withdrawn: no 'max nan at nan'
     assert "nan" not in panel.sweep.caption.text() and "not computed from 105 houses" in panel.sweep.caption.text()
@@ -426,7 +430,8 @@ def test_scenario_views_count_withdrawn_cases_never_hide_them(panel):
     vals = pd.Series([nan, 0.51, nan], index=["baseline", "800 kVA", "night timer 22–01"])
     FixesView._draw_bars(panel.fixes.bars_real, vals, pd.Series(["At risk", "OK", "At risk"]), whole=False)
     texts = [it.toPlainText() for it in panel.fixes.bars_real[0].getPlotItem().items if isinstance(it, pg.TextItem)]
-    assert texts.count("not\ncomputed") == 2 and "0.51" in texts and not any("nan" in t for t in texts)
+    assert texts.count("–") == 2 and "0.51" in texts and not any("nan" in t for t in texts)
+    assert "– = not computed (loading above 2 × rated)" in texts                 # explained once, not per slot
     FixesView._draw_bars(panel.fixes.bars_real, pd.Series([nan, nan], index=["a", "b"]), pd.Series(["At risk"] * 2), whole=False)
     texts = [it.toPlainText() for it in panel.fixes.bars_real[0].getPlotItem().items if isinstance(it, pg.TextItem)]
     assert any("not computed for any fix" in t for t in texts) and not any("no life used" in t for t in texts)

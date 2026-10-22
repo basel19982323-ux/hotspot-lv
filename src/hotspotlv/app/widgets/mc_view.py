@@ -329,7 +329,7 @@ class MonteCarloView(QWidget):
                 label = METRICS.get(key, (key, "", []))[0]
                 done = int(table[key].notna().sum())
                 if done < n:                               # withdrawn draws are counted, never silently left out
-                    label = f"{label} — {done} of {n} draws (others above 2 × rated: not computed)"
+                    label = f"{label} ({done}/{n} draws)"   # short: the legend says why (a long label hid the numbers)
                 rows[label] = {c: fmt_value(key, float(self.summary.loc[key, c])) for c in SUMMARY_COLUMNS}
             summary = pd.DataFrame(rows).T[SUMMARY_COLUMNS]
             summary.index.name = "quantity"
@@ -361,9 +361,13 @@ class MonteCarloView(QWidget):
         self.dots.setData(x[ok], y[ok])
         band = ("middle 80 % of the draws (10th–90th percentile)" if k >= BAND_FROM
                 else f"full range of these {k} draws")
-        missing = f"; ▲ = {n - k} draws not computed (loading above 2 × rated)" if k < n else ""
-        self.legend.setText(f"Band = {band}; line = median; dashed = the rule limits (listed under the chart); "
-                            f"squares = verdict per draw{missing}. Only the draw changes — hover for what that means.")
+        missing = (f"; ◆ = {n - k} of {n} draws above 2 × rated: their thermal figures are not computed" if k < n else "")
+        if k:
+            self.legend.setText(f"Band = {band}; line = median; dashed = the rule limits (listed under the chart); "
+                                f"squares = verdict per draw{missing}. Only the draw changes — hover for what that means.")
+        else:
+            self.legend.setText(f"No band or median: no draw has this number (all {n} above 2 × rated); squares = verdict "
+                                "per draw. Only the draw changes — hover for what that means.")
         self.band.setVisible(k > 0); self.median_line.setVisible(k > 0)
         if k:
             if k >= BAND_FROM:
@@ -397,7 +401,7 @@ class MonteCarloView(QWidget):
         self.limits_note.setText("; ".join(note))
         span = y_hi - y_lo
         strip_y = y_lo + 0.08 * span                       # a strip of its own, below every dot
-        na = pg.ScatterPlotItem(list(x[~ok]), [y_hi - 0.08 * span] * int((~ok).sum()), size=11, symbol="t1",
+        na = pg.ScatterPlotItem(list(x[~ok]), [y_hi - 0.08 * span] * int((~ok).sum()), size=11, symbol="d",
                                 brush="#6b6b6b", pen=pg.mkPen(None))
         na.setToolTip("not computed: the loading goes above 2 × rated (IEC short-time emergency limit)")
         self.plot.addItem(na); self._na_items.append(na)        # removed on the next redraw; not a limit, not a verdict
@@ -456,7 +460,7 @@ class MonteCarloView(QWidget):
                 parts.append(f"{name} not computed in any draw (loading above 2 × rated)")
                 continue
             if len(done) < n:
-                name = f"{name} (computed in {len(done)} of {n} draws; the others load above 2 × rated)"
+                name = f"{name} ({len(done)} of {n} draws)"
             y = done
             raw_lo, raw_hi = float(y.min()), float(y.max())
             lo, hi, med = fmt_value(key, raw_lo), fmt_value(key, raw_hi), fmt_value(key, float(np.median(y)))
@@ -466,7 +470,11 @@ class MonteCarloView(QWidget):
                 parts.append(f"{name} ≈ {lo}{unit} in all draws (spread {raw_hi - raw_lo:.2g}{unit})")
             else:
                 parts.append(f"{name} {lo}–{hi}{unit} (median {med})")
-        return "; ".join(parts) + "."
+        text = "; ".join(parts) + "."
+        withdrawn = int(table["life_days_per_year"].isna().sum()) if "life_days_per_year" in table else 0
+        if withdrawn:
+            text += f" {withdrawn} of {n} draws load above 2 × rated: their thermal figures are not computed."
+        return text
 
 
 def same_but_seed(a: Case, b: Case) -> bool:

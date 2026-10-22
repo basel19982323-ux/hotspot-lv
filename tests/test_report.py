@@ -246,7 +246,11 @@ def test_charts_of_a_withdrawn_run_print_no_temperature_or_life(clipped):
         text = c["caption"] + " " + c["legend"]
         assert not re.search(r"\d{7,}", text.replace(",", "")), f"{name}: an absurd number in {text!r}"
         assert not re.search(r"hot-spot \d|top-oil \d|days of insulation", text), f"{name}: {text!r}"
-    assert "not computed" in charts["worst_week"]["caption"]
+    assert "not computed" in charts["worst_week"]["caption"] and "IEC short-time emergency limit" in charts["worst_week"]["caption"]
+    from hotspotlv.app.widgets.charts import WorstWeek
+    w = WorstWeek()
+    w.set_week(res.thermal.worst_week(), res.year.hourly, amb, thermal_valid=False)
+    assert not any(line.isVisible() for line in w._rules)                         # no °C rule lines without temperatures
     page = station_card_html(res, charts)
     assert "The heaviest week by loading — no transformer temperatures" in page and "No hot-spot or top-oil is drawn" in page
     assert all("hot-spot °C" not in c["legend"] and "top-oil °C" not in c["legend"] for c in charts.values())
@@ -259,11 +263,14 @@ def test_short_files_say_that_life_is_scaled_to_a_year(app):
     res = assess_station(st, 500, ambient_for(st.index))
     note = next(n for n in res.verdict.notes if "life used per year is scaled" in n)
     assert "×11.8" in note and "cover 31 days" in note and "winter-only file overstates" in note
+    full = read_station_csv(EXAMPLE)
+    part = replace(full, p_kw=full.p_kw.iloc[:7900], q_kvar=full.q_kvar.iloc[:7900])  # whole days, never "329.167"
+    assert "cover 329 days:" in next(n for n in assess_station(part, 500, ambient_for(part.index)).verdict.notes if "scaled" in n)
     page = station_card_html(res, None)
     assert "744 h of data; life used per year is scaled ×11.8 to a year" in page
     day = replace(st, p_kw=st.p_kw.iloc[:24], q_kvar=st.q_kvar.iloc[:24])     # one day: no '1 days', no 3.6e+02
     note = next(n for n in assess_station(day, 500, ambient_for(day.index)).verdict.notes if "scaled" in n)
-    assert "cover 1 day:" in note and "×365" in note and "e+" not in note
+    assert "cover 24 hours:" in note and "×365" in note and "e+" not in note
 
 
 def test_overlay_energy_is_split_from_the_measured_energy(app):

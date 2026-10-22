@@ -384,7 +384,8 @@ class FixesView(QWidget):
         ok = np.isfinite(vals)                        # NaN = withdrawn above 2 × rated: "not computed", never a 0 bar
         real = vals[ok]
         top = float(real.max()) if len(real) and float(real.max()) > 0 else 1.0
-        plot.setYRange(0, top * 1.15)
+        noted = bool((~ok).any() and ok.any())            # a one-line note above the bars needs its own headroom
+        plot.setYRange(0, top * (1.4 if noted else 1.15))
         plot.setXRange(-0.6, len(vals) - 0.4, padding=0)      # every fix has a slot, drawn or "not computed"
         if not len(real) or float(real.max()) <= 0:
             if not (~ok).any():
@@ -398,11 +399,14 @@ class FixesView(QWidget):
         if ok.any():
             plot.addItem(pg.BarGraphItem(x=x[ok], height=vals[ok], width=0.6,
                                          brushes=[b for b, k in zip(brushes, ok) if k], pen=pg.mkPen(None)))
+        if noted:                                      # the explanation once; each slot carries a short mark
+            note = pg.TextItem("– = not computed (loading above 2 × rated)", color="#6b6b6b", anchor=(0, 0))
+            note.setPos(-0.55, top * 1.38); plot.addItem(note)
         for i, v in enumerate(vals):
             if not np.isfinite(v):
-                t = pg.TextItem("not\ncomputed", color="#6b6b6b", anchor=(0.5, 1))
+                t = pg.TextItem("–", color="#6b6b6b", anchor=(0.5, 1))
                 t.setToolTip("Life used is not computed: the loading goes above 2 × rated (IEC short-time emergency limit).")
-                t.setPos(i, 0.25 * top)
+                t.setPos(i, 0.08 * top)
             else:
                 t = pg.TextItem(f"{v:,.0f}" if whole or v >= 10 else f"{v:.2f}", color="#333333", anchor=(0.5, 1))
                 t.setPos(i, v)

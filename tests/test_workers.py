@@ -168,6 +168,10 @@ def driven_show(self):
     def start():
         if mode == "station":                      # an assessment has no checkpoint: the thread is alive at exit
             st = self.station
+            import time
+            import hotspotlv.app.widgets.station_panel as spm
+            real_assess = spm._assess
+            spm._assess = lambda *a: (time.sleep(5), real_assess(*a))[1]   # certainly still running at shutdown
             from hotspotlv.app.widgets.station_panel import EXAMPLE
             st.path.setText(str(EXAMPLE)); st.run()
             def finish_station():
