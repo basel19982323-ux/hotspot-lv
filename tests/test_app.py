@@ -371,3 +371,62 @@ def test_heating_shares_are_validated_before_the_engine(panel):
     panel.feeders.setValue(6); panel.houses.setValue(3)
     assert "feeders" in (panel.build_case_error() or "")
     panel.houses.setValue(6); panel.feeders.setValue(2)
+
+
+def _draws(life, hot, verdicts=None):
+    """A Monte-Carlo-shaped table; NaN = withdrawn above 2 × rated."""
+    n = len(life)
+    return pd.DataFrame({"verdict": verdicts or ["At risk"] * n, "peak_loading_pct": [190.0 + 5 * i for i in range(n)],
+                         "hours_above_80": [900] * n, "hours_above_100": [300] * n, "life_days_per_year": life,
+                         "max_hot_spot_c": hot, "hours_hot_spot_above_98": [100] * n, "max_load_pu": [1.9 + 0.05 * i for i in range(n)],
+                         "voltage_bad_hours": [0] * n, "voltage_plan_hours": [0] * n, "max_cable_pct": [80.0] * n,
+                         "exact_hours": [0] * n, "why": ["x"] * n}, index=pd.Index(range(n), name="seed"))
+
+
+def test_scenario_views_count_withdrawn_cases_never_hide_them(panel):
+    """Catches (round 3, R1): a case above 2 × rated drawn as 1e-4 days/yr, a Fixes chart showing only the computed
+    bar, a Spread summary over 3 of 5 draws called 'these 5 draws', 'nan' text, an exception on an all-NaN metric."""
+    nan = float("nan")
+    # Spread: two of five draws withdrawn, then all of them
+    t = _draws([215.8, 438.7, 801.1, nan, nan], [169.1, 175.0, 181.5, nan, nan])
+    panel.mc.set_table(t)
+    cap = panel.mc.caption.text()
+    assert "life used (computed in 3 of 5 draws; the others load above 2 × rated)" in cap and "nan" not in cap
+    cells = [str(v) for v in list(panel.mc.summary_model.df.index) + list(panel.mc.summary_model.df.to_numpy().ravel())]
+    assert any("3 of 5 draws" in c for c in cells)
+    panel.mc.metric_box.setCurrentIndex(panel.mc.metric_box.findData("life_days_per_year"))
+    assert "3 draws" in panel.mc.legend.text() and "2 draws not computed" in panel.mc.legend.text()
+    assert len(panel.mc.dots.getData()[0]) == 3
+    allnan = _draws([nan] * 4, [nan] * 4)
+    panel.mc.set_table(allnan)                                                   # no exception, no "nan"
+    panel.mc.metric_box.setCurrentIndex(panel.mc.metric_box.findData("life_days_per_year"))
+    panel.mc._redraw()
+    assert "life used not computed in any draw" in panel.mc.caption.text() and "nan" not in panel.mc.caption.text()
+    assert "not computed in any draw" in panel.mc.limits_note.text()
+    assert all("nan" not in str(v) for v in panel.mc.summary_model.df.to_numpy().ravel())
+    panel.mc.metric_box.setCurrentIndex(0)
+    # Sweep: a withdrawn point is a ▲ marker, named in the caption
+    sw = pd.DataFrame({"verdict": ["Watch", "At risk", "At risk"], "peak_loading_pct": [150.0, 190.0, 234.0],
+                       "hours_above_80": [500, 900, 1500], "hours_above_100": [100, 300, 700],
+                       "life_days_per_year": [3.7, 17.05, nan], "max_hot_spot_c": [120.0, 150.0, nan],
+                       "voltage_bad_hours": [0, 5, 40], "voltage_plan_hours": [3, 20, 90], "max_cable_pct": [80.0, 95.0, 120.0],
+                       "exact_hours": [0, 0, 8760], "why": ["Watch — a", "At risk — b", "At risk — c"]},
+                      index=pd.Index([105, 120, 150], name="n_houses"))
+    panel.sweep.set_table(sw, "n_houses")
+    cap = panel.sweep.caption.text()
+    assert "life used is not computed from 150 houses (loading above 2 × rated, marked ▲)" in cap
+    assert "where it is computed" in cap and "nan" not in cap
+    assert list(panel.sweep.life_na.getData()[0]) == [150] and len(panel.sweep.life_pts.getData()[0]) == 2
+    sw["life_days_per_year"] = nan
+    panel.sweep.set_table(sw, "n_houses")                                        # all withdrawn: no 'max nan at nan'
+    assert "nan" not in panel.sweep.caption.text() and "not computed from 105 houses" in panel.sweep.caption.text()
+    # Fixes: a withdrawn fix is a 'not computed' label, never a missing or zero bar
+    from hotspotlv.app.widgets.fixes_view import FixesView
+    import pyqtgraph as pg
+    vals = pd.Series([nan, 0.51, nan], index=["baseline", "800 kVA", "night timer 22–01"])
+    FixesView._draw_bars(panel.fixes.bars_real, vals, pd.Series(["At risk", "OK", "At risk"]), whole=False)
+    texts = [it.toPlainText() for it in panel.fixes.bars_real[0].getPlotItem().items if isinstance(it, pg.TextItem)]
+    assert texts.count("not\ncomputed") == 2 and "0.51" in texts and not any("nan" in t for t in texts)
+    FixesView._draw_bars(panel.fixes.bars_real, pd.Series([nan, nan], index=["a", "b"]), pd.Series(["At risk"] * 2), whole=False)
+    texts = [it.toPlainText() for it in panel.fixes.bars_real[0].getPlotItem().items if isinstance(it, pg.TextItem)]
+    assert any("not computed for any fix" in t for t in texts) and not any("no life used" in t for t in texts)

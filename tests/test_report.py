@@ -232,7 +232,7 @@ def test_a_clipped_thermal_run_shows_no_number_that_looks_real(clipped):
     assert "e+" not in page
     for k in THERMAL_KEYS:
         assert f"{html.escape(k)}</td><td align='right' style='color:#6b6b6b'><b>–</b>" in page
-    assert page.index("beyond the thermal model's range") < page.index("ON PAPER")           # said first, on page 1
+    assert page.index("the IEC short-time emergency limit.</b>") < page.index("ON PAPER")  # said first, on page 1
     assert any("thermal run was clipped" in n for n in v.notes)
 
 
@@ -248,7 +248,7 @@ def test_charts_of_a_withdrawn_run_print_no_temperature_or_life(clipped):
         assert not re.search(r"hot-spot \d|top-oil \d|days of insulation", text), f"{name}: {text!r}"
     assert "not computed" in charts["worst_week"]["caption"]
     page = station_card_html(res, charts)
-    assert "The heaviest week — loading only" in page and "No hot-spot or top-oil is drawn" in page
+    assert "The heaviest week by loading — no transformer temperatures" in page and "No hot-spot or top-oil is drawn" in page
     assert all("hot-spot °C" not in c["legend"] and "top-oil °C" not in c["legend"] for c in charts.values())
 
 
@@ -364,7 +364,7 @@ def test_legends_sit_above_the_plots_not_on_the_data(app):
     assert shown == {"80 % rule": True, "nameplate": True, "IEC 1.5 × rated": False}   # 150 % is off a 0–110 axis
     dc.plot.setYRange(0, 600, padding=0); app.processEvents()                    # an At-risk station: 80 and 100 crowd
     vis = [it.label for it in dc.plot.plotItem.items if isinstance(it, pg.InfiniteLine) and it.label and it.label.isVisible()]
-    rects = [lab.sceneBoundingRect() for lab in vis]
+    rects = [lab.sceneBoundingRect().adjusted(0, 5, 0, -5) for lab in vis]       # the text, without its padding
     assert all(not a.intersects(b) for i, a in enumerate(rects) for b in rects[i + 1:]), "two labels on each other"
     assert "IEC 1.5 × rated" in {lab.format for lab in vis}                      # the IEC limit wins the space
     dc.plot.setFixedSize(600, 120); app.processEvents()                          # too short: no labels at all
@@ -415,7 +415,8 @@ def test_export_pdf_writes_the_result_on_screen_and_reports_failures(app, statio
     assert (tmp_path / "Card.PDF").exists() and not (tmp_path / "Card.PDF.pdf").exists()
     assert during == [(False, False)]                                            # nothing clickable while writing
     assert panel.export_btn.isEnabled() and panel.run_btn.isEnabled()
-    assert f"saved as Card.PDF in {tmp_path}" in panel.status.text() and not errors
+    assert f"saved as Card.PDF in the folder {tmp_path.name}" in panel.status.text() and not errors
+    assert panel.status.toolTip() == str(tmp_path / "Card.PDF")
     pypdf = pytest.importorskip("pypdf")
     assert "ns-102.csv" in pypdf.PdfReader(str(tmp_path / "Card.PDF")).metadata.title     # the result's file
     target["name"] = str(tmp_path / "plain")                                     # no suffix → .pdf appended
@@ -451,6 +452,7 @@ img = charts["period"]["image"]
 dark = sum(img.pixelColor(x, y).lightness() < 140 for x in range(img.width() - 6, img.width()) for y in range(img.height()))
 print("DPR", img.devicePixelRatio(), img.width(), img.height(), "EDGE", dark)
 report.write_station_card(res, amb, sys.argv[1], source_name="ns-102.csv")
+report.write_station_card(res, amb, sys.argv[1] + ".long.pdf", source_name="NS-102-" + "Kopparlunden-" * 10 + ".csv")
 os._exit(0)
 """
 
@@ -484,6 +486,11 @@ def test_card_on_a_scaled_windows_screen_has_page_numbers_and_uncut_charts(tmp_p
         assert body[-1] not in heads, f"page {i + 1} ends with the heading {body[-1]!r}"           # no stranded heading
         for info in page.get_image_info():
             assert page.rect.contains(fitz.Rect(info["bbox"])), f"an image lies outside page {i + 1}"
+    long_doc = fitz.open(str(out) + ".long.pdf")                                  # a 140-character file name
+    for i, page in enumerate(long_doc):
+        foot = [b for b in page.get_text("blocks") if "page " in b[4] and " of " in b[4]][-1]
+        assert foot[4].strip().startswith("Hotspot LV station card") and "…" in foot[4]
+        assert foot[0] >= page.rect.x0 and foot[2] <= page.rect.x1, "the footer runs off the page"
 
 
 
@@ -545,3 +552,47 @@ def test_export_guards_hold(app, station, monkeypatch, tmp_path):
     panel.export_pdf()                                                           # an unexpected error: said, not raised
     assert errors[-1] == "RuntimeError: odd" and panel.status.text() == "The station card was not saved."
     assert cursors[-1] is None                                                    # the wait cursor is gone first
+
+
+def test_closing_fixes_are_pinned(app, station, monkeypatch, tmp_path):
+    """Round 3 (R5): footer elision, a styled heading still gets its break, the random draw matters only with an
+    overlay, the worst-week caption at the card's precision, and the Fleet tab after Cancel."""
+    import pandas as pd
+    from hotspotlv.app import report as report_module
+    from hotspotlv.app.widgets.charts import WorstWeek
+    out = report_module._with_breaks("<h2 style='color:red'>A</h2><h3>B</h3>", {0, 1})
+    assert "<h2 style='page-break-before: always; color:red'>" in out and "<h3 style='page-break-before: always'>" in out
+    panel = StationPanel()
+    panel.path.setText(str(EXAMPLE)); panel._pending_inputs = panel._inputs(); panel._done(station)
+    assert panel.export_btn.isEnabled()
+    panel.seed.setValue(7)                                                       # no overlay: the draw changes nothing
+    assert panel.export_btn.isEnabled()
+    panel.n_ev.setValue(3)
+    assert not panel.export_btn.isEnabled()
+    res, amb = station
+    w = WorstWeek()
+    week = res.thermal.worst_week()
+    w.set_week(week, res.year.hourly, amb)
+    assert f"max hot-spot {week['theta_h_max'].max():.1f} °C" in w.caption.text()
+    from hotspotlv.app.widgets import fleet_panel as fp
+
+    from PySide6.QtCore import QObject, Signal
+
+    class StubWorker(QObject):                                                   # real signals: the slot sees its sender
+        progress = Signal(int, int, str)
+        finished_ok = Signal(object)
+        failed = Signal(str)
+        def __init__(self, *a, **k): super().__init__(); self._running = False
+        def start(self): self._running = True
+        def isRunning(self): return self._running
+        def cancel(self): self._running = False
+    monkeypatch.setattr(fp, "Worker", StubWorker)
+    fleet = fp.FleetPanel()
+    fleet.table_df = pd.DataFrame({"station_id": ["A"]})                         # a table already on screen
+    fleet.path.setText(str(EXAMPLE.parent / "fleet_index.csv"))
+    fleet.run()
+    retired = fleet._worker
+    fleet.cancel()
+    assert fleet.status.text() == "Cancelled." and fleet.export_btn.isEnabled()
+    retired.progress.emit(1, 3, "NS-101")                                        # a tick from before the Cancel
+    assert fleet.status.text() == "Cancelled."

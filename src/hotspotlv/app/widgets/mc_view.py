@@ -81,6 +81,8 @@ def tally(verdicts: pd.Series) -> dict:
 
 
 def fmt_value(key: str, v: float) -> str:
+    if not np.isfinite(v):
+        return "–"                                    # withdrawn above 2 × rated (or no computed draw at all)
     if key == "life_days_per_year":
         return f"{v:.3f}" if v < 1 else f"{v:.2f}"
     if key in HOUR_KEYS:
@@ -173,7 +175,7 @@ class MonteCarloView(QWidget):
                                            labelOpts={"position": 0.5, "color": LOAD_COLOR, "anchors": [(0.5, 1), (0.5, 1)]})
         self.plot.addItem(self.median_line)
         self.dots = pg.ScatterPlotItem(size=9, brush=LOAD_COLOR, pen=pg.mkPen(None)); self.plot.addItem(self.dots)
-        self._limit_lines = []; self._strip = []
+        self._limit_lines = []; self._strip = []; self._na_items = []
         tv.addWidget(self.plot, 1)
         self.limits_note = QLabel(""); self.limits_note.setProperty("muted", True); self.limits_note.setWordWrap(True)
         self.legend = QLabel(""); self.legend.setProperty("muted", True); self.legend.setWordWrap(True)
@@ -325,6 +327,9 @@ class MonteCarloView(QWidget):
             rows = {}
             for key in self.summary.index:
                 label = METRICS.get(key, (key, "", []))[0]
+                done = int(table[key].notna().sum())
+                if done < n:                               # withdrawn draws are counted, never silently left out
+                    label = f"{label} — {done} of {n} draws (others above 2 × rated: not computed)"
                 rows[label] = {c: fmt_value(key, float(self.summary.loc[key, c])) for c in SUMMARY_COLUMNS}
             summary = pd.DataFrame(rows).T[SUMMARY_COLUMNS]
             summary.index.name = "quantity"
@@ -336,9 +341,6 @@ class MonteCarloView(QWidget):
             self.draws_view.resizeColumnsToContents()
             base = describe_case(case, seed=False) if case is not None else "the current inputs"
             self.base_label.setText(f"Base case: {base} · {self._seeds_text(table)}")
-            band = "middle 80 % of the draws (10th–90th percentile)" if n >= BAND_FROM else f"full range of these {n} draws"
-            self.legend.setText(f"Band = {band}; line = median; dashed = the rule limits (listed under the chart); "
-                                f"squares = verdict per draw. Only the draw changes — hover for what that means.")
             self.caption.setText(self._caption(table, t))
             self._redraw()
             self._done_status = f"Done: {n} draws ({self._seeds_text(table)}). The tables have every number the engine reports per draw."
@@ -354,16 +356,24 @@ class MonteCarloView(QWidget):
         n = len(self.table)
         x = np.asarray(self.table.index, dtype=float)
         y = self.table[key].to_numpy(dtype=float)
-        self.dots.setData(x, y)
-        if n >= BAND_FROM:
-            lo, hi = (float(np.nanpercentile(y, p)) for p in (10, 90))
-        else:
-            lo, hi = float(np.nanmin(y)), float(np.nanmax(y))
-        med = float(np.nanmedian(y))
-        self.band.setRegion((lo, hi)); self.median_line.setPos(med)
-        for item in self._limit_lines + self._strip:
+        ok = np.isfinite(y)                                # NaN = withdrawn above 2 × rated
+        k = int(ok.sum())
+        self.dots.setData(x[ok], y[ok])
+        band = ("middle 80 % of the draws (10th–90th percentile)" if k >= BAND_FROM
+                else f"full range of these {k} draws")
+        missing = f"; ▲ = {n - k} draws not computed (loading above 2 × rated)" if k < n else ""
+        self.legend.setText(f"Band = {band}; line = median; dashed = the rule limits (listed under the chart); "
+                            f"squares = verdict per draw{missing}. Only the draw changes — hover for what that means.")
+        self.band.setVisible(k > 0); self.median_line.setVisible(k > 0)
+        if k:
+            if k >= BAND_FROM:
+                lo, hi = (float(np.percentile(y[ok], p)) for p in (10, 90))
+            else:
+                lo, hi = float(y[ok].min()), float(y[ok].max())
+            self.band.setRegion((lo, hi)); self.median_line.setPos(float(np.median(y[ok])))
+        for item in self._limit_lines + self._strip + self._na_items:
             self.plot.removeItem(item)
-        self._limit_lines, self._strip = [], []
+        self._limit_lines, self._strip, self._na_items = [], [], []
         # the range follows the SPREAD of the draws (a 0.05–0.10 days/yr spread fills the chart); a limit inside
         # the range is drawn, one above it is named under the chart instead of squashing the draws onto one pixel row
         y_lo, y_hi = self._data_range(key, y)
@@ -378,13 +388,19 @@ class MonteCarloView(QWidget):
         if on:
             note.append("dashed: " + " · ".join(on))
         if off:
-            far = all(v > 3 * max(float(np.nanmax(y)), 1e-9) for v, _, _ in limits if not (y_lo <= v <= y_hi))
+            far = all(v > 3 * max(float(y[ok].max()) if k else 0.0, 1e-9) for v, _, _ in limits if not (y_lo <= v <= y_hi))
             note.append(("off the chart, far above the draws: " if far else "above the chart: ") + " · ".join(off))
         if not limits:
             note.append("no rule limit on this number")
+        if not k:
+            note.insert(0, "not computed in any draw: every draw loads the transformer above 2 × rated")
         self.limits_note.setText("; ".join(note))
         span = y_hi - y_lo
         strip_y = y_lo + 0.08 * span                       # a strip of its own, below every dot
+        na = pg.ScatterPlotItem(list(x[~ok]), [y_hi - 0.08 * span] * int((~ok).sum()), size=11, symbol="t1",
+                                brush="#6b6b6b", pen=pg.mkPen(None))
+        na.setToolTip("not computed: the loading goes above 2 × rated (IEC short-time emergency limit)")
+        self.plot.addItem(na); self._na_items.append(na)        # removed on the next redraw; not a limit, not a verdict
         for xi, v in zip(x, self.table["verdict"]):
             s = pg.ScatterPlotItem([xi], [strip_y], size=14, symbol="s", brush=VERDICT_COLORS.get(v, "#999"), pen=pg.mkPen(None))
             s.setToolTip(str(v)); self.plot.addItem(s); self._strip.append(s)
@@ -396,7 +412,10 @@ class MonteCarloView(QWidget):
     @staticmethod
     def _data_range(key: str, y: np.ndarray) -> tuple[float, float]:
         """Bottom and top of the chart: the draws' range plus margins (a strip for the squares below, room above)."""
-        lo, hi = float(np.nanmin(y)), float(np.nanmax(y))
+        y = y[np.isfinite(y)]
+        if not len(y):                                     # nothing computed (all withdrawn): a neutral 0–1 frame
+            return -0.35, 1.25
+        lo, hi = float(y.min()), float(y.max())
         span = hi - lo
         if span <= 0:                                      # every draw the same: show it with a sensible scale
             span = 2.0 if key in HOUR_KEYS else max(abs(hi) * 0.1, 0.01)
@@ -432,8 +451,15 @@ class MonteCarloView(QWidget):
         for key, name in names.items():
             y = table[key].to_numpy(dtype=float)
             unit = METRICS[key][1]
-            raw_lo, raw_hi = float(np.nanmin(y)), float(np.nanmax(y))
-            lo, hi, med = fmt_value(key, raw_lo), fmt_value(key, raw_hi), fmt_value(key, float(np.nanmedian(y)))
+            done = y[np.isfinite(y)]
+            if not len(done):
+                parts.append(f"{name} not computed in any draw (loading above 2 × rated)")
+                continue
+            if len(done) < n:
+                name = f"{name} (computed in {len(done)} of {n} draws; the others load above 2 × rated)"
+            y = done
+            raw_lo, raw_hi = float(y.min()), float(y.max())
+            lo, hi, med = fmt_value(key, raw_lo), fmt_value(key, raw_hi), fmt_value(key, float(np.median(y)))
             if raw_lo == raw_hi:
                 parts.append(f"{name} {lo}{unit} in every draw")
             elif lo == hi:

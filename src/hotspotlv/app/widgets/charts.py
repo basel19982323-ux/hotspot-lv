@@ -59,7 +59,7 @@ class ElidedLabel(QLabel):
 
 from hotspotlv.app.theme import AMBIENT_COLOR, HOTSPOT_COLOR, LOAD_COLOR, OIL_COLOR, RULE_80, RULE_100
 from hotspotlv.timeseries import NAMEPLATE_RULE_PCT
-from hotspotlv.verdict import TOL, fmt_quantity
+from hotspotlv.verdict import THERMAL_RANGE_K, TOL, fmt_quantity
 
 pg.setConfigOptions(antialias=True, background="w", foreground="#333333")
 LOCAL = "Europe/Stockholm"
@@ -120,7 +120,7 @@ def relabel(plot) -> None:
         ok = tall and lo <= line.value() <= hi
         if ok:
             line.label.updatePosition()                         # its place for the current range, before comparing
-            rect = line.label.sceneBoundingRect()
+            rect = line.label.sceneBoundingRect().adjusted(0, 5, 0, -5)   # the text, not its 5-px padding
             ok = not any(rect.intersects(r) for r in shown)
             if ok:
                 shown.append(rect)
@@ -158,6 +158,10 @@ WORST_WEEK_LEGEND = ((HOTSPOT_COLOR, "&#9644;", "hot-spot °C"),
                      (RULE_100, "&#9476;", "dashed: 98 °C = ageing rate 1 · 120 °C IEC normal cyclic limit"),
                      (LOAD_COLOR, "&#9617;", "loading % (right axis, drawn in the lower third: under the 98 °C and "
                                              "120 °C lines, it can overlap the outdoor line)"))
+
+
+WORST_WEEK_LEGEND_LOADING_ONLY = ((AMBIENT_COLOR, "&#9644;", "outdoor °C (left axis)"),
+                                  (LOAD_COLOR, "&#9617;", "loading % (right axis)"))
 
 
 def without_transformer_temperatures(items):
@@ -274,7 +278,7 @@ class YearTimeline(QWidget):
         self.load.setData(self._x, hourly["loading_pct"].to_numpy())
         if thermal is not None:
             self.hot.setData(self._x, thermal["theta_h_max"].to_numpy())
-        else:                                                   # withdrawn (above 2 × rated) or none: draw nothing
+        else:                                                   # withdrawn (above THERMAL_RANGE_K) or none
             self.hot.setData([], [])
         self.legend.setText(legend_html(TIMELINE_LEGEND if thermal is not None
                                         else without_transformer_temperatures(TIMELINE_LEGEND)))
@@ -335,8 +339,8 @@ class WorstWeek(QWidget):
         self.hot = self.plot.plot([], [], pen=pg.mkPen(HOTSPOT_COLOR, width=2))
         self.oil = self.plot.plot([], [], pen=pg.mkPen(OIL_COLOR, width=1.5))
         self.amb = self.plot.plot([], [], pen=pg.mkPen(AMBIENT_COLOR, width=1.5))
-        rule_line(self.plot, 98, RULE_80, "98 °C: ageing rate 1", LABEL_LEFT, priority=0)
-        rule_line(self.plot, 120, HOTSPOT_COLOR, "120 °C IEC limit", LABEL_LEFT, priority=1)
+        self._rules = [rule_line(self.plot, 98, RULE_80, "98 °C: ageing rate 1", LABEL_LEFT, priority=0),
+                       rule_line(self.plot, 120, HOTSPOT_COLOR, "120 °C IEC limit", LABEL_LEFT, priority=1)]
         self.right = pg.ViewBox()
         self.plot.showAxis("right")
         for side in ("left", "right"):
@@ -365,6 +369,10 @@ class WorstWeek(QWidget):
         """thermal_valid=False (the verdict withdrew the thermal figures: loading above 2 × rated): the hot-spot and
         top-oil curves are not drawn and the caption gives no life or temperature — a clipped or extrapolated run
         printed '1583043024046439680.000 days' and '458 °C' here before 22 Oct 2026."""
+        if not thermal_valid:                           # the withdrawn ageing ranks nothing: the heaviest loading week
+            n = min(int(round(7 * 24 / step_h)), len(hourly))
+            end = hourly["loading_pct"].rolling(n).sum().idxmax()
+            week = hourly.loc[:end].iloc[-n:]
         x = _axis_date(week.index)
         if thermal_valid:
             self.hot.setData(x, week["theta_h_max"].to_numpy())
@@ -372,8 +380,9 @@ class WorstWeek(QWidget):
         else:
             self.hot.setData([], [])
             self.oil.setData([], [])
-        self.legend.setText(legend_html(WORST_WEEK_LEGEND if thermal_valid
-                                        else without_transformer_temperatures(WORST_WEEK_LEGEND)))
+        for line in self._rules:                        # no °C rule lines without a transformer temperature
+            line.setVisible(thermal_valid)
+        self.legend.setText(legend_html(WORST_WEEK_LEGEND if thermal_valid else WORST_WEEK_LEGEND_LOADING_ONLY))
         self.amb.setData(x, ambient.loc[week.index].to_numpy())
         lp = hourly.loc[week.index, "loading_pct"].to_numpy()
         self.load.setData(x, lp)
@@ -387,8 +396,9 @@ class WorstWeek(QWidget):
         start = week.index[0].tz_convert(LOCAL)
         outdoor = f"outdoor {ambient.loc[week.index].min():.0f} … {ambient.loc[week.index].max():.0f} °C"
         if not thermal_valid:
-            self.caption.setText(f"Week starting {start:%d %b %Y}: life used and temperatures not computed — the loading "
-                                 f"went above 2 × rated, beyond the thermal model's range; {outdoor}")
+            self.caption.setText(f"Heaviest week by loading, starting {start:%d %b %Y}: life used and transformer "
+                                 f"temperatures not computed — the loading went above {THERMAL_RANGE_K:g} × rated, the "
+                                 f"IEC short-time emergency limit; {outdoor}")
             return
         life = float(week["V_mean"].sum() * step_h / 24)
         self.caption.setText(f"Worst week starts {start:%d %b %Y}: {fmt_quantity(life, 'days')} days of insulation life "

@@ -101,3 +101,15 @@ def test_fleet_index_validation(tmp_path):
     assert read_fleet_index(tmp_path / "sp.csv")[0].rated_kva == 1250.0
     with pytest.raises(ValueError, match="duplicate"):
         screen_fleet([FleetStation("X", 500, file=EXAMPLES / "ns-101.csv")] * 2)
+
+
+def test_withdrawn_stations_rank_first_in_their_level(tmp_path):
+    """Catches (round 3, R2): a station above 2 × rated (life withdrawn, NaN) ranked below lighter At-risk stations."""
+    from hotspotlv.station import export_station_csv, read_station_csv
+    st = read_station_csv(EXAMPLES / "ns-102.csv")                               # peak ≈ 1.02 × 500 kVA
+    for sid, f in (("heavier", 2.3), ("lighter", 1.85)):
+        export_station_csv(st.p_kw * f, tmp_path / f"{sid}.csv")
+    stations = [FleetStation(sid, 500.0, file=tmp_path / f"{sid}.csv") for sid in ("lighter", "heavier")]
+    table, _ = screen_fleet(stations)
+    assert list(table["station_id"]) == ["heavier", "lighter"]
+    assert table.loc[1, "verdict"] == "At risk" and pd.isna(table.loc[1, "life_days_per_year"])

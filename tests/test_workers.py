@@ -166,6 +166,15 @@ show = MainWindow.show
 def driven_show(self):
     show(self)
     def start():
+        if mode == "station":                      # an assessment has no checkpoint: the thread is alive at exit
+            st = self.station
+            from hotspotlv.app.widgets.station_panel import EXAMPLE
+            st.path.setText(str(EXAMPLE)); st.run()
+            def finish_station():
+                print("CLOSING", flush=True)
+                self.close()
+            QTimer.singleShot(200, finish_station)
+            return
         sp = self.scenario
         sp.houses.setValue(6); sp.feeders.setValue(2); sp.fast.setChecked(False)   # a full run: ~a minute
         sp.run()
@@ -178,12 +187,20 @@ def driven_show(self):
         QTimer.singleShot(1500, finish)
     QTimer.singleShot(300, start)
 
+import hotspotlv.app.workers as workers_module
+real_any_running = workers_module.any_running
+def reporting_any_running():
+    alive = real_any_running()
+    print(f"ANY_RUNNING {alive}", flush=True)
+    return alive
+workers_module.any_running = reporting_any_running
+
 MainWindow.show = driven_show
 sys.exit(entry.main())
 """
 
 
-@pytest.mark.parametrize("mode", ["cancel", "close"])
+@pytest.mark.parametrize("mode", ["cancel", "close", "station"])
 def test_the_app_closes_cleanly_over_a_running_case(tmp_path, mode):
     """The real entry point: start a full-power-flow case, then Cancel and close, or close at once ("Stop it and
     close?" → Yes). Before: os._exit crashed in Windows' DLL unload in 11 of 14 closes; without a hard exit a
@@ -196,3 +213,5 @@ def test_the_app_closes_cleanly_over_a_running_case(tmp_path, mode):
     r = subprocess.run([sys.executable, str(script), mode], capture_output=True, text=True, timeout=120, env=env)
     assert "CLOSING" in r.stdout, r.stderr[-1500:]
     assert r.returncode == 0, f"exit {r.returncode:#x}: {r.stderr[-1500:]}"
+    if mode == "station":                          # the hard exit was really reached (round 3, R3)
+        assert "ANY_RUNNING True" in r.stdout, r.stdout[-500:]

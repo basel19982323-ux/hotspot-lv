@@ -495,7 +495,7 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
     hours = len(st.index) * st.step_min / 60
     if abs(HOURS_PER_YEAR / hours - 1) > 0.1:
         days = hours / 24
-        notes.append(f"the data cover {days:g} {'day' if days == 1 else 'days'}: life used per year is scaled "
+        notes.append(f"the data cover {days:,.0f} {'day' if round(days) == 1 else 'days'}: life used per year is scaled "
                      f"×{scale_text(HOURS_PER_YEAR / hours)} as if this period repeated all year — a winter-only file "
                      "overstates the yearly figure, a summer-only file understates it")
     params = ThermalParams.for_transformer(int(rated_kva), enclosure=enclosure)

@@ -238,7 +238,7 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
     reasons_html = f"<ul>{reasons}</ul>" if reasons else f"<p style='color:{MUTED}'>No rule is violated.</p>"
     clipped = any(r.rule == OUT_OF_RANGE_RULE for r in v.at_risk)
     clip_html = (f"<p style='color:{VERDICT_COLORS['At risk']}'><b>The loading went above {THERMAL_RANGE_K:g} × rated, "
-                 "beyond the thermal model's range.</b> Life used, hot-spot and top-oil are not computed (shown as –) and "
+                 "the IEC short-time emergency limit.</b> Life used, hot-spot and top-oil are not computed (shown as –) and "
                  "not drawn. Check the transformer rating first.</p>") if clipped else ""
     not_checked = [k for k in NOT_CHECKED_KEYS if v.really.get(k, 0) is None]
 
@@ -283,11 +283,11 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
             c = charts[name]
             title = titles[name]
             if clipped and name == "worst_week":
-                title = "The heaviest week — loading only"
+                title = "The heaviest week by loading — no transformer temperatures"
             charts_html += f"<h3>{title}</h3>"
             if clipped and name != "duration":
                 charts_html += (f"<p style='color:{VERDICT_COLORS['At risk']}'>No hot-spot or top-oil is drawn: the loading "
-                                f"went above {THERMAL_RANGE_K:g} × rated, beyond the thermal model's range.</p>")
+                                f"went above {THERMAL_RANGE_K:g} × rated, the IEC short-time emergency limit.</p>")
             charts_html += (f"<p><img src='chart://{name}' width='{PAGE_W}'></p>"
                             f"<p style='color:{MUTED}; font-size:8.5pt'>{c['legend']}</p>"
                             f"<p style='font-size:9pt'>{_esc(c['caption'])}</p>")

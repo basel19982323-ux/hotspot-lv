@@ -111,6 +111,8 @@ def run_case(case: Case, weather: pd.DataFrame, fast: bool = True,
     if not isinstance(weather.index, pd.DatetimeIndex) or weather.index.tz is None:
         raise ValueError("weather index must be a tz-aware DatetimeIndex (UTC) — use hotspotlv.weather.get_weather")
     nb = neighbourhood or build_neighbourhood(case.scenario, weather)
+    if checkpoint is not None:
+        checkpoint()                                  # the neighbourhood build takes a second or two
     net = build_feeder(n_houses=case.scenario.n_houses, n_feeders=case.n_feeders, trafo_kva=case.trafo_kva)
     fit_error, exact_hours = {}, 0
     if fast:
@@ -133,6 +135,8 @@ def run_case(case: Case, weather: pd.DataFrame, fast: bool = True,
     else:
         year = run_year(net, nb.cons_kw, nb.gen_kw, checkpoint=checkpoint)
         mode_note = "full power flow for every hour"
+    if checkpoint is not None:
+        checkpoint()                                  # before the thermal year
     if case.battery is not None:
         year = apply_battery(year, case.battery)
     params = case.thermal or thermal_params_for(case)

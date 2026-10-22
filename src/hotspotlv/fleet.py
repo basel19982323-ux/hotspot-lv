@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
 import pandas as pd
 
 from hotspotlv.station import (CABLE_LOSS_SHARE_AT_RATED, LOCAL_TZ, StationResult, StationSeries,
@@ -181,9 +182,12 @@ def screen_fleet(stations: list[FleetStation], progress: Callable[[int, int, str
                 pass                                 # a broken progress bar must not stop the fleet either
     table = pd.DataFrame(rows).reindex(columns=RESULT_COLUMNS)
     table["rank_level"] = table["verdict"].map(LEVEL_RANK).fillna(3)
-    table = (table.sort_values(["rank_level", "life_days_per_year", "peak_loading_pct"], ascending=[True, False, False],
+    # a withdrawn life (NaN: loading above 2 × rated) is beyond every IEC loading limit — it ranks first in its level
+    assessed = table["verdict"] != "error"
+    table["life_rank"] = table["life_days_per_year"].where(~(assessed & table["life_days_per_year"].isna()), np.inf)
+    table = (table.sort_values(["rank_level", "life_rank", "peak_loading_pct"], ascending=[True, False, False],
                                na_position="last")
-             .drop(columns="rank_level").reset_index(drop=True))
+             .drop(columns=["rank_level", "life_rank"]).reset_index(drop=True))
     table.index = table.index + 1
     table.index.name = "rank"
     return table, results

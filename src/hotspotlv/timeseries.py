@@ -73,7 +73,8 @@ class YearResult:
         }
 
 
-CHECK_EVERY = 50              # power flows between two calls of a run's checkpoint (≈ 0.3 s)
+CHECK_EVERY = 20              # power flows between two calls of a run's checkpoint (≈ 0.4 s on the dev PC;
+                              # 50 flows measured 1.0 s in the round-3 review)
 
 
 def run_year(net: pp.pandapowerNet, cons_kw: pd.DataFrame, gen_kw: pd.DataFrame | None = None,

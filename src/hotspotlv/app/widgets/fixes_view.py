@@ -381,17 +381,29 @@ class FixesView(QWidget):
         vals = values.to_numpy(dtype=float)
         brushes = [pg.mkBrush(VERDICT_COLORS.get(v, color)) for v in verdicts]
         plot.getAxis("bottom").setTicks([[(i, _short(n)) for i, n in enumerate(values.index)]])
-        if len(vals) and (np.all(np.isnan(vals)) or float(np.nanmax(vals)) <= 0):
-            plot.setYRange(0, 1)
-            t = pg.TextItem("no hours above 80 % of nameplate for any fix" if whole else "no life used for any fix",
-                            color="#333333", anchor=(0.5, 0.5))
-            t.setPos((len(vals) - 1) / 2, 0.5); plot.addItem(t)
-            return
-        plot.addItem(pg.BarGraphItem(x=x, height=vals, width=0.6, brushes=brushes, pen=pg.mkPen(None)))
-        top = float(np.nanmax(vals))
+        ok = np.isfinite(vals)                        # NaN = withdrawn above 2 × rated: "not computed", never a 0 bar
+        real = vals[ok]
+        top = float(real.max()) if len(real) and float(real.max()) > 0 else 1.0
         plot.setYRange(0, top * 1.15)
+        plot.setXRange(-0.6, len(vals) - 0.4, padding=0)      # every fix has a slot, drawn or "not computed"
+        if not len(real) or float(real.max()) <= 0:
+            if not (~ok).any():
+                msg = "no hours above 80 % of nameplate for any fix" if whole else "no life used for any fix"
+            elif not ok.any():
+                msg = "life used is not computed for any fix: the loading goes above 2 × rated"
+            else:
+                msg = "no life used where it is computed"
+            t = pg.TextItem(msg, color="#333333", anchor=(0.5, 0.5))
+            t.setPos((len(vals) - 1) / 2, 0.6 * top); plot.addItem(t)
+        if ok.any():
+            plot.addItem(pg.BarGraphItem(x=x[ok], height=vals[ok], width=0.6,
+                                         brushes=[b for b, k in zip(brushes, ok) if k], pen=pg.mkPen(None)))
         for i, v in enumerate(vals):
-            label = f"{v:,.0f}" if whole or v >= 10 else f"{v:.2f}"
-            t = pg.TextItem(label, color="#333333", anchor=(0.5, 1))
-            t.setPos(i, v)
+            if not np.isfinite(v):
+                t = pg.TextItem("not\ncomputed", color="#6b6b6b", anchor=(0.5, 1))
+                t.setToolTip("Life used is not computed: the loading goes above 2 × rated (IEC short-time emergency limit).")
+                t.setPos(i, 0.25 * top)
+            else:
+                t = pg.TextItem(f"{v:,.0f}" if whole or v >= 10 else f"{v:.2f}", color="#333333", anchor=(0.5, 1))
+                t.setPos(i, v)
             plot.addItem(t)

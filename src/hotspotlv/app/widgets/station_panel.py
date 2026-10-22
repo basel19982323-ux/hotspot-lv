@@ -316,5 +316,5 @@ class StationPanel(QWidget):
             show_error(self, "Could not write the PDF", error)
         else:
             self.status.setText(f"Station card for {name} ({self.result.rated_kva:g} kVA) saved as {out.name} "
-                                f"in {out.parent}.")
+                                f"in the folder {out.parent.name or out.parent} (full path in the tooltip).")
             self.status.setToolTip(str(out))

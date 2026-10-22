@@ -33,6 +33,8 @@ from hotspotlv.app.widgets.tables import DataFrameModel
 from hotspotlv.app.workers import Worker
 from hotspotlv.study import Case, sweep
 
+NOT_COMPUTED = 'not computed (loading above 2 × rated)'
+
 # knob → (label, scale from the spinbox number to the engine value, unit suffix, (lo, hi, default from, to, step))
 KNOBS = {
     "n_houses": ("houses", 1.0, " houses", (3, 200, 45, 120, 15)),
@@ -45,7 +47,7 @@ DESIGN_RATE_DAYS = 365.0            # IEC 60076-7: V = 1 uses one day of life pe
 LIFE_FLOOR = 1e-4                   # smallest value drawn on the log axis
 LEGEND_HTML = (f"<span style='color:{LOAD_COLOR}'>&#9679; hours above 80 % (the paper rule)</span> &nbsp; "
                f"<span style='color:{RULE_100}'>&#9650; hours above 100 %</span> &nbsp; "
-               f"<span style='color:{HOTSPOT_COLOR}'>&#9679; life used, days/yr (right axis, log; dashed = 365, the IEC design rate)</span>"
+               f"<span style='color:{HOTSPOT_COLOR}'>&#9679; life used, days/yr (right axis, log; dashed = 365, the IEC design rate; &#9650; = not computed, loading above 2 × rated)</span>"
                " &nbsp; squares below the axis = verdict: "
                f"<span style='color:{VERDICT_COLORS['OK']}'>&#9632; OK</span> "
                f"<span style='color:{VERDICT_COLORS['Watch']}'>&#9632; Watch</span> "
@@ -147,7 +149,9 @@ class SweepView(QWidget):
         self.design_line = pg.InfiniteLine(angle=0, pos=np.log10(DESIGN_RATE_DAYS),
                                            pen=pg.mkPen(HOTSPOT_COLOR, style=Qt.DashLine),
                                            label="365 days/yr = IEC design rate", labelOpts={"position": 0.5, "color": HOTSPOT_COLOR})
+        self.life_na = pg.ScatterPlotItem(size=11, symbol="t1", brush=HOTSPOT_COLOR, pen=pg.mkPen(None))   # ▲ at the top
         self.right.addItem(self.life); self.right.addItem(self.life_pts); self.right.addItem(self.design_line)
+        self.right.addItem(self.life_na)
         self.plot.getViewBox().sigResized.connect(self._sync)
         self.flip_line = pg.InfiniteLine(angle=90, pen=pg.mkPen(VERDICT_COLORS["At risk"], style=Qt.DashLine),
                                          label="first At risk", labelOpts={"position": 0.9, "color": VERDICT_COLORS["At risk"]})
@@ -326,12 +330,16 @@ class SweepView(QWidget):
             self.h80.setData(x, hours[:, 0])
             self.h100.setData(x, hours[:, 1])
             life_raw = table["life_days_per_year"].to_numpy(dtype=float)
-            life = np.maximum(np.nan_to_num(life_raw, nan=LIFE_FLOOR), LIFE_FLOOR)
-            self.life.setData(x, np.log10(life)); self.life_pts.setData(x, np.log10(life))
+            ok = np.isfinite(life_raw)                       # NaN = withdrawn above 2 × rated: never drawn as a value
+            life = np.maximum(np.where(ok, life_raw, LIFE_FLOOR), LIFE_FLOOR)
+            self.life.setData(x[ok], np.log10(life[ok])); self.life_pts.setData(x[ok], np.log10(life[ok]))
             self.plot.setLabel("bottom", label)
             self.plot.setXRange(float(x.min()) - 1, float(x.max()) + 1)
             self.plot.setYRange(-0.16 * top, top)
-            self.right.setYRange(np.log10(LIFE_FLOOR), np.log10(max(6 * DESIGN_RATE_DAYS, float(life.max()) * 2)))
+            life_top = np.log10(max(6 * DESIGN_RATE_DAYS, float(life[ok].max()) * 2 if ok.any() else 0))
+            self.right.setYRange(np.log10(LIFE_FLOOR), life_top)
+            self.life_na.setData(x[~ok], np.full(int((~ok).sum()), life_top * 0.93 + np.log10(LIFE_FLOOR) * 0.07))
+            self.life_na.setToolTip(f"life used {NOT_COMPUTED}" if (~ok).any() else "")
             self._sync()
             # verdict squares in their own strip below the hours axis
             for item in self._strip:
@@ -364,13 +372,19 @@ class SweepView(QWidget):
         paper = t.index[t["hours_above_80"] > 0]
         parts.append(f"the 80 % rule first flags the station at {fmt(paper[0])}" if len(paper)
                      else "the 80 % rule never flags the station in this range")
-        over = t.index[t["life_days_per_year"] > DESIGN_RATE_DAYS]
+        life = t["life_days_per_year"]
+        over = t.index[life > DESIGN_RATE_DAYS]
+        withdrawn = t.index[life.isna()]
         if len(over):
             parts.append(f"the insulation ages faster than its IEC design rate (365 days/yr) from {fmt(over[0])}")
-        else:
-            imax = t["life_days_per_year"].idxmax()
-            parts.append(f"the insulation stays below its IEC design rate of 365 days/yr "
-                         f"(max {t['life_days_per_year'].max():.2f} days/yr at {fmt(imax)})")
+        elif life.notna().any():
+            computed = life.dropna()
+            parts.append(f"where it is computed, the insulation stays below its IEC design rate of 365 days/yr "
+                         f"(max {computed.max():.2f} days/yr at {fmt(computed.idxmax())})" if len(withdrawn) else
+                         f"the insulation stays below its IEC design rate of 365 days/yr "
+                         f"(max {computed.max():.2f} days/yr at {fmt(computed.idxmax())})")
+        if len(withdrawn):
+            parts.append(f"life used is not computed from {fmt(withdrawn[0])} (loading above 2 × rated, marked ▲)")
         risk = t.index[t["verdict"] == "At risk"]
         if len(risk):
             why = str(t.loc[risk[0], "why"]).split(" — ", 1)[-1].split(" (also")[0]

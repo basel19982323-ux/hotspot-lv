@@ -1,5 +1,6 @@
-"""Offscreen smoke test of the app: build the window, run each mode synchronously,
-save screenshots. Run: `python validation/app_smoke.py <out_dir>`."""
+"""Smoke test of the app: build the window, run each mode synchronously, save screenshots, write a station card.
+Run with real fonts: `QT_QPA_PLATFORM=windows python validation/app_smoke.py <out_dir>` — the laptop-layout checks
+assert only there (the offscreen default has no fonts, so its sizes mean nothing; it says so when it skips them)."""
 
 import os
 import sys
@@ -28,6 +29,8 @@ def main(out: Path):
     win.resize(1400, 900)
     win.show()
     app.processEvents()
+    if app.platformName() != "windows":
+        print(f"NOTE: platform {app.platformName()!r} has no real fonts — the laptop layout checks are printed, not asserted")
 
     # mode A — synchronous run of the panel's own case
     sp = win.scenario

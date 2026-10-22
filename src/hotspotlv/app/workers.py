@@ -14,9 +14,10 @@ first cancel of a numpy/pandas run. Now:
   * cancel() marks the worker cancelled and returns at once; from then on the
     worker reports nothing (no finished_ok, no failed), so the panel is free;
   * a run stops at its next checkpoint: the progress callback (between the runs of a
-    sweep, spread, fixes or fleet) and the engine's `checkpoint` (every 50 power flows
-    inside a case, ≈ 0.3 s) raise RunCancelled — a cancelled case stops within about a
-    second instead of computing for minutes in the background next to the new run
+    sweep, spread, fixes or fleet) and the engine's `checkpoint` (every 20 power flows
+    inside a case, ≈ 0.4 s, and around the neighbourhood build and the thermal year)
+    raise RunCancelled — a cancelled case stops within a second or two instead of
+    computing for minutes in the background next to the new run
     (round-2 code review: three cancelled runs made the fourth 3.8 × slower);
   * an own-station assessment (about a second) has no checkpoint: it finishes and its
     result is dropped;
