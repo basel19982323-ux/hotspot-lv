@@ -32,8 +32,11 @@ and accessory criteria. Voltage and cable rules are only checked in the scenario
 needed); on your own station data they are reported as *not checked*.
 
 **Network use.** The program works offline with what it ships (Västerås / Eskilstuna A weather 2023 and the
-example stations). Another SMHI station, or station data outside 2023, downloads that station's hourly archive
-once from opendata.smhi.se (about 7 MB) into `%USERPROFILE%\\.hotspotlv`. Nothing else is sent or fetched.
+example stations). Another SMHI station, or station data outside 2023, needs that station's hourly temperatures
+from opendata-download-metobs.smhi.se (HTTPS): the checked archive (about 7 MB) and, for the most recent months,
+SMHI's latest-months data — kept in `%USERPROFILE%\\.hotspotlv` and used again from there. SMHI publishes its
+checked archive about three months late; the result's notes say when the latest months were used. Nothing else is
+sent or fetched.
 
 Author: Basel Haijar · MIT licence · source code and issues: see README.txt next to the program.
 Uses Qt for Python / Qt 6 (LGPL-3.0, © The Qt Company Ltd. and other contributors), numpy, pandas, scipy,

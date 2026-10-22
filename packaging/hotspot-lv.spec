@@ -58,16 +58,18 @@ a = Analysis(
         "PySide6.QtNetwork",            # never loaded; its TLS plugin pulled a second OpenSSL from Git's PATH
         "h5py", "PIL",                  # optional imports of pandapower / pyqtgraph, never used (15 MB)
         "win32pdh", "pywintypes",       # numpy.testing only
-    ],
+        "setuptools", "pkg_resources", "_distutils_hack",   # never imported by the app; their hook added 1,100 lines
+    ],                                                      # of notices (round-2 review)
     module_collection_mode={"PySide6": "py", "shiboken6": "py"},   # their LGPL Python files stay replaceable files
     noarchive=False,
 )
 # Files the app never loads (DLL census of the packaging review): software OpenGL (20 MB), Qt's translations
-# (the UI is English), and anything of QtNetwork's plugins or OpenSSL that the Qt hook may still bring along.
+# (the UI is English), and anything of QtNetwork's plugins or OpenSSL that the Qt hook may still bring along;
+# the TUIO touch plugin (touch input over the network) and the Qt6Network.dll it alone pulled in (round 2).
 NEVER_LOADED = ("opengl32sw.dll", "/translations/", "/plugins/tls/", "/plugins/networkinformation/",
-                "libssl-3-x64.dll", "libcrypto-3-x64.dll")
-a.binaries = [b for b in a.binaries if not any(k in b[0].replace("\\", "/") for k in NEVER_LOADED)]
-a.datas = [d for d in a.datas if not any(k in d[0].replace("\\", "/") for k in NEVER_LOADED)]
+                "libssl-3-x64.dll", "libcrypto-3-x64.dll", "/plugins/generic/", "qt6network.dll")
+a.binaries = [b for b in a.binaries if not any(k in b[0].replace("\\", "/").lower() for k in NEVER_LOADED)]
+a.datas = [d for d in a.datas if not any(k in d[0].replace("\\", "/").lower() for k in NEVER_LOADED)]
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, [],

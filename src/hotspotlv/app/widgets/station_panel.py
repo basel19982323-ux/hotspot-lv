@@ -53,9 +53,8 @@ def _assess(path, rated_kva, measured_at, tz, stamp, smhi_station, smhi_is_defau
 
 def show_error(parent, title: str, msg: str):
     """First line for the planner, the traceback behind 'Show details'."""
-    first = msg.split("\n")[0]
-    for prefix in ("ValueError: ", "ConnectionError: "):     # the planner's sentence, without the Python class name
-        first = first.removeprefix(prefix)
+    from hotspotlv.errors import plain
+    first = plain(msg)                                       # the planner's sentence, without the Python class name
     box = QMessageBox(QMessageBox.Critical, title, first, parent=parent)
     if "\n" in msg:
         box.setDetailedText(msg)

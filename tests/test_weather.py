@@ -53,5 +53,6 @@ def test_the_shipped_station_works_offline_and_another_says_why_it_cannot(tmp_pa
     with pytest.raises(ConnectionError) as e:
         load_smhi_temperature(2023, 97400)                                       # Stockholm-Arlanda: needs a download
     msg = str(e.value)
-    assert "SMHI station 97400" in msg and "downloaded once" in msg and "HOTSPOTLV_OFFLINE" in msg
+    assert "SMHI station 97400" in msg and "downloaded from opendata-download-metobs.smhi.se" in msg
+    assert "HOTSPOTLV_OFFLINE" in msg
     assert not list(cache.rglob("*.part")) and not list(cache.rglob("*.csv"))   # no half archive left behind

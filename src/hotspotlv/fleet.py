@@ -32,6 +32,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+from hotspotlv import errors
 from hotspotlv.station import (CABLE_LOSS_SHARE_AT_RATED, LOCAL_TZ, StationResult, StationSeries,
                                ambient_for, assess_station, read_station_csv)
 from hotspotlv.weather import SMHI_STATION
@@ -174,7 +175,7 @@ def screen_fleet(stations: list[FleetStation], progress: Callable[[int, int, str
             rows.append({"station_id": fs.station_id, **res.metrics(), "error": ""})
         except Exception as e:                       # one bad station must not stop the fleet
             rows.append({"station_id": fs.station_id, "kVA": fs.rated_kva, "verdict": "error", "why": "",
-                         "notes": "", "error": f"{type(e).__name__}: {e}"})
+                         "notes": "", "error": errors.of(e)})
         if progress:
             try:
                 progress(i, len(stations), fs.station_id)

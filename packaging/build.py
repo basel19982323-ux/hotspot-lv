@@ -32,10 +32,11 @@ import site
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).absolute().parents[1]       # absolute, not resolve(): a short drive mapping (subst) stays short
 PACKAGING = ROOT / "packaging"
 DIST = ROOT / "dist"
 APP = DIST / "HotspotLV"
@@ -47,6 +48,16 @@ QT_LICENCES = ("LGPL-3.0-only.txt", "GPL-3.0-only.txt", "GPL-2.0-only.txt")   # 
 LICENCE_STEMS = ("LICENSE", "LICENCE", "COPYING", "NOTICE", "AUTHORS")
 TEXT_SUFFIXES = ("", ".txt", ".md", ".rst", ".apache", ".bsd", ".mit", ".lgpl", ".gpl")
 RULE = "-" * 78
+ACK_MARKERS = ("Mersenne Twister", "Thai Open Source", "Stefan Krah", "mimalloc")   # expat, libmpdec: texts present
+MIN_OPENSSL = (3, 5)                # the 3.0 line is out of support; Python 3.14.6+ for Windows bundles 3.5
+QT_SOURCE = "https://download.qt.io/archive/qt/{minor}/{v}/submodules/"            # archive/: kept for every version
+QT_MODULES = ("qtbase", "qtsvg", "qtimageformats")
+# Qt attributions that describe code not in this Windows build: other platforms, build tools, Qt modules that are not
+# shipped (round-2 review: GPL-2.0, LGPL-2.1 and BSD-4 entries that do not apply, with nothing saying so)
+QT_NOT_IN_BUILD_IDS = {"extra-cmake-modules", "kwin", "cmake-runcmake-test-modules", "android-native-style",
+                       "android-gradle-wrapper", "forkfd", "pixman", "sqlite", "dejayvu", "xcb-xinput",
+                       "qeventdispatcher_cf", "libdbus-1-headers", "cocoa-platform-plugin", "linuxperf", "valgrind"}
+QT_NETWORK_IDS = {"psl-data", "libpsl"}                    # in Qt Network, which this build does not ship
 
 
 def version() -> str:
@@ -161,16 +172,32 @@ def python_notice() -> list[str]:
              "  Licence: Python Software Foundation License Version 2 (PSF-2.0) — retained in full below.", ""]
     lines.append(lic.read_text(encoding="utf-8", errors="replace") if lic.exists()
                  else "  (LICENSE.txt not found in the build's Python — see https://docs.python.org/3/license.html)")
-    if page.exists():
-        text = page.read_text(encoding="utf-8")
-        start = text.find("Licenses and Acknowledgements for Incorporated Software")
-        end = text.find("Previous topic", start)
-        body = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text[start:end if end > 0 else None], flags=re.S)
-        body = html.unescape(re.sub(r"<[^>]+>", "", body)).replace("¶", "")
-        body = re.sub(r"\n\s*\n\s*\n+", "\n\n", body).strip()
-        lines += ["", "Python — Licenses and Acknowledgements for Incorporated Software (OpenSSL, expat, libffi, zlib,",
-                  "libmpdec, mimalloc, Zstandard and others), from the Python documentation of this version:", "", body]
+    if not page.exists():
+        raise SystemExit(f"{page} is missing: the notices need Python's acknowledgements for incorporated software")
+    text = page.read_text(encoding="utf-8")
+    # the section itself, not the sidebar's table of contents with the same heading (round-2 review: the notices
+    # held only the headings): from <section id="otherlicenses"> to the sidebar after the page body
+    start = text.rfind("<section", 0, text.find('id="otherlicenses"'))
+    end = text.find('class="sphinxsidebar"', start)
+    body = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text[start:end], flags=re.S)
+    body = html.unescape(re.sub(r"<[^>]+>", "", body)).replace("¶", "")
+    body = re.sub(r"\n\s*\n\s*\n+", "\n\n", body).strip()
+    if start < 0 or end < 0 or len(body) < 20_000 or not all(k in body for k in ACK_MARKERS):
+        raise SystemExit(f"Python's acknowledgements were not found in {page} (got {len(body)} characters) — "
+                         "check python_notice() against this Python version's license.html")
+    lines += ["", "Python — Licenses and Acknowledgements for Incorporated Software (OpenSSL, expat, libffi, zlib,",
+              "libmpdec, mimalloc, Zstandard and others), from the Python documentation of this version:", "", body]
     return lines
+
+
+def _freetype_year() -> str:
+    """The FreeType licence asks for the year of the FreeType version used: the newest year in Qt's attribution."""
+    data = json.loads((QT_ATTR / "qtbase" / "src" / "3rdparty" / "freetype" / "qt_attribution.json")
+                      .read_text(encoding="utf-8"), strict=False)
+    entry = next(e for e in (data if isinstance(data, list) else [data]) if e.get("Id") == "freetype")
+    text = entry.get("Copyright", "")
+    text = "; ".join(text) if isinstance(text, list) else text
+    return max(re.findall(r"(?:19|20)\d\d", text))
 
 
 def qt_notice() -> list[str]:
@@ -181,18 +208,30 @@ def qt_notice() -> list[str]:
              "  Used unmodified. The Qt libraries are separate DLLs in _internal\\PySide6 and the PySide6 / shiboken6",
              "  Python files are plain files in _internal — each can be replaced by another build of the same version.",
              "  Source code of exactly this version:",
-             f"    Qt for Python: https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-{QT_VERSION}-src/",
-             f"    Qt:            https://download.qt.io/official_releases/qt/{QT_VERSION.rsplit('.', 1)[0]}/{QT_VERSION}/submodules/",
+             f"    Qt for Python: https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-{QT_VERSION}-src/"
+             f" (pyside-setup-everywhere-src-{QT_VERSION}.tar.xz)",
+             f"    Qt:            {QT_SOURCE.format(minor=QT_VERSION.rsplit('.', 1)[0], v=QT_VERSION)}",
+             "                   (" + ", ".join(f"{m}-everywhere-src-{QT_VERSION}.tar.xz" for m in QT_MODULES) + ")",
+             "", "  This software is based in part on the work of the Independent JPEG Group.",
+             f"  Portions of this software are copyright (c) {_freetype_year()} The FreeType Project (www.freetype.org). "
+             "All rights reserved.",
              "", "  Third-party code inside the Qt libraries (Qt's own attributions, qt_attribution.json of qtbase and",
-             f"  qtimageformats {QT_VERSION}; some entries apply only to other platforms):", ""]
+             f"  qtimageformats {QT_VERSION}; qtsvg has none). First the parts in this Windows build, then those Qt's",
+             "  source tree also lists but this build does not contain (other platforms, build tools, Qt modules that",
+             "  are not shipped) — kept for completeness, they do not apply here.", ""]
     from fetch_qt_attributions import license_files                   # one rule for fetching and for reading
+    network_shipped = (APP / "_internal" / "PySide6" / "Qt6Network.dll").exists()
+    not_in_build = QT_NOT_IN_BUILD_IDS | (set() if network_shipped else QT_NETWORK_IDS)
     texts: dict[str, tuple[str, str]] = {}
+    entries: dict[bool, list[str]] = {True: [], False: []}
     for j in sorted(QT_ATTR.rglob("qt_attribution.json")):
         module = j.relative_to(QT_ATTR).parts[0]
         if j.relative_to(QT_ATTR / module).parts[0] == "tests":          # Qt's test data, not in the libraries
             continue
         data = json.loads(j.read_text(encoding="utf-8"), strict=False)
         for e in (data if isinstance(data, list) else [data]):
+            in_build = e.get("Id") not in not_in_build and "/wayland/" not in j.as_posix()
+            lines_before = len(lines)
             refs = []
             for src in license_files(e, j.parent.relative_to(QT_ATTR / module)):
                 p = QT_ATTR / module / src
@@ -210,6 +249,10 @@ def qt_notice() -> list[str]:
                          + f" — {e.get('License', e.get('LicenseId', ''))} {' '.join(refs)}")
             if copyright_:
                 lines.append("      " + " ".join(copyright_.split()))
+            entries[in_build] += lines[lines_before:]                 # moved into the two lists below
+            del lines[lines_before:]
+    lines += ["  In this build:"] + entries[True]
+    lines += ["", "  Not in this Windows build (listed by Qt's source tree only):"] + entries[False]
     lines += ["", "  Licence texts referred to above:"]
     for key, (name, body) in texts.items():
         lines += ["", f"  [Q-{key}] {name}", body]
@@ -222,12 +265,15 @@ PySide6 and shiboken6 bring along)
   Microsoft Distributable Code, redistributed unmodified with the Python and library builds that need it. The
   conditions are those of Python's "Additional Conditions for this Windows binary build" above; Microsoft's
   terms: https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution
+  These files are Microsoft's: they may not be modified, and they are provided only to run this program.
 """
 
 PYINSTALLER_NOTE = """\
-PyInstaller (the bootloader in HotspotLV.exe and its run-time modules)
+PyInstaller (the bootloader in HotspotLV.exe and its run-time modules) and pyinstaller-hooks-contrib (run-time hooks)
   The bootloader is GPL-2.0-or-later with the PyInstaller bootloader exception (programs built with it may be
-  distributed under any licence); the run-time hooks and modules are Apache-2.0. Text: below.
+  distributed under any licence); the run-time hooks and modules are Apache-2.0, (c) PyInstaller Development Team,
+  including the hooks of pyinstaller-hooks-contrib {hooks}. Source: https://github.com/pyinstaller/pyinstaller and
+  https://github.com/pyinstaller/pyinstaller-hooks-contrib. Text: below.
 """
 
 PYPOWER_NOTE = """\
@@ -249,12 +295,19 @@ PYPOWER / MATPOWER code inside pandapower (pandapower/pypower)
 """
 
 
-def write_notices(path: Path) -> list[str]:
+def write_notices(path: Path, commit: str) -> list[str]:
     lines = [f"Hotspot LV {version()} — third-party software and data in this Windows build", "=" * 78, "",
+             f"Built from commit {commit} of the Hotspot LV source.",
              "Hotspot LV itself is MIT-licensed (LICENSE.txt). This build also contains the data, the Python runtime and",
-             "the libraries below, each under its own licence, all used unmodified. Every library's source is linked.",
+             "the libraries below, each under its own licence. The libraries are used unmodified; the data are",
+             "processed as stated. Source links are given for Python, Qt and every open-source library.",
              "", DATA_NOTE]
-    lines += python_notice() + ["", RULE, MSVC_NOTE] + qt_notice() + ["", RULE, PYINSTALLER_NOTE]
+    try:
+        hooks = md.version("pyinstaller-hooks-contrib")
+    except md.PackageNotFoundError:
+        hooks = "(not installed)"
+    lines += (python_notice() + ["  Source: https://www.python.org/downloads/source/", "", RULE, MSVC_NOTE]
+              + qt_notice() + ["", RULE, PYINSTALLER_NOTE.format(hooks=hooks)])
     try:
         lines += [text for _, text in licence_files(md.distribution("pyinstaller"))]
     except md.PackageNotFoundError:
@@ -273,6 +326,9 @@ def write_notices(path: Path) -> list[str]:
         lines += [RULE, f"{meta['Name']} {meta['Version']}",
                   f"  Licence: {licence or ', '.join(classifiers) or 'see the project'}",
                   f"  Source (used unmodified): https://pypi.org/project/{meta['Name']}/{meta['Version']}/", ""]
+        if meta["Name"].lower().startswith(("pyside6", "shiboken6")):   # the wheel ships Qt's commercial text too
+            lines += ["  This build uses these files under LGPL-3.0-only — see the Qt for Python section above and",
+                      "  the LICENSES folder next to HotspotLV.exe.", ""]
         lines += [f"--- {name} ---\n{text}" for name, text in files] or \
                  ["  (no licence file in the installed distribution — see the project page above)"]
         lines.append("")
@@ -286,25 +342,114 @@ def run(cmd: list[str], **kw) -> None:
     subprocess.run(cmd, check=True, **kw)
 
 
+def git(*args: str) -> str:
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+
+
+def project_url() -> str:
+    import tomllib
+    return tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["urls"]["Source"]
+
+
+def release_problems() -> list[str]:
+    """What makes this build unfit for publishing: an unsupported OpenSSL in the build's Python, uncommitted changes
+    (the zip would match no commit), files checked out with CRLF against .gitattributes (round-2 review: the zip
+    could not be rebuilt byte for byte from its commit)."""
+    import ssl
+    problems = []
+    if ssl.OPENSSL_VERSION_INFO[:2] < MIN_OPENSSL:
+        problems.append(f"{ssl.OPENSSL_VERSION} (Python {sys.version.split()[0]}) is out of support — build with "
+                        "Python 3.14.8 or later, which bundles OpenSSL 3.5")
+    if git("status", "--porcelain"):
+        problems.append("the working tree has uncommitted changes — commit first, so the zip matches its commit")
+    crlf = [line.split("\t")[-1] for line in git("ls-files", "--eol").splitlines()
+            if "w/crlf" in line and "eol=lf" in line]
+    if crlf:
+        problems.append(f"{len(crlf)} files are checked out with CRLF although .gitattributes says LF (e.g. {crlf[0]})"
+                        " — delete them and check them out again")
+    return problems
+
+
+def visible_windows(pid: int) -> list[str]:
+    """Title and texts of every visible top-level window of the process — a self-test shows none, so any window is
+    a modal box nobody will click (the bootloader's "Unhandled exception", Qt's "no platform plugin")."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    found: list[str] = []
+    callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def text_of(hwnd) -> str:
+        n = user32.GetWindowTextLengthW(hwnd)
+        buf = ctypes.create_unicode_buffer(n + 1)
+        user32.GetWindowTextW(hwnd, buf, n + 1)
+        return buf.value
+
+    def each(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user32.IsWindowVisible(hwnd):
+            texts = [text_of(hwnd)]
+
+            def child(h, _):                               # the box's own text sits in a child window
+                texts.append(text_of(h))
+                return True
+            user32.EnumChildWindows(hwnd, callback(child), 0)
+            found.append(" | ".join(t for t in texts if t))
+        return True
+    user32.EnumWindows(callback(each), 0)
+    return found
+
+
+def run_self_test(env: dict, limit_s: int = 1200) -> int | str:
+    """The frozen self-test; a window on the screen or the time limit stops it, and says which."""
+    proc = subprocess.Popen([str(APP / "HotspotLV.exe"), "--self-test", str(SELF_TEST)], env=env)
+    t0 = time.monotonic()
+    while proc.poll() is None:
+        windows = visible_windows(proc.pid)
+        if windows:
+            proc.kill()
+            proc.wait()
+            return f"a window appeared and would have waited for a click: {windows}"
+        if time.monotonic() - t0 > limit_s:
+            proc.kill()
+            proc.wait()
+            return f"timeout after {limit_s} s"
+        time.sleep(0.5)
+    return proc.returncode
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")              # a redirected log in the console code page garbles
     sys.stderr.reconfigure(encoding="utf-8")              # "—" and could fail on a FAIL line (review S-e)
-    zip_path = DIST / f"HotspotLV-{version()}-win64.zip"
+    test_build = "--test-build" in sys.argv[1:]
+    problems = release_problems()
+    if problems and not test_build:
+        raise SystemExit("not fit for a release:\n  - " + "\n  - ".join(problems)
+                         + "\n(python packaging/build.py --test-build makes a zip named …-TEST.zip anyway)")
+    for p in problems:
+        print(f"TEST BUILD ONLY: {p}")
+    commit = git("rev-parse", "--short=12", "HEAD") + (" + uncommitted changes" if git("status", "--porcelain") else "")
+    zip_path = DIST / f"HotspotLV-{version()}-win64{'-TEST' if test_build else ''}.zip"
     sha_path = zip_path.with_name(zip_path.name + ".sha256")
-    for old in (zip_path, sha_path):                     # a failed build must not leave the previous zip around
-        old.unlink(missing_ok=True)
+    for old in DIST.glob(f"HotspotLV-{version()}-win64*.zip*"):   # a failed build must not leave a previous zip
+        old.unlink()
     run([sys.executable, "-m", "PyInstaller", str(PACKAGING / "hotspot-lv.spec"), "--noconfirm",
          "--distpath", str(DIST), "--workpath", str(ROOT / "build")], cwd=ROOT)
     check_binary_origins()
     (APP / "LICENSE.txt").write_text((ROOT / "LICENSE").read_text(encoding="utf-8"), encoding="utf-8",
                                      newline="\r\n")       # the same bytes from any checkout (review S-d)
-    (APP / "README.txt").write_text((PACKAGING / "README-windows.txt").read_text(encoding="utf-8")
-                                    .replace("{version}", version()), encoding="utf-8", newline="\r\n")
+    readme = (PACKAGING / "README-windows.txt").read_text(encoding="utf-8")
+    readme = readme.replace("{version}", version()).replace("{url}", project_url()).replace("{commit}", commit)
+    (APP / "README.txt").write_text(readme, encoding="utf-8", newline="\r\n")
     licences = APP / "LICENSES"
     licences.mkdir(exist_ok=True)
     for name in QT_LICENCES:                               # the Qt licence and the two it refers to; the other
-        shutil.copy2(QT_ATTR / "qtbase" / "LICENSES" / name, licences / name)   # texts are in the notices
-    missing = write_notices(APP / "THIRD-PARTY-NOTICES.txt")
+        src = QT_ATTR / "qtbase" / "LICENSES" / name       # texts are in the notices
+        if not src.is_file():
+            raise SystemExit(f"{src} is missing — run packaging/fetch_qt_attributions.py")
+        shutil.copy2(src, licences / name)
+    missing = write_notices(APP / "THIRD-PARTY-NOTICES.txt", commit)
     print(f"notices: {len(bundled_distributions())} distributions"
           + (f"; no licence file in: {', '.join(missing)}" if missing else ""))
     if missing:
@@ -313,12 +458,11 @@ def main() -> int:
     if SELF_TEST.exists():
         shutil.rmtree(SELF_TEST)
     with tempfile.TemporaryDirectory(prefix="hotspotlv-cache-") as empty_cache:   # a clean PC: no cache, no network
-        env = {**os.environ, "HOTSPOTLV_CACHE": empty_cache, "HOTSPOTLV_OFFLINE": "1"}
-        try:
-            r = subprocess.run([str(APP / "HotspotLV.exe"), "--self-test", str(SELF_TEST)], timeout=1200, env=env)
-            code = r.returncode
-        except subprocess.TimeoutExpired:
-            code = "timeout after 1200 s"
+        # nothing of this shell's Qt or Python settings: QT_QPA_PLATFORM=offscreen (how the tests run) let a
+        # build without qwindows.dll pass (round-2 review)
+        env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("QT_", "PYTHON"))}
+        env.update(HOTSPOTLV_CACHE=empty_cache, HOTSPOTLV_OFFLINE="1")
+        code = run_self_test(env)
     log = SELF_TEST / "self-test.txt"
     print(log.read_text(encoding="utf-8") if log.exists() else "(the self-test wrote no log)")
     if code != 0:

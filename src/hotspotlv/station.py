@@ -55,7 +55,7 @@ from hotspotlv.loads.heatpump import HeatPumpParams, heat_pump_profile
 from hotspotlv.thermal import K_MAX, ThermalParams, ThermalResult, simulate
 from hotspotlv.timeseries import YearResult
 from hotspotlv.verdict import HOURS_PER_YEAR, Verdict, judge
-from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME, load_smhi_temperature
+from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME, load_smhi_hours
 
 LOCAL_TZ = "Europe/Stockholm"
 NORMALTID_TZ = "Etc/GMT-1"               # CET all year, no DST
@@ -216,6 +216,8 @@ def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, t
     try:
         loc = ts.dt.tz_localize(zone, ambiguous="infer", nonexistent="raise")
     except Exception as e:  # pytz AmbiguousTimeError / NonExistentTimeError and friends
+        if not (isinstance(e, ValueError) or type(e).__name__.endswith("TimeError")):
+            raise           # e.g. a missing time-zone database: a fault of the program, not of the user's file
         raise ValueError(f"timestamps do not fit {zone!r} daylight-saving rules ({type(e).__name__}): a file in "
                          "'normaltid' (CET all year, no DST) must be read with tz='normaltid'; a file with a missing "
                          "or doubled hour in March/October must be fixed, not guessed; rows must be in time order") from e
@@ -401,14 +403,19 @@ def s_from_meters(p_kw: pd.Series, q_kvar: pd.Series, rated_kva: float, measured
 
 
 def ambient_for(index: pd.DatetimeIndex, smhi_station: int = SMHI_STATION) -> pd.Series:
-    """Hourly SMHI air temperature for the years the index spans, resampled to the index."""
-    years = sorted(set(index.year))
-    temp = pd.concat([load_smhi_temperature(y, smhi_station) for y in years])
-    temp = temp[~temp.index.duplicated()].sort_index()
-    out = temp.reindex(temp.index.union(index)).interpolate(method="time", limit_direction="both").reindex(index)
+    """SMHI air temperature on the station's index: the whole UTC hours the data span (and only those — packaging
+    review round 2: whole calendar years made a 2023 file in Swedish time ask for 2022, and a recent file fail on
+    the months SMHI has not published yet), interpolated in time to the index. attrs["smhi_latest_from"]: the
+    first hour taken from SMHI's latest months instead of its checked archive, or None."""
+    utc = index.tz_convert("UTC")
+    hours = pd.date_range(utc.min().floor("h"), utc.max().floor("h"), freq="h")
+    temp = load_smhi_hours(hours, smhi_station)
+    out = temp.reindex(temp.index.union(utc)).interpolate(method="time", limit_direction="both").reindex(utc)
     if out.isna().any():
         raise ValueError(f"SMHI station {smhi_station} does not cover the data period")
-    return out.rename("temp_c")
+    out = pd.Series(out.to_numpy(), index=index, name="temp_c")
+    out.attrs.update(temp.attrs)
+    return out
 
 
 def year_result_from_station(st: StationSeries, rated_kva: float,
@@ -485,6 +492,10 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
         ambient = ambient_for(st.index, smhi_station)
     if not ambient.index.equals(st.index):
         raise ValueError("ambient must be on the station's index (use ambient_for)")
+    latest = ambient.attrs.get("smhi_latest_from")
+    if latest is not None:
+        notes.append(f"outdoor temperature from {latest:%Y-%m-%d %H:%M} UTC on: SMHI's latest-months data, not yet in "
+                     "SMHI's quality-checked archive (which follows about three months later)")
     year = year_result_from_station(st, rated_kva, cable_loss_share_at_rated)
     k = year.hourly["loading_pct"] / 100
     clipped = int((k > K_MAX).sum())

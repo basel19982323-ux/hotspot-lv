@@ -224,6 +224,20 @@ def _kv_rows(items: dict) -> str:
     return "".join(rows)
 
 
+EXAMPLE_CREDIT = ("Hofmann, Bjarghov &amp; Nessa (2023), Zenodo, https://doi.org/10.5281/zenodo.8423312 — CC BY 4.0, "
+                  "https://creativecommons.org/licenses/by/4.0/")       # HTML: the card's markup, not data
+
+
+def is_shipped_example(source) -> bool:
+    """A station file from the program's own examples folder — a synthetic station, not a measurement (round-2
+    review: its card looked like a real station and did not credit the data it is built from)."""
+    from hotspotlv.paths import package_data
+    try:
+        return Path(source).resolve().parent == (package_data() / "examples").resolve()
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def station_card_html(res: StationResult, charts: dict | None = None, source_name: str | None = None,
                       generated: datetime | None = None) -> str:
     """The whole card as HTML for QTextDocument (a subset of HTML 4 / CSS 2: tables, colours, images).
@@ -247,6 +261,10 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
     period = f"{st.period()} — {hours:,.0f} h of data"
     if abs(scale - 1) > 0.1:
         period += f"; life used per year is scaled ×{scale_text(scale)} to a year (see the notes)"
+    example = is_shipped_example(st.source)
+    example_html = (f"<p style='color:{ACCENT}'><b>Synthetic example</b> — not a measured station. Built from the "
+                    f"Norwegian household data of {EXAMPLE_CREDIT}, with SMHI temperatures.</p>") if example else ""
+    example_footer = f" Base loads of this synthetic example: {EXAMPLE_CREDIT}." if example else ""
     smhi = f"{res.smhi_station}"
     if res.smhi_station == SMHI_STATION:
         smhi += f" {SMHI_STATION_NAME} (the default — choose the station nearest the place)"
@@ -257,7 +275,7 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
     else:
         energy = f"{energy_now:,.1f} MWh (net imports per step)"
     inputs = [
-        ("file", source_name),
+        ("file", source_name + (" (a synthetic example shipped with the program)" if example else "")),
         ("period", period),
         ("resolution", f"{st.step_min:g}-min values, {st.gaps_filled} missing steps filled"),
         ("values are", "the sum of customer meters" if st.measured_at == "meters" else "measured at the transformer"),
@@ -320,6 +338,7 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
 <h1>Hotspot LV — station card</h1>
 <p style='color:{MUTED}'>{_esc(source_name)} · generated {generated:%d %b %Y %H:%M} · Hotspot LV v{__version__} ·
 simulation (IEC 60076-7 model with generic constants) — results are indicative</p>
+{example_html}
 
 <table width='100%' cellpadding='8' bgcolor='{PANEL}'><tr><td width='10' bgcolor='{color}'></td><td>
 <p style='font-size:20pt; font-weight:bold; color:{color}; margin:0'>{_esc(v.level.upper())} &nbsp;·&nbsp; {res.rated_kva:g} kVA</p>
@@ -374,7 +393,7 @@ constant within each step. The ambient is the SMHI station's air; the extra heat
 IEC enclosure correction above, not measured. It does not replace a network study, transformer monitoring, or the DSO's
 own reserve (N-1), growth and accessory criteria. Sources and licences: the app's <i>Assumptions &amp; sources</i> page.</p>
 <p style='color:{MUTED}; font-size:9pt'>Outdoor temperature: SMHI open data (Source: SMHI, CC BY 4.0,
-https://creativecommons.org/licenses/by/4.0/), re-indexed to whole hours with short gaps interpolated.</p>
+https://creativecommons.org/licenses/by/4.0/), re-indexed to whole hours with short gaps interpolated.{example_footer}</p>
 <p style='color:{MUTED}; font-size:9pt'>Made with Hotspot LV v{__version__} — an open screening tool by Basel Haijar, MIT
 licence · simulation, indicative</p>
 </body></html>

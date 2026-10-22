@@ -23,6 +23,9 @@ dev = ["pytest>=8", "pypdf>=4"]          # pypdf: the tests read the station-car
 app = ["PySide6-Essentials>=6.7", "pyqtgraph>=0.13"]
 build = ["pyinstaller>=6.16"]          # the Windows build: packaging/hotspot-lv.spec
 
+[project.urls]
+Source = "https://github.com/basel19982323-ux/hotspot-lv"     # README.txt of the Windows build reads it from here
+
 [project.scripts]
 hotspot-lv = "hotspotlv.app.__main__:main"
 
