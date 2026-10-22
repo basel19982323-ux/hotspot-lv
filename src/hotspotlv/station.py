@@ -492,6 +492,11 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
         ambient = ambient_for(st.index, smhi_station)
     if not ambient.index.equals(st.index):
         raise ValueError("ambient must be on the station's index (use ambient_for)")
+    filled = int(ambient.attrs.get("missing_hours_filled") or 0)
+    if filled:                                          # round-3 review: computed, but never shown
+        notes.append(f"outdoor temperature: {filled} hour{'s' if filled != 1 else ''} without an SMHI value, filled "
+                     "from the neighbouring hours (gaps of at most 6 h; at the start or end of the data, held at the "
+                     "nearest value)")
     latest = ambient.attrs.get("smhi_latest_from")
     if latest is not None:
         notes.append(f"outdoor temperature from {latest:%Y-%m-%d %H:%M} UTC on: SMHI's latest-months data, not yet in "

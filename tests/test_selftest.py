@@ -168,3 +168,53 @@ def test_too_deep_a_folder_is_named_before_qt_starts(tmp_path, monkeypatch):
     assert entry.main() == 1
     log = (tmp_path / "self-test.txt").read_text(encoding="utf-8")
     assert log.startswith("FAIL start: The program folder is") and "C:\\Tools\\HotspotLV" in log
+
+
+@pytest.mark.parametrize("extra, refused", [(0, False), (1, True)])
+def test_the_folder_limit_is_exact(monkeypatch, extra, refused):
+    """Round 3: any limit from 79 to 200 passed the old test; the boundary is pinned (165 starts, 166 is refused)."""
+    from hotspotlv.app import __main__ as entry
+    folder = "C:\\" + "f" * (entry.FOLDER_LIMIT - 3 + extra)
+    assert len(folder) == entry.FOLDER_LIMIT + extra
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", folder + "\\HotspotLV.exe")
+    assert (entry._too_deep() is not None) == refused
+
+
+def test_the_verdict_is_written_after_the_window_has_gone(app, tmp_path):
+    """Round 3, MEDIUM: ALL PASSED was logged before the window was asked to close. Now exit_verdict (called by the
+    entry point after the event loop) writes the close step and the last line — and only with a run still computing,
+    so the hard exit is really exercised."""
+    test = selftest.SelfTest(_App(), _Win(), tmp_path)
+    assert test.exit_verdict(0, True) == 0
+    assert test.lines[-2].startswith("PASS close: the window closed over the running full run")
+    assert test.lines[-1].startswith("ALL PASSED")
+    test2 = selftest.SelfTest(_App(), _Win(), tmp_path)
+    assert test2.exit_verdict(0, False) == 1                     # nothing left running: the hard exit was not tested
+    assert test2.lines[-1].startswith("FAILED")
+    test3 = selftest.SelfTest(_App(), _Win(), tmp_path)
+    test3.final("FAILED in 3 s")
+    assert test3.exit_verdict(1, True) == 1 and test3.lines == ["FAILED in 3 s"]   # written once
+
+
+def test_the_reference_numbers_are_what_the_engine_computes():
+    """The self-test pins numbers of the shipped data (round 3: +15 °C everywhere passed). They must be what this
+    source tree computes, so a change of the model shows up here and in the frozen build together."""
+    from hotspotlv.app.widgets.fleet_panel import _screen
+    from hotspotlv.feeder import build_feeder, run_snapshot, set_house_loads
+    from hotspotlv.paths import package_data
+    from hotspotlv.station import ambient_for, assess_station, read_station_csv
+    st = read_station_csv(package_data() / "examples" / "ns-102.csv", measured_at="meters", tz="Europe/Stockholm",
+                          stamp="start")
+    amb = ambient_for(st.index)
+    res = assess_station(st, 500, amb)
+    ref = selftest.REFERENCE
+    assert selftest.SelfTest.off_reference(res.metrics(), ref["station"]) == []
+    assert abs(float(amb.mean()) - ref["ambient_mean_c"]) <= selftest.REL_TOL * ref["ambient_mean_c"]
+    table, _ = _screen(package_data() / "examples" / "fleet_index.csv", None)
+    assert list(table["station_id"]) == ref["fleet"] and list(table["verdict"]) == ["OK"] * 3
+    net = build_feeder()
+    set_house_loads(net, 3.0)
+    assert selftest.SelfTest.off_reference(run_snapshot(net), ref["powerflow"]) == []
+    warm = {**res.metrics(), "max_hot_spot_c": res.metrics()["max_hot_spot_c"] + 15}
+    assert selftest.SelfTest.off_reference(warm, ref["station"])                       # +15 K is caught

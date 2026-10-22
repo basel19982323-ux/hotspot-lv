@@ -24,7 +24,7 @@ from hotspotlv.loads.ev import EVParams
 from hotspotlv.paths import package_data
 from hotspotlv.station import StationResult, ambient_for, assess_station, read_station_csv, to_hourly, with_overlay
 from hotspotlv.verdict import thermal_ok
-from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME
+from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME, SMHI_STATIONS_URL
 
 EXAMPLE = package_data() / "examples" / "ns-102.csv"
 KNOWN_SMHI = {96190: "Eskilstuna A", 97400: "Stockholm-Arlanda", 97510: "Uppsala Aut", 52350: "Malmö A",
@@ -106,7 +106,8 @@ class StationPanel(QWidget):
         self.stamp.addItem("timestamp = start of the interval", "start"); self.stamp.addItem("timestamp = end of the interval", "end")
         self.stamp.setToolTip("A row stamped 17:00: is it the hour 17–18 (start) or 16–17 (end)? Files using 24:00 are end-stamped.")
         self.smhi = QSpinBox(); self.smhi.setRange(1, 999999); self.smhi.setValue(SMHI_STATION)
-        self.smhi.setToolTip("SMHI automatic station id for the outdoor temperature (opendata.smhi.se → Lufttemperatur, timvärde). "
+        self.smhi.setToolTip("SMHI automatic station id for the outdoor temperature (find it on SMHI's station map, "
+                             f"{SMHI_STATIONS_URL} → Lufttemperatur, timvärde). "
                              "The default is Eskilstuna A near Västerås — set the station nearest your place.")
         self.smhi_name = QLabel(""); self.smhi_name.setProperty("muted", True)
         self.smhi.valueChanged.connect(self._smhi_label); self._smhi_label()
@@ -205,7 +206,7 @@ class StationPanel(QWidget):
     def _smhi_label(self):
         sid = self.smhi.value()
         name = KNOWN_SMHI.get(sid)
-        self.smhi_name.setText((f"{name}" if name else "id not in the short list — check it on opendata.smhi.se")
+        self.smhi_name.setText((f"{name}" if name else "id not in the short list — check it on SMHI's station map (see the tooltip)")
                                + (" (default: Västerås region)" if sid == SMHI_STATION else ""))
 
     def browse(self):

@@ -24,6 +24,8 @@ from __future__ import annotations
 import http.client
 import io
 import os
+import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -63,12 +65,16 @@ ARCHIVE, LATEST = "corrected-archive", "latest-months"
 _FILE = {ARCHIVE: "smhi_{station}_temp.csv", LATEST: "smhi_{station}_latest.csv"}
 _SIZE = {ARCHIVE: "about 7 MB", LATEST: "about 0.1 MB"}
 SMHI_HEADER = "Datum;Tid (UTC);Lufttemperatur"   # the first line of the data table in every SMHI file
-ARCHIVE_REFRESH_AFTER_H = 7 * 24    # a cached archive younger than this is not downloaded again: SMHI extends
-                                    # it about monthly and asks users not to fetch the same data repeatedly; a
-                                    # recent file always reaches past it, the latest months (0.1 MB) cover that
+ARCHIVE_REFRESH_AFTER_H = 24        # the archive (7 MB) is fetched again only when the data fall into a gap between
+                                    # the saved archive and the latest months, and the saved copy is older than
+                                    # this — never just because a recent file reaches past it (round-3 review: a
+                                    # weekly 7 MB download, byte for byte the same; SMHI asks users not to fetch
+                                    # the same data repeatedly)
+SMHI_STATIONS_URL = "https://www.smhi.se/data/hitta-data-for-en-plats/ladda-ner-vaderobservationer"
 _FETCHED: set[tuple[int, str]] = set()          # (station, period) downloaded in this run: never twice per run
 _NOT_FOUND: set[tuple[int, str]] = set()        # (station, period) SMHI answered 404 for in this run
 _PARSED: dict[tuple[str, int], pd.Series] = {}  # (file, modification time) → its series: parse 7 MB once per run
+_DOWNLOAD = threading.Lock()                    # the station and the fleet tab can both need the same file at once
 
 
 class SmhiNotFound(ValueError):
@@ -83,11 +89,21 @@ def fetch_smhi_temperature(station: int = SMHI_STATION, refresh: bool = False, p
     """The station's hourly temperature file for one SMHI period, downloaded into the user cache if it is not there.
     refresh=True downloads it again — at most once per run, and for the archive only when the cached copy is older
     than ARCHIVE_REFRESH_AFTER_H. What arrives is checked to be SMHI's file for this station before it is saved.
-    A failed download raises ConnectionError with a sentence a planner can act on; HTTP 404 raises SmhiNotFound."""
+    A failed download raises ConnectionError with a sentence a planner can act on; HTTP 404 raises SmhiNotFound.
+    One download at a time: a second caller waits and then finds the file."""
+    with _DOWNLOAD:
+        return _fetch(station, refresh, period)
+
+
+def _not_found(station: int) -> SmhiNotFound:
+    return SmhiNotFound(f"SMHI has no hourly air temperatures for station {station} — check the station number on "
+                        f"SMHI's station map: {SMHI_STATIONS_URL}")
+
+
+def _fetch(station: int, refresh: bool, period: str) -> Path:
     path = _smhi_file(station, period)
     if (station, period) in _NOT_FOUND:
-        raise SmhiNotFound(f"SMHI has no hourly air temperatures for station {station} — check the station number "
-                           "on opendata.smhi.se/metobs.")
+        raise _not_found(station)
     if path.exists():
         if not refresh or (station, period) in _FETCHED:
             return path
@@ -105,8 +121,7 @@ def fetch_smhi_temperature(station: int = SMHI_STATION, refresh: bool = False, p
     except urllib.error.HTTPError as e:
         if e.code == 404:
             _NOT_FOUND.add((station, period))
-            raise SmhiNotFound(f"SMHI has no hourly air temperatures for station {station} — check the station "
-                               "number on opendata.smhi.se/metobs.") from None
+            raise _not_found(station) from None
         raise ConnectionError(hint + f"SMHI answered HTTP {e.code} ({e.reason}); try again later." + shipped) from None
     except (urllib.error.URLError, OSError, http.client.HTTPException) as e:   # no network, proxy, cut connection
         reason = getattr(e, "reason", None) or type(e).__name__
@@ -119,9 +134,15 @@ def fetch_smhi_temperature(station: int = SMHI_STATION, refresh: bool = False, p
                               f"ask IT to allow {SMHI_HOST}, and try again." + shipped)
     _FETCHED.add((station, period))
     path.parent.mkdir(parents=True, exist_ok=True)
-    part = path.with_name(path.name + ".part")              # never leave half a file behind
-    part.write_bytes(data)
-    part.replace(path)
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name + ".", suffix=".part", delete=False) as part:
+        tmp = Path(part.name)
+        try:
+            part.write(data)                                # never leave half a file behind under the real name
+        except OSError:
+            part.close()
+            tmp.unlink(missing_ok=True)
+            raise
+    tmp.replace(path)
     return path
 
 
@@ -166,6 +187,32 @@ def _long_gap(series: pd.Series) -> bool:
     return any(b - a > MAX_GAP_HOURS for a, b in _runs(series.isna().to_numpy()))
 
 
+def _needs(hours: pd.DatetimeIndex, station: int) -> str:
+    """The first words of a download error: which hours of the data needed SMHI and are not on this PC."""
+    return (f"The data need SMHI temperatures of station {station} for {hours.min():%Y-%m-%d %H:%M} to "
+            f"{hours.max():%Y-%m-%d %H:%M} UTC, which are not saved on this PC. ")
+
+
+def _latest_months(station: int, until: pd.Timestamp) -> tuple[pd.Series | None, ConnectionError | None]:
+    """SMHI's latest months for the station: the saved copy, fetched again (once per run) when `until` lies past it.
+    A failed refresh keeps the saved copy (round-3 review: it was thrown away, so a file that assessed in one run
+    failed in the next); the error comes back for the message if hours are still missing."""
+    try:
+        latest = _read_smhi(fetch_smhi_temperature(station, period=LATEST))
+    except SmhiNotFound:                                     # a closed station has no latest months
+        return None, None
+    except ConnectionError as e:
+        return None, e
+    if until > latest.index.max():
+        try:
+            latest = _read_smhi(fetch_smhi_temperature(station, refresh=True, period=LATEST))
+        except SmhiNotFound:
+            pass
+        except ConnectionError as e:
+            return latest, e
+    return latest, None
+
+
 def load_smhi_hours(hours: pd.DatetimeIndex, station: int = SMHI_STATION) -> pd.Series:
     """Hourly air temperature (°C) on `hours` (whole UTC hours), from — in this order — the shipped years (station
     96190), the station's quality-checked archive, and for hours after the archive SMHI's latest four months.
@@ -183,37 +230,42 @@ def load_smhi_hours(hours: pd.DatetimeIndex, station: int = SMHI_STATION) -> pd.
         shipped = _shipped_temperature(year, station)
         if shipped is not None:
             out = out.fillna(shipped.reindex(hours))
-    latest_from, offline, newest, oldest = None, None, None, None
+    latest_from, offline, newest, oldest, archive_end = None, None, None, None, None
     if _long_gap(out) or out.isna().all():
-        archive = _read_smhi(fetch_smhi_temperature(station))
-        if hours[out.isna().to_numpy()].max() > archive.index.max():     # SMHI extends its archive every month
-            try:
-                archive = _read_smhi(fetch_smhi_temperature(station, refresh=True))
-            except ConnectionError as e:
-                offline = e
-        out = out.fillna(archive.reindex(hours))
-        oldest, newest = archive.dropna().index.min(), archive.dropna().index.max()
+        try:
+            archive = _read_smhi(fetch_smhi_temperature(station))
+        except ConnectionError as e:
+            raise ConnectionError(_needs(hours[out.isna().to_numpy()], station) + str(e)) from None
+        latest = None
         after = hours > archive.index.max()
-        if (after & out.isna().to_numpy()).any():
-            try:
-                latest = _read_smhi(fetch_smhi_temperature(station, period=LATEST))
-                if hours.max() > latest.index.max():
-                    latest = _read_smhi(fetch_smhi_temperature(station, refresh=True, period=LATEST))
-                add = latest.reindex(hours).where(after)
-                if latest.notna().any():
-                    newest = max(newest, latest.dropna().index.max())
-                used = (add.notna() & out.isna()).to_numpy()
-                out = out.fillna(add)
-                if used.any():
-                    latest_from = hours[used].min()
-            except ConnectionError as e:
-                offline = e
-            except SmhiNotFound:                                 # a closed station has no latest months
-                pass
+        if (after & out.fillna(archive.reindex(hours)).isna().to_numpy()).any():   # hours after the checked archive
+            latest, offline = _latest_months(station, hours.max())
+            # a long gap between the saved archive's end and the latest months' start: the saved archive is old
+            # and SMHI has extended it since — fetch it again (at most once per run, and only if a day old)
+            reach = latest.index.max() if latest is not None else hours.max()
+            covered = out.fillna(archive.reindex(hours))
+            if latest is not None:
+                covered = covered.fillna(latest.reindex(hours))
+            if _long_gap(covered.where(after & (hours <= reach), 0.0)):   # only that stretch; elsewhere "covered"
+                try:
+                    archive = _read_smhi(fetch_smhi_temperature(station, refresh=True))
+                except ConnectionError as e:
+                    offline = offline or e
+        out = out.fillna(archive.reindex(hours))             # checked data first …
+        archive_end = archive.index.max()
+        oldest, newest = archive.dropna().index.min(), archive.dropna().index.max()
+        if latest is not None:                               # … then the latest months, only after the archive
+            add = latest.reindex(hours).where(hours > archive_end)
+            used = (add.notna() & out.isna()).to_numpy()
+            out = out.fillna(add)
+            if used.any():
+                latest_from = hours[used].min()
+            if latest.notna().any():
+                newest = max(newest, latest.dropna().index.max())
     missing = out.isna().to_numpy()
     if missing.all():
         if offline is not None:
-            raise offline
+            raise ConnectionError(_needs(hours, station) + str(offline)) from None
         if newest is not None and newest < hours[0]:
             raise ValueError(f"SMHI station {station} has temperatures up to {newest:%Y-%m-%d %H:%M} UTC; the data "
                              f"start at {hours[0]:%Y-%m-%d %H:%M} UTC — use an earlier period or another SMHI station.")
@@ -225,13 +277,15 @@ def load_smhi_hours(hours: pd.DatetimeIndex, station: int = SMHI_STATION) -> pd.
     for a, b in _runs(missing):
         if b - a <= MAX_GAP_HOURS:
             continue
-        if b == len(hours) and offline is not None:          # newer data were needed and could not be downloaded
-            raise offline
         first, last = hours[a], hours[b - 1]
-        valid = out.dropna().index
+        if offline is not None and archive_end is not None and last > archive_end:
+            raise ConnectionError(_needs(hours[a:b], station) + str(offline)) from None   # newer data could not
+        valid = out.dropna().index                                                          # be fetched
         if b == len(hours):
             raise ValueError(f"SMHI station {station} has temperatures up to {valid.max():%Y-%m-%d %H:%M} UTC; the "
-                             f"data run to {last:%Y-%m-%d %H:%M} UTC. Use a period that ends before then.")
+                             f"data run to {last:%Y-%m-%d %H:%M} UTC. Use a period that ends before then. (SMHI adds "
+                             "an hour every hour; the program fetches the latest months at most once per run, so a "
+                             "later run reaches further.)")
         if a == 0:
             raise ValueError(f"SMHI station {station} has temperatures from {valid.min():%Y-%m-%d %H:%M} UTC; the "
                              f"data start at {first:%Y-%m-%d %H:%M} UTC — choose another SMHI station or a later "

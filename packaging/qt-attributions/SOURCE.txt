@@ -1,1 +1,1 @@
-Qt 6.12.0 attributions from https://github.com/qt/<module> at tag v6.12.0 (modules: qtbase, qtsvg, qtimageformats), fetched by fetch_qt_attributions.py
+Qt 6.12.0 attributions from the GitHub mirrors of Qt (qt/qtbase, qt/qtsvg, qt/qtimageformats, qtproject/pyside-pyside-setup) at tag v6.12.0 (modules: qtbase, qtsvg, qtimageformats, pyside-setup), fetched by fetch_qt_attributions.py

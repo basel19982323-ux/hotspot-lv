@@ -47,6 +47,18 @@ STEP_TIMEOUT_S = 240
 TOTAL_LIMIT_S = 900                 # the whole run; a healthy build needs about 80 s
 STEPS = ("platform", "https", "station", "card layout", "pdf", "fleet", "scenario", "sweep", "spread", "fixes",
          "powerflow", "cancel", "close")
+CLOSE_LIMIT_S = 20                  # the window must be gone this long after it was asked to close
+# What the source tree computes for the shipped data (tests/test_selftest.py checks the same numbers from the engine,
+# so both change together). A frozen build that bundles other data, reads time differently or computes differently
+# fails here instead of passing with the same headline (round-3 review: +15 °C at every hour passed unchanged).
+REFERENCE = {
+    "station": {"peak_loading_pct": 102.0551, "life_days_per_year": 0.145863, "max_hot_spot_c": 61.7719,
+                "energy_mwh": 1091.918},        # ns-102.csv, 500 kVA, sum of meters, Swedish time, start-stamped
+    "ambient_mean_c": 7.2085,                   # its outdoor temperature: SMHI 96190, 2023
+    "fleet": ["NS-102 Björkbacken (synthetic)", "NS-103 Tallhöjden (synthetic)", "NS-101 Lövängen (synthetic)"],
+    "powerflow": {"trafo_loading_percent": 29.0355, "vmin_pu": 0.981684},   # build_feeder(), 3 kW per house
+}
+REL_TOL = 1e-4
 
 
 class SelfTest:
@@ -193,26 +205,47 @@ class SelfTest:
         lossless = images >= 3 and b"/DCTDecode" not in data             # the three charts, none as JPEG
         fonts = data.count(b"/FontFile2")
         need_fonts = self.app.platformName() not in ("offscreen", "minimal")
-        ok = data[:5] == b"%PDF-" and pages >= 2 and lossless and (fonts > 0 or not need_fonts)
-        return ok, (f"{pdf.name}, {len(data) // 1024} kB, {pages} pages, {fonts} embedded fonts"
+        ok = data[:5] == b"%PDF-" and pages >= 5 and lossless and (fonts > 0 or not need_fonts)
+        return ok, (f"{pdf.name}, {len(data) // 1024} kB, {pages} pages (at least 5), {fonts} embedded fonts"
                     f"{'' if need_fonts else ' (not required on this platform)'}, {images} images, "
                     f"{'none as JPEG' if b'/DCTDecode' not in data else 'JPEG images'}")
 
+    @staticmethod
+    def off_reference(got: dict, ref: dict) -> list[str]:
+        """The numbers that differ from REFERENCE by more than REL_TOL — a frozen build with other data, another
+        time base or other library behaviour computes different numbers (round-3 review: +15 °C everywhere passed)."""
+        return [f"{k} {got[k]:.6g} (expected {v:.6g})" for k, v in ref.items()
+                if not abs(got[k] - v) <= REL_TOL * abs(v)]
+
     def step_station(self) -> None:
+        """Through the panel's own Run button and worker thread (round-3 review: the step called the worker's
+        function directly, so a broken hand-over from the thread would have passed)."""
         from hotspotlv.app.report import write_station_card
-        from hotspotlv.app.widgets.station_panel import EXAMPLE, _assess
+        from hotspotlv.app.widgets.station_panel import EXAMPLE
         st = self.win.station
 
-        def run():
-            t = time.perf_counter()
-            st.path.setText(str(EXAMPLE))
-            st._pending_inputs = st._inputs()                  # what run() records before its worker starts
-            st._done(_assess(EXAMPLE, 500, "meters", "Europe/Stockholm", "start", 96190, True, "kiosk", 0, 0, 0))
+        def start():
             self.win.tabs.setCurrentIndex(0)
+            st.path.setText(str(EXAMPLE))
+            st.kva.setCurrentIndex(st.kva.findData(500))
+            for box, value in ((st.measured, "meters"), (st.tz, "Europe/Stockholm"), (st.stamp, "start")):
+                box.setCurrentIndex(box.findData(value))
+            st.smhi.setValue(96190); st.n_ev.setValue(0); st.n_hp.setValue(0)
+            st.run()
+        if not self.guarded("station", start):
+            self.go(self.step_fleet); return
+
+        def done(secs):
             self.grab("station.png")
-            ok = st.result is not None and st.export_btn.isEnabled()
-            self.result("station", ok, f"{st.result.verdict.headline() if st.result else 'no result'} "
-                                       f"({time.perf_counter() - t:.1f} s)")
+            res = st.result
+            ok = res is not None and st.export_btn.isEnabled()
+            off = self.off_reference({**res.metrics(), "ambient_mean_c": float(st._amb.mean())},
+                                     {**REFERENCE["station"], "ambient_mean_c": REFERENCE["ambient_mean_c"]}) \
+                if ok else []
+            self.result("station", ok and not off,
+                        (f"{res.verdict.headline()} — the panel's worker, {secs:.1f} s; the example's numbers match "
+                         "the source" if not off else f"numbers differ from the source: {'; '.join(off)}")
+                        if res else "no result")
             from PySide6.QtWidgets import QLabel                # the card's rows at their full height (21 Oct rule)
             short = [w.text() for col in (st.card._paper[0], st.card._really[0]) for w in col.findChildren(QLabel)
                      if w.isVisible() and w.height() < w.sizeHint().height() - 1]
@@ -222,8 +255,13 @@ class SelfTest:
             pdf = write_station_card(st.result, st._amb, self.out / "station_card.pdf", source_name=EXAMPLE.name)
             ok, detail = self.check_pdf(pdf)
             self.result("pdf", ok, f"{detail} ({time.perf_counter() - t:.1f} s)")
-        self.guarded("station", run)
-        self.go(self.step_fleet)
+            self.go(self.step_fleet)
+
+        def timeout(secs):
+            self.result("station", False, f"no result after {secs:.0f} s (status: {st.status.text()[:200]})")
+            self.go(self.step_fleet)
+        self.wait_until("station", lambda: not st.is_running() and not st._busy and st.result is not None,
+                        STEP_TIMEOUT_S, done, timeout, self.step_fleet)
 
     def step_fleet(self) -> None:
         from hotspotlv.app.widgets.fleet_panel import _screen
@@ -238,9 +276,13 @@ class SelfTest:
             self.grab("fleet.png")
             n = 0 if fl.table_df is None else len(fl.table_df)
             errors = [] if fl.table_df is None else list(fl.table_df.loc[fl.table_df["verdict"] == "error", "error"])
-            self.result("fleet", n == 3 and not errors,          # an error row is a failure, not a ranked station
-                        f"{n} stations ranked ({time.perf_counter() - t:.1f} s)" if not errors
-                        else f"{len(errors)} of {n} stations failed: {errors[0][:200]}")
+            order = [] if fl.table_df is None else list(fl.table_df["station_id"])
+            levels = [] if fl.table_df is None else list(fl.table_df["verdict"])
+            right = order == REFERENCE["fleet"] and levels == ["OK"] * 3
+            self.result("fleet", n == 3 and not errors and right,  # an error row is a failure, not a ranked station
+                        (f"{n} stations ranked as in the source ({time.perf_counter() - t:.1f} s)" if right
+                         else f"ranking {list(zip(order, levels))} differs from the source {REFERENCE['fleet']}")
+                        if not errors else f"{len(errors)} of {n} stations failed: {errors[0][:200]}")
         self.guarded("fleet", run)
         self.go(self.step_scenario)
 
@@ -325,10 +367,12 @@ class SelfTest:
             net = build_feeder()
             set_house_loads(net, 3.0)
             r = run_snapshot(net)
-            ok = bool(net.converged) and 0 < r["trafo_loading_percent"] < 200 and 0.8 < r["vmin_pu"] < 1.05
+            off = self.off_reference(r, REFERENCE["powerflow"])
+            ok = bool(net.converged) and not off
             self.result("powerflow", ok, f"converged: {bool(net.converged)}; transformer "
-                                         f"{r['trafo_loading_percent']:.1f} %, lowest voltage {r['vmin_pu']:.3f} p.u. "
-                                         f"({time.perf_counter() - t:.1f} s)")
+                                         f"{r['trafo_loading_percent']:.2f} %, lowest voltage {r['vmin_pu']:.4f} p.u. "
+                                         + ("as in the source" if not off else f"— differs: {'; '.join(off)}")
+                                         + f" ({time.perf_counter() - t:.1f} s)")
         self.guarded("powerflow", run)
         self.go(self.step_cancel)
 
@@ -363,34 +407,65 @@ class SelfTest:
         self.go(cancel, 1500)
 
     def step_close(self) -> None:
-        from hotspotlv.app.widgets.station_panel import EXAMPLE
+        """Start a full-power-flow run (it computes for minutes), then close the window over it. The verdict is
+        written by the entry point after the event loop has ended — see exit_verdict (round-3 review: ALL PASSED was
+        written before the window was asked to close, so a window that never closed left a passing log)."""
         from hotspotlv.app.workers import any_running
-        st = self.win.station
+        sp = self.win.scenario
 
         def start():
-            self.win.tabs.setCurrentIndex(0)
-            st.path.setText(str(EXAMPLE))
-            st.run()
+            self.win.tabs.setCurrentIndex(2)
+            sp.result = None
+            sp.fast.setChecked(False)
+            sp.run()
         if not self.guarded("close", start):
             self.finish(); return
-        running = any_running()                                # checked at once: the assessment has just started
-        self.result("close", running, "closing the window over a running assessment; the process must now end "
-                    "cleanly" if running else "the assessment did not start, so closing over a run is not tested")
+        if not any_running():
+            self.result("close", False, "the full run did not start, so closing over a run cannot be tested")
         self.go(self.finish)
 
     def finish(self) -> None:
-        if getattr(self, "_watchdog", None) is not None:
-            self._watchdog.cancel()                             # the run reached its end
-        missing = [s for s in STEPS if s not in self.passed]
+        missing = [s for s in STEPS if s != "close" and s not in self.passed]
         if missing and not self.failed:
             self.result("steps", False, f"no PASS for: {', '.join(missing)}")
         elif missing:
             self.log(f"INFO steps: no PASS for: {', '.join(missing)}")
-        self.log(f"{'FAILED' if self.failed else 'ALL PASSED'} in {time.perf_counter() - self.t0:.0f} s")
         if self.failed:
+            self.final(f"FAILED in {time.perf_counter() - self.t0:.0f} s")
             self.app.exit(1)
-        else:
-            self.win.close()                                    # the normal path: closeEvent → quit → main()
+            return
+        self.log("INFO close: every other step passed; closing the window over the running full run — the verdict "
+                 "follows when the event loop has ended")
+        self.win.close()                                        # the normal path: closeEvent → quit → main()
+
+        def not_closed():
+            self.result("close", False, f"the window was still open {CLOSE_LIMIT_S} s after it was asked to close")
+            self.final(f"FAILED in {time.perf_counter() - self.t0:.0f} s")
+            from hotspotlv.app.workers import hard_exit
+            hard_exit(1)
+        QTimer.singleShot(CLOSE_LIMIT_S * 1000, not_closed)    # never fires once the event loop has ended
+
+    def final(self, line: str) -> None:
+        """The last line, written once; the watchdog stays on until it is written."""
+        if getattr(self, "_final", False):
+            return
+        self._final = True
+        self.log(line)
+        if getattr(self, "_watchdog", None) is not None:
+            self._watchdog.cancel()
+
+    def exit_verdict(self, code: int, running: bool) -> int:
+        """Called by the entry point after the event loop has ended: the close step's result and the last line.
+        `running`: a worker thread was still computing, so the process leaves through the hard exit."""
+        if getattr(self, "_final", False):
+            return code or 1
+        ok = code == 0 and not self.failed and running
+        self.result("close", ok, ("the window closed over the running full run; the event loop ended and the process "
+                                  "leaves through the hard exit" if running
+                                  else "the window closed, but no run was left computing — the hard exit was not "
+                                       "tested") if code == 0 else f"the event loop ended with code {code}")
+        self.final(f"{'ALL PASSED' if not self.failed else 'FAILED'} in {time.perf_counter() - self.t0:.0f} s")
+        return 0 if not self.failed else 1
 
 
 def install(app: QApplication, win, out: Path) -> SelfTest:

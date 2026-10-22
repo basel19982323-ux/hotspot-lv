@@ -9,11 +9,13 @@ import sys
 import traceback
 from pathlib import Path
 
-# Deeper than this, Windows' 260-character path limit stops Qt's plugins and DLLs from loading, and Qt's own box
-# ("no Qt platform plugin could be initialized … reinstalling may fix this") hides the cause (packaging review
-# round 2: a 157-character extraction folder started, 198 did not; the longest file the program loads at run time
-# lies 88 characters below the extraction folder). The program folder is the extraction folder + "\HotspotLV".
+# Deeper than this, Windows' 260-character path limit stops the program's DLLs and extension modules from loading,
+# and Qt's own box ("no Qt platform plugin could be initialized … reinstalling may fix this") hides the cause.
+# Measured on the build of 23 Oct 2026 (round-3 review): folders up to 184 characters start, 185 does not (scipy's
+# _arpacklib .pyd, 74 characters below the program folder). build.py checks the longest path of any .pyd / .dll
+# (numpy's OpenBLAS DLL, 78 characters: 180) and stops a build that would not fit below FOLDER_LIMIT characters.
 FOLDER_LIMIT = 165
+MAX_PATH = 259                      # characters of a path Windows' loader accepts without long-path support
 
 
 def _self_test_folder(argv: list[str]):
@@ -99,14 +101,18 @@ def _run(argv: list[str], self_test: Path | None) -> int:
         box.setDetailedText(traceback.format_exc())
         box.exec()
         return 1
+    test = None
     if self_test is not None:
         from hotspotlv.app import selftest
-        selftest.install(app, win, self_test)
+        test = selftest.install(app, win, self_test)
     win.show()
     splash.finish(win)
     code = app.exec()
     from hotspotlv.app.workers import any_running, hard_exit
-    if any_running():           # the window closed over a cancelled run that is still computing: a Python thread
+    running = any_running()
+    if test is not None:        # the self-test's last line is written only now that the window has really gone
+        code = test.exit_verdict(code, running)
+    if running:                 # the window closed over a cancelled run that is still computing: a Python thread
         hard_exit(code)         # cannot be stopped from outside, and a QThread destroyed while running aborts —
     return code                 # so leave now; the run's result was already discarded
 

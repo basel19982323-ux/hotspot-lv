@@ -226,6 +226,7 @@ def _kv_rows(items: dict) -> str:
 
 EXAMPLE_CREDIT = ("Hofmann, Bjarghov &amp; Nessa (2023), Zenodo, https://doi.org/10.5281/zenodo.8423312 — CC BY 4.0, "
                   "https://creativecommons.org/licenses/by/4.0/")       # HTML: the card's markup, not data
+PVGIS_CREDIT = "PVGIS © European Communities, 2001–2026, 2023 hourly output"   # round 3: the examples contain it
 
 
 def is_shipped_example(source) -> bool:
@@ -263,8 +264,10 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
         period += f"; life used per year is scaled ×{scale_text(scale)} to a year (see the notes)"
     example = is_shipped_example(st.source)
     example_html = (f"<p style='color:{ACCENT}'><b>Synthetic example</b> — not a measured station. Built from the "
-                    f"Norwegian household data of {EXAMPLE_CREDIT}, with SMHI temperatures.</p>") if example else ""
-    example_footer = f" Base loads of this synthetic example: {EXAMPLE_CREDIT}." if example else ""
+                    f"Norwegian household data of {EXAMPLE_CREDIT}, with SMHI temperatures and PVGIS solar output "
+                    f"({PVGIS_CREDIT}).</p>") if example else ""
+    example_footer = (f" Base loads of this synthetic example: {EXAMPLE_CREDIT}; its rooftop solar: {PVGIS_CREDIT}."
+                      if example else "")
     smhi = f"{res.smhi_station}"
     if res.smhi_station == SMHI_STATION:
         smhi += f" {SMHI_STATION_NAME} (the default — choose the station nearest the place)"

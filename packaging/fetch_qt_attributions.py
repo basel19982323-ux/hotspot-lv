@@ -20,10 +20,11 @@ import urllib.request
 from pathlib import Path
 
 QT_VERSION = "6.12.0"
-MODULES = ("qtbase", "qtsvg", "qtimageformats")
+MODULES = {"qtbase": "qt/qtbase", "qtsvg": "qt/qtsvg", "qtimageformats": "qt/qtimageformats",
+           "pyside-setup": "qtproject/pyside-pyside-setup"}    # module -> GitHub mirror (pyside-setup: round 3)
 OUT = Path(__file__).resolve().parent / "qt-attributions"
-API = "https://api.github.com/repos/qt/{module}/git/trees/v{version}?recursive=1"
-RAW = "https://raw.githubusercontent.com/qt/{module}/v{version}/{path}"
+API = "https://api.github.com/repos/{repo}/git/trees/v{version}?recursive=1"
+RAW = "https://raw.githubusercontent.com/{repo}/v{version}/{path}"
 
 
 def get(url: str) -> bytes:
@@ -50,16 +51,16 @@ def license_files(entry: dict, folder: Path) -> list[str]:
 
 def main() -> int:
     total = 0
-    for module in MODULES:
-        tree = json.loads(get(API.format(module=module, version=QT_VERSION)))
+    for module, repo in MODULES.items():
+        tree = json.loads(get(API.format(repo=repo, version=QT_VERSION)))
         if tree.get("truncated"):
             raise SystemExit(f"{module}: the tree listing was truncated")
         paths = [t["path"] for t in tree["tree"]
-                 if t["path"].endswith("qt_attribution.json") and not t["path"].startswith("tests/")]
+                 if t["path"].endswith("qt_attribution.json") and not t["path"].startswith(("tests/", "examples/"))]
         for p in paths:
             dest = OUT / module / p
             dest.parent.mkdir(parents=True, exist_ok=True)
-            raw = get(RAW.format(module=module, version=QT_VERSION, path=p))
+            raw = get(RAW.format(repo=repo, version=QT_VERSION, path=p))
             dest.write_bytes(raw)
             folder = Path(p).parent
             for e in entries(json.loads(raw.decode("utf-8"), strict=False)):   # some carry raw tabs
@@ -68,7 +69,7 @@ def main() -> int:
                     if target.exists():
                         continue
                     try:
-                        data = get(RAW.format(module=module, version=QT_VERSION, path=src))
+                        data = get(RAW.format(repo=repo, version=QT_VERSION, path=src))
                     except Exception as ex:                       # a missing file is reported, not fatal
                         print(f"  {module}/{src}: {ex}")
                         continue
@@ -76,9 +77,10 @@ def main() -> int:
                     target.write_bytes(data)
             total += 1
         print(f"{module} {QT_VERSION}: {len(paths)} attribution files")
-    (OUT / "SOURCE.txt").write_text(f"Qt {QT_VERSION} attributions from https://github.com/qt/<module> at tag "
-                                    f"v{QT_VERSION} (modules: {', '.join(MODULES)}), fetched by fetch_qt_attributions.py\n",
-                                    encoding="utf-8")
+    (OUT / "SOURCE.txt").write_text(f"Qt {QT_VERSION} attributions from the GitHub mirrors of Qt "
+                                    f"({', '.join(MODULES.values())}) at tag v{QT_VERSION} "
+                                    f"(modules: {', '.join(MODULES)}), fetched by fetch_qt_attributions.py\n",
+                                    encoding="utf-8", newline="\n")   # LF, as .gitattributes says
     print(f"{total} attribution files in {OUT}")
     return 0
 

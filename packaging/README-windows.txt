@@ -1,4 +1,4 @@
-Hotspot LV {version} for Windows (64-bit)
+{test_note}Hotspot LV {version} for Windows (64-bit)
 ==========================================
 
 An open screening tool for secondary-substation (nätstation) transformers under electrification: your own station
@@ -9,14 +9,14 @@ Check the download
 ------------------
 Before you unzip, check that the zip is the published file. In PowerShell, in the folder of the download:
 
-    (Get-FileHash .\HotspotLV-{version}-win64.zip -Algorithm SHA256).Hash -eq (Get-Content .\HotspotLV-{version}-win64.zip.sha256).Split(' ')[0]
+    (Get-FileHash .\{zip} -Algorithm SHA256).Hash -eq (Get-Content .\{zip}.sha256).Split(' ')[0]
 
 must print True (the .sha256 file is published with the release).
 
 Start
 -----
 1. Unzip the whole HotspotLV folder to a short path, for example C:\Tools\HotspotLV (a very deep folder — more than
-   about 140 characters — stops the program from starting). Keep the folder together: HotspotLV.exe needs the
+   about 140 characters — stops the unzip or the program). Keep the folder together: HotspotLV.exe needs the
    _internal folder next to it.
 2. Double-click HotspotLV.exe. The window opens in a few seconds.
 
@@ -32,11 +32,15 @@ Internet and files
 - Station data outside 2023, or another SMHI weather station, needs that station's hourly temperatures from SMHI:
   the quality-checked archive (about 7 MB) and, for the most recent months, SMHI's latest-months data (about
   0.1 MB). They are downloaded over HTTPS from opendata-download-metobs.smhi.se into %USERPROFILE%\.hotspotlv\raw
-  and used again from there; a newer copy is fetched only when the data reach past the saved one. SMHI publishes
-  its checked archive about three months late; hours after it come from the latest months and the program says so
-  in the result. Nothing else is sent or fetched.
-- Station cards (PDF) and fleet tables (CSV) are saved where you choose.
-- To remove the program: delete the HotspotLV folder and, if it exists, %USERPROFILE%\.hotspotlv.
+  and used again from there. A newer copy is fetched only when the data need hours the saved one does not have:
+  the latest months at most once per run, the archive only to close a gap and at most once a day. SMHI publishes
+  its checked archive about three months late; hours after it come from the latest months, and the result's notes
+  say so. Nothing else is sent or fetched.
+- Station cards (PDF) and fleet tables (CSV) are saved where you choose. Qt, the program's window toolkit, remembers
+  the last folder of its file dialogs in the registry (HKEY_CURRENT_USER\Software\QtProject, shared with other
+  programs built with Qt).
+- To remove the program: delete the HotspotLV folder and, if it exists, %USERPROFILE%\.hotspotlv. The QtProject
+  registry entry may stay; delete it only if no other Qt program uses it.
 
 Licences
 --------
@@ -55,10 +59,11 @@ This build: version {version}, commit {commit}.
 Check an installation
 ---------------------
 The program can check itself without opening a window (station, PDF, fleet, scenario runs, cancel, close). In
-PowerShell:
+PowerShell, in the HotspotLV folder:
 
-    Start-Process .\HotspotLV.exe -ArgumentList '--self-test', 'C:\Temp\hotspot-check' -Wait
+    $p = Start-Process .\HotspotLV.exe -ArgumentList '--self-test', 'C:\Temp\hotspot-check' -Wait -PassThru; $p.ExitCode
 
-takes about two minutes. Then open C:\Temp\hotspot-check\self-test.txt: its last line says ALL PASSED when every
-step passed. (A plain .\HotspotLV.exe --self-test ... returns at once, because the program has no console; the
-check still runs.)
+takes about two minutes and must print 0. C:\Temp\hotspot-check\self-test.txt then shows every step; its last line
+says ALL PASSED. For a folder with spaces, put it in double quotes inside the single ones:
+'"C:\Temp\my check"'. (A plain .\HotspotLV.exe --self-test ... returns at once, because the program has no
+console; the check still runs.)

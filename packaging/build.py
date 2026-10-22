@@ -56,7 +56,22 @@ QT_MODULES = ("qtbase", "qtsvg", "qtimageformats")
 # shipped (round-2 review: GPL-2.0, LGPL-2.1 and BSD-4 entries that do not apply, with nothing saying so)
 QT_NOT_IN_BUILD_IDS = {"extra-cmake-modules", "kwin", "cmake-runcmake-test-modules", "android-native-style",
                        "android-gradle-wrapper", "forkfd", "pixman", "sqlite", "dejayvu", "xcb-xinput",
-                       "qeventdispatcher_cf", "libdbus-1-headers", "cocoa-platform-plugin", "linuxperf", "valgrind"}
+                       "qeventdispatcher_cf", "libdbus-1-headers", "cocoa-platform-plugin", "linuxperf", "valgrind",
+                       "catch2"}            # catch2: Qt's tests of Qt Test, not compiled into Qt6Test.dll (round 3)
+HACL_NOTE = """\
+HACL* (in python314.dll: the hash functions of hashlib — Python's own notices do not list it)
+  MIT License. Copyright (c) 2016-2022 INRIA, CMU and Microsoft Corporation; Copyright (c) 2022-2023 HACL* Contributors.
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+  documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+  rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+  persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice
+  and this permission notice shall be included in all copies or substantial portions of the Software.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+  WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+  COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+  OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+  Source: https://github.com/python/cpython/tree/v{python}/Modules/_hacl
+"""
 QT_NETWORK_IDS = {"psl-data", "libpsl"}                    # in Qt Network, which this build does not ship
 
 
@@ -178,7 +193,7 @@ def python_notice() -> list[str]:
     # the section itself, not the sidebar's table of contents with the same heading (round-2 review: the notices
     # held only the headings): from <section id="otherlicenses"> to the sidebar after the page body
     start = text.rfind("<section", 0, text.find('id="otherlicenses"'))
-    end = text.find('class="sphinxsidebar"', start)
+    end = text.rfind("<div", start, text.find('class="sphinxsidebar"', start))   # before the tag, not inside it
     body = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text[start:end], flags=re.S)
     body = html.unescape(re.sub(r"<[^>]+>", "", body)).replace("¶", "")
     body = re.sub(r"\n\s*\n\s*\n+", "\n\n", body).strip()
@@ -186,7 +201,8 @@ def python_notice() -> list[str]:
         raise SystemExit(f"Python's acknowledgements were not found in {page} (got {len(body)} characters) — "
                          "check python_notice() against this Python version's license.html")
     lines += ["", "Python — Licenses and Acknowledgements for Incorporated Software (OpenSSL, expat, libffi, zlib,",
-              "libmpdec, mimalloc, Zstandard and others), from the Python documentation of this version:", "", body]
+              "libmpdec, mimalloc, Zstandard and others), from the Python documentation of this version:", "", body,
+              "", HACL_NOTE.format(python=sys.version.split()[0])]
     return lines
 
 
@@ -215,10 +231,10 @@ def qt_notice() -> list[str]:
              "", "  This software is based in part on the work of the Independent JPEG Group.",
              f"  Portions of this software are copyright (c) {_freetype_year()} The FreeType Project (www.freetype.org). "
              "All rights reserved.",
-             "", "  Third-party code inside the Qt libraries (Qt's own attributions, qt_attribution.json of qtbase and",
-             f"  qtimageformats {QT_VERSION}; qtsvg has none). First the parts in this Windows build, then those Qt's",
-             "  source tree also lists but this build does not contain (other platforms, build tools, Qt modules that",
-             "  are not shipped) — kept for completeness, they do not apply here.", ""]
+             "", "  Third-party code inside Qt and Qt for Python (their own attributions, qt_attribution.json of qtbase,",
+             f"  qtimageformats and pyside-setup {QT_VERSION}; qtsvg has none). First the parts in this Windows build,",
+             "  then those the source trees also list but this build does not contain (other platforms, build tools,",
+             "  Qt modules that are not shipped) — kept for completeness, they do not apply here.", ""]
     from fetch_qt_attributions import license_files                   # one rule for fetching and for reading
     network_shipped = (APP / "_internal" / "PySide6" / "Qt6Network.dll").exists()
     not_in_build = QT_NOT_IN_BUILD_IDS | (set() if network_shipped else QT_NETWORK_IDS)
@@ -226,7 +242,7 @@ def qt_notice() -> list[str]:
     entries: dict[bool, list[str]] = {True: [], False: []}
     for j in sorted(QT_ATTR.rglob("qt_attribution.json")):
         module = j.relative_to(QT_ATTR).parts[0]
-        if j.relative_to(QT_ATTR / module).parts[0] == "tests":          # Qt's test data, not in the libraries
+        if j.relative_to(QT_ATTR / module).parts[0] in ("tests", "examples"):   # not in the libraries
             continue
         data = json.loads(j.read_text(encoding="utf-8"), strict=False)
         for e in (data if isinstance(data, list) else [data]):
@@ -239,6 +255,8 @@ def qt_notice() -> list[str]:
                     raise SystemExit(f"Qt attribution {e.get('Name')}: licence text {module}/{src} missing — "
                                      "run packaging/fetch_qt_attributions.py")
                 body = p.read_text(encoding="utf-8", errors="replace")
+                if p.suffix in (".h", ".c", ".cpp") and "/*" in body:   # a source file: its licence comment only
+                    body = body[body.index("/*") + 2:body.index("*/", body.index("/*"))].strip("\n")
                 key = hashlib.sha1(body.encode("utf-8")).hexdigest()[:8]
                 texts.setdefault(key, (p.name, body))
                 refs.append(f"[Q-{key}]")
@@ -295,9 +313,10 @@ PYPOWER / MATPOWER code inside pandapower (pandapower/pypower)
 """
 
 
-def write_notices(path: Path, commit: str) -> list[str]:
+def write_notices(path: Path, commit: str, test_build: bool = False) -> list[str]:
     lines = [f"Hotspot LV {version()} — third-party software and data in this Windows build", "=" * 78, "",
-             f"Built from commit {commit} of the Hotspot LV source.",
+             f"Built from commit {commit} of the Hotspot LV source"
+             + (" — TEST BUILD, not a release (see README.txt)." if test_build else "."),
              "Hotspot LV itself is MIT-licensed (LICENSE.txt). This build also contains the data, the Python runtime and",
              "the libraries below, each under its own licence. The libraries are used unmodified; the data are",
              "processed as stated. Source links are given for Python, Qt and every open-source library.",
@@ -343,7 +362,27 @@ def run(cmd: list[str], **kw) -> None:
 
 
 def git(*args: str) -> str:
-    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    """git's answer, or None outside a git checkout (round-3 review: a bare traceback, even with --test-build)."""
+    try:
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def check_folder_limit() -> None:
+    """Every DLL and extension module must load from a program folder of FOLDER_LIMIT characters: the deepest one
+    sets the real limit, and a library update could move it (round-3 review: the limit was not tied to the bundle)."""
+    sys.path.insert(0, str(ROOT / "src"))
+    from hotspotlv.app.__main__ import FOLDER_LIMIT, MAX_PATH
+    deepest = max((p for p in APP.rglob("*") if p.suffix.lower() in (".pyd", ".dll")),
+                  key=lambda p: len(str(p.relative_to(APP))))
+    depth = len(str(deepest.relative_to(APP)))
+    real = MAX_PATH - 1 - depth
+    if FOLDER_LIMIT > real:
+        raise SystemExit(f"{deepest.relative_to(APP)} lies {depth} characters below the program folder: it loads only "
+                         f"from folders up to {real} characters, but FOLDER_LIMIT is {FOLDER_LIMIT} — lower it")
+    print(f"folder limit: {FOLDER_LIMIT} characters allowed, {real} would load "
+          f"(deepest: {deepest.relative_to(APP)}, {depth} characters)")
 
 
 def project_url() -> str:
@@ -360,9 +399,12 @@ def release_problems() -> list[str]:
     if ssl.OPENSSL_VERSION_INFO[:2] < MIN_OPENSSL:
         problems.append(f"{ssl.OPENSSL_VERSION} (Python {sys.version.split()[0]}) is out of support — build with "
                         "Python 3.14.8 or later, which bundles OpenSSL 3.5")
-    if git("status", "--porcelain"):
+    status = git("status", "--porcelain")
+    if status is None:
+        return problems + ["this is not a git checkout (or git is missing) — a release must come from a commit"]
+    if status:
         problems.append("the working tree has uncommitted changes — commit first, so the zip matches its commit")
-    crlf = [line.split("\t")[-1] for line in git("ls-files", "--eol").splitlines()
+    crlf = [line.split("\t")[-1] for line in (git("ls-files", "--eol") or "").splitlines()
             if "w/crlf" in line and "eol=lf" in line]
     if crlf:
         problems.append(f"{len(crlf)} files are checked out with CRLF although .gitattributes says LF (e.g. {crlf[0]})"
@@ -429,18 +471,29 @@ def main() -> int:
                          + "\n(python packaging/build.py --test-build makes a zip named …-TEST.zip anyway)")
     for p in problems:
         print(f"TEST BUILD ONLY: {p}")
-    commit = git("rev-parse", "--short=12", "HEAD") + (" + uncommitted changes" if git("status", "--porcelain") else "")
-    zip_path = DIST / f"HotspotLV-{version()}-win64{'-TEST' if test_build else ''}.zip"
+    head = git("rev-parse", "--short=12", "HEAD")
+    commit = (head or "unknown (not a git checkout)") + (" + uncommitted changes" if git("status", "--porcelain") else "")
+    release_zip = DIST / f"HotspotLV-{version()}-win64.zip"
+    zip_path = release_zip.with_name(release_zip.stem + "-TEST.zip") if test_build else release_zip
     sha_path = zip_path.with_name(zip_path.name + ".sha256")
-    for old in DIST.glob(f"HotspotLV-{version()}-win64*.zip*"):   # a failed build must not leave a previous zip
-        old.unlink()
+    stale = [zip_path, sha_path]                         # a failed build must not leave a previous zip of its kind;
+    if not test_build:                                   # a release also clears an old TEST zip, which could be taken
+        test_zip = release_zip.with_name(release_zip.stem + "-TEST.zip")   # for it — a TEST build keeps the release
+        stale += [test_zip, test_zip.with_name(test_zip.name + ".sha256")]  # (round-3 review)
+    for old in stale:
+        old.unlink(missing_ok=True)
     run([sys.executable, "-m", "PyInstaller", str(PACKAGING / "hotspot-lv.spec"), "--noconfirm",
          "--distpath", str(DIST), "--workpath", str(ROOT / "build")], cwd=ROOT)
     check_binary_origins()
+    check_folder_limit()
     (APP / "LICENSE.txt").write_text((ROOT / "LICENSE").read_text(encoding="utf-8"), encoding="utf-8",
                                      newline="\r\n")       # the same bytes from any checkout (review S-d)
     readme = (PACKAGING / "README-windows.txt").read_text(encoding="utf-8")
-    readme = readme.replace("{version}", version()).replace("{url}", project_url()).replace("{commit}", commit)
+    test_note = ("TEST BUILD — not a release (made with --test-build"
+                 + (", and not fit for publishing because:\n" + "".join(f"  - {p}\n" for p in problems)
+                    if problems else ").\n") + "\n") if test_build else ""
+    readme = (readme.replace("{version}", version()).replace("{url}", project_url()).replace("{commit}", commit)
+              .replace("{zip}", zip_path.name).replace("{test_note}", test_note))
     (APP / "README.txt").write_text(readme, encoding="utf-8", newline="\r\n")
     licences = APP / "LICENSES"
     licences.mkdir(exist_ok=True)
@@ -449,7 +502,7 @@ def main() -> int:
         if not src.is_file():
             raise SystemExit(f"{src} is missing — run packaging/fetch_qt_attributions.py")
         shutil.copy2(src, licences / name)
-    missing = write_notices(APP / "THIRD-PARTY-NOTICES.txt", commit)
+    missing = write_notices(APP / "THIRD-PARTY-NOTICES.txt", commit, test_build)
     print(f"notices: {len(bundled_distributions())} distributions"
           + (f"; no licence file in: {', '.join(missing)}" if missing else ""))
     if missing:

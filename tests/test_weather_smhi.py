@@ -77,7 +77,9 @@ def test_a_2023_file_in_swedish_time_needs_no_download(cache, monkeypatch):
     amb = ambient_for(st.index)
     assert amb.attrs["missing_hours_filled"] == 1 and amb.attrs["smhi_latest_from"] is None
     assert amb.iloc[0] == amb.iloc[1]                                     # the one 2022 hour held from 00:00 UTC
-    assert assess_station(st, 500, amb).verdict.level in ("OK", "Watch", "At risk")
+    verdict = assess_station(st, 500, amb).verdict
+    assert verdict.level in ("OK", "Watch", "At risk")
+    assert any(n.startswith("outdoor temperature: 1 hour without an SMHI value") for n in verdict.notes)  # round 3
     assert not cache.exists()
 
 
@@ -182,3 +184,106 @@ def test_offline_writes_nothing_and_says_so(cache, monkeypatch):
     with pytest.raises(ConnectionError, match="PVGIS"):
         w.load_pvgis_pv(2022)
     assert not cache.exists()                                              # not even an empty raw folder
+
+
+# ------------------------------------------------------------------ round 3 (23 Oct 2026)
+def _save(cache, station, period, data: bytes, age_h: float = 0.0):
+    raw = cache / "raw"
+    raw.mkdir(parents=True, exist_ok=True)
+    path = raw / w._FILE[period].format(station=station)
+    path.write_bytes(data)
+    t = time.time() - age_h * 3600
+    os.utime(path, (t, t))
+    return path
+
+
+@pytest.mark.parametrize("gap, ok", [(6, True), (7, False)])
+def test_six_hours_are_filled_seven_are_an_error_inside_and_at_the_start(cache, monkeypatch, gap, ok):
+    rows = smhi_csv(97400, "2024-01-01", "2024-03-31 23:00").decode("utf-8").splitlines()
+    cut = {f"2024-02-10;{h:02d}:00:00" for h in range(gap)}
+    rows = [r for r in rows if r[:19] not in cut]
+    fake(monkeypatch, corrected_archive="\n".join(rows).encode("utf-8"))
+    inside = utc_hours("2024-02-01", "2024-02-20")
+    start = utc_hours(f"{pd.Timestamp('2024-01-01') - pd.Timedelta(hours=gap):%Y-%m-%d %H:%M}", "2024-01-05")
+    for hours in (inside, start):
+        if ok:
+            s = w.load_smhi_hours(hours, 97400)
+            assert not s.isna().any() and s.attrs["missing_hours_filled"] == gap
+        else:
+            with pytest.raises(ValueError, match=f"{gap} h|the data start at"):
+                w.load_smhi_hours(hours, 97400)
+
+
+def test_smhis_file_for_another_station_is_not_saved(cache, monkeypatch):
+    fake(monkeypatch, corrected_archive=smhi_csv(97400, "2024-01-01", "2024-03-31 23:00"))
+    with pytest.raises(ConnectionError, match="not with the temperature file of this station"):
+        w.load_smhi_hours(utc_hours("2024-01-01", "2024-01-31"), 97510)
+    assert not (cache / "raw").exists() or not list((cache / "raw").iterdir())
+
+
+def test_a_failed_refresh_keeps_the_saved_latest_months(cache, monkeypatch):
+    """Round 3: offline, a file ending 5 h after the saved latest months failed although the same file had passed
+    online — the saved copy was thrown away when its refresh failed."""
+    _save(cache, 96190, w.ARCHIVE, smhi_csv(96190, "2024-01-01", "2026-07-01 06:00"))
+    _save(cache, 96190, w.LATEST, smhi_csv(96190, "2026-06-14 01:00", "2026-10-22 21:00"))
+    monkeypatch.setenv("HOTSPOTLV_OFFLINE", "1")
+    s = w.load_smhi_hours(utc_hours("2026-09-01", "2026-10-23 02:00"), 96190)     # 5 h past the saved copy: held
+    assert not s.isna().any() and s.attrs["smhi_latest_from"] is not None
+    with pytest.raises(ConnectionError, match=r"^The data need SMHI temperatures of station 96190 for 2026-10-22 "
+                                              r"22:00 to 2026-10-23 04:00 UTC.*Downloads are switched off"):
+        w.load_smhi_hours(utc_hours("2026-09-01", "2026-10-23 04:00"), 96190)  # 7 h past: says what is missing
+
+
+def test_an_old_archive_is_not_fetched_again_while_the_latest_months_cover(cache, monkeypatch):
+    """Round 3: every recent file downloaded the 7 MB archive again once a week, byte for byte the same."""
+    _save(cache, 96190, w.ARCHIVE, smhi_csv(96190, "2024-01-01", "2026-07-01 06:00"), age_h=30 * 24)
+    _save(cache, 96190, w.LATEST, smhi_csv(96190, "2026-06-14 01:00", "2026-10-22 21:00"))
+    smhi = fake(monkeypatch)
+    s = w.load_smhi_hours(utc_hours("2025-10-23", "2026-10-21 23:00"), 96190)
+    assert smhi.requests == [] and not s.isna().any()
+
+
+def test_a_gap_between_an_old_archive_and_the_latest_months_fetches_the_archive_or_says_why(cache, monkeypatch):
+    _save(cache, 96190, w.ARCHIVE, smhi_csv(96190, "2024-01-01", "2026-03-01 00:00"), age_h=60 * 24)
+    _save(cache, 96190, w.LATEST, smhi_csv(96190, "2026-06-14 01:00", "2026-10-22 21:00"))
+    hours = utc_hours("2026-02-01", "2026-07-01")
+    monkeypatch.setenv("HOTSPOTLV_OFFLINE", "1")
+    with pytest.raises(ConnectionError, match="The data need SMHI temperatures .* 2026-03-01 01:00 to 2026-06-14 "
+                                              "00:00 UTC"):                  # not "choose another SMHI station"
+        w.load_smhi_hours(hours, 96190)
+    monkeypatch.delenv("HOTSPOTLV_OFFLINE")
+    smhi = fake(monkeypatch, corrected_archive=smhi_csv(96190, "2024-01-01", "2026-07-01 06:00"))
+    s = w.load_smhi_hours(hours, 96190)
+    assert smhi.requests == ["corrected-archive"] and not s.isna().any()
+
+
+def test_a_2023_file_that_runs_into_2024_names_the_hours_outside_the_shipped_year(cache, monkeypatch):
+    monkeypatch.setenv("HOTSPOTLV_OFFLINE", "1")
+    with pytest.raises(ConnectionError, match=r"^The data need SMHI temperatures of station 96190 for 2024-01-01 "
+                                              r"00:00 to 2024-01-01 23:00 UTC"):
+        w.load_smhi_hours(utc_hours("2023-01-01", "2024-01-01 23:00"), 96190)
+
+
+def test_two_callers_at_once_download_once(cache, monkeypatch):
+    import threading
+    smhi = fake(monkeypatch, corrected_archive=smhi_csv(97400, "2024-01-01", "2024-03-31 23:00"))
+    slow = smhi.__call__
+
+    def answer(url, timeout=None):
+        time.sleep(0.3)                                  # both callers are inside fetch at the same time
+        return slow(url, timeout)
+    monkeypatch.setattr(w.urllib.request, "urlopen", answer)
+    errors = []
+
+    def call():
+        try:
+            w.fetch_smhi_temperature(97400)
+        except Exception as e:                           # noqa: BLE001 — collected for the assertion
+            errors.append(e)
+    threads = [threading.Thread(target=call) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors and smhi.requests == ["corrected-archive"]
+    assert [p.name for p in (cache / "raw").iterdir()] == ["smhi_97400_temp.csv"]   # no .part left

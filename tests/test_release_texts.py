@@ -36,6 +36,7 @@ def test_a_shipped_example_card_says_it_is_synthetic_and_credits_its_data():
     card = station_card_html(res)
     assert "<b>Synthetic example</b> — not a measured station" in card
     assert "Hofmann, Bjarghov &amp; Nessa (2023)" in card and "zenodo.8423312" in card
+    assert "PVGIS © European Communities, 2001–2026" in card                         # round 3: its solar output
     assert "a synthetic example shipped with the program" in card
 
 
