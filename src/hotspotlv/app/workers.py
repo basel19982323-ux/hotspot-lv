@@ -60,8 +60,9 @@ def wait_all(ms: int) -> bool:
 def hard_exit(code: int) -> None:
     """Leave the process now with `code`, running no destructors. On Windows os._exit still runs the DLLs' unload
     routines and Qt's crashed there (access violation, measured); TerminateProcess on the own process does not."""
-    sys.stdout.flush()
-    sys.stderr.flush()
+    for stream in (sys.stdout, sys.stderr):            # None in a windowed (frozen) program: no console
+        if stream is not None:
+            stream.flush()
     if sys.platform == "win32":
         import ctypes
         k32 = ctypes.windll.kernel32

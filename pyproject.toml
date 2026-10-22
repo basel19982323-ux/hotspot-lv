@@ -21,6 +21,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "pypdf>=4"]          # pypdf: the tests read the station-card PDF back
 app = ["PySide6-Essentials>=6.7", "pyqtgraph>=0.13"]
+build = ["pyinstaller>=6.16"]          # the Windows build: packaging/hotspot-lv.spec
 
 [project.scripts]
 hotspot-lv = "hotspotlv.app.__main__:main"
@@ -29,7 +30,7 @@ hotspot-lv = "hotspotlv.app.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-hotspotlv = ["data/*.csv", "data/*.csv.gz", "data/*.md", "data/examples/*.csv", "data/examples/*.md"]
+hotspotlv = ["data/*.csv", "data/*.csv.gz", "data/*.md", "data/*.png", "data/examples/*.csv", "data/examples/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
