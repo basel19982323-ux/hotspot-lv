@@ -41,12 +41,14 @@ from PySide6.QtWidgets import QApplication
 
 from hotspotlv import __version__
 from hotspotlv.app.theme import ACCENT, MUTED, PANEL, VERDICT_COLORS
-from hotspotlv.app.widgets.charts import TIMELINE_LEGEND, DurationCurve, WorstWeek, YearTimeline, legend_html
+from hotspotlv.app.widgets.charts import (TIMELINE_LEGEND, DurationCurve, WorstWeek, YearTimeline, legend_html,
+                                         without_transformer_temperatures)
 from hotspotlv.app.widgets.verdict_card import fmt_card_value
-from hotspotlv.station import CABLE_LOSS_SHARE_AT_RATED, NOT_CHECKED_KEYS, StationResult
-from hotspotlv.thermal import IEC_LIMITS_C, IEC_LIMITS_K, K_MAX, KIOSK_AIR_RISE_K, REF_HOT_SPOT_C, ThermalParams
+from hotspotlv.station import CABLE_LOSS_SHARE_AT_RATED, NOT_CHECKED_KEYS, StationResult, scale_text
+from hotspotlv.thermal import IEC_LIMITS_C, IEC_LIMITS_K, KIOSK_AIR_RISE_K, REF_HOT_SPOT_C, ThermalParams
 from hotspotlv.timeseries import NAMEPLATE_RULE_PCT, VMAX_LIMIT_PU, VMIN_LIMIT_PU
 from hotspotlv.verdict import (CABLE_SOURCE, DESIGN_LIFE_DAYS_PER_YEAR, HOURS_PER_YEAR, IEC_TABLE_4, OUT_OF_RANGE_RULE,
+                               THERMAL_RANGE_K, thermal_ok,
                                VMAX_PLAN_PU, VMIN_PLAN_PU, WATCH_LIFE_DAYS_PER_YEAR)
 from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME
 
@@ -110,19 +112,21 @@ def render_charts(res: StationResult, ambient: pd.Series, width: int = CHART_W, 
             w.plot.setFixedSize(width, height)
             w.show()
             QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
-            legend = w.legend.text()
+            ok = thermal_ok(res.verdict)
             if name == "period":
-                w.set_data(res.year.hourly, res.thermal.hourly, ambient)
+                w.set_data(res.year.hourly, res.thermal.hourly if ok else None, ambient)
                 w.scrubber.label.setFormat("peak loading")           # "drag me" means nothing on paper
-                legend = legend_html(TIMELINE_LEGEND[:-1] + (("#000000", "&#9474;", "time of peak loading"),))
+                items = TIMELINE_LEGEND[:-1] if ok else without_transformer_temperatures(TIMELINE_LEGEND[:-1])
+                legend = legend_html(items + (("#000000", "&#9474;", "time of peak loading"),))
                 caption = (f"At the time of peak loading (black line): {w.readout.text()}. The hot-spot peaks a little "
-                           "later, as the oil warms; its maximum is in the card above and in the worst week.")
+                           "later, as the oil warms; its maximum is in the card above and in the worst week."
+                           if ok else f"At the time of peak loading (black line): {w.readout.text()}.")
             elif name == "duration":
                 w.set_year(res.year.hourly, step_h)
-                caption = w.caption.text()
+                caption, legend = w.caption.text(), w.legend.text()
             else:
-                w.set_week(res.thermal.worst_week(), res.year.hourly, ambient, step_h)
-                caption = w.caption.text()
+                w.set_week(res.thermal.worst_week(), res.year.hourly, ambient, step_h, thermal_valid=ok)
+                caption, legend = w.caption.text(), w.legend.text()      # after set_week: it filters the legend
             _settle(w.plot)
             image = _render(w.plot)
             dpr = image.devicePixelRatio()
@@ -233,16 +237,16 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
     reasons = "".join(f"<li>{_esc(r)}</li>" for r in v.reasons)
     reasons_html = f"<ul>{reasons}</ul>" if reasons else f"<p style='color:{MUTED}'>No rule is violated.</p>"
     clipped = any(r.rule == OUT_OF_RANGE_RULE for r in v.at_risk)
-    clip_html = (f"<p style='color:{VERDICT_COLORS['At risk']}'><b>The loading went beyond the thermal model's range.</b> "
-                 "Life used, hot-spot and top-oil are not computed (shown as –) and the temperature curves in the charts "
-                 "are clipped, so they are not meaningful. Check the transformer rating first.</p>") if clipped else ""
+    clip_html = (f"<p style='color:{VERDICT_COLORS['At risk']}'><b>The loading went above {THERMAL_RANGE_K:g} × rated, "
+                 "beyond the thermal model's range.</b> Life used, hot-spot and top-oil are not computed (shown as –) and "
+                 "not drawn. Check the transformer rating first.</p>") if clipped else ""
     not_checked = [k for k in NOT_CHECKED_KEYS if v.really.get(k, 0) is None]
 
     hours = len(st.index) * st.step_min / 60
     scale = HOURS_PER_YEAR / hours
     period = f"{st.period()} — {hours:,.0f} h of data"
     if abs(scale - 1) > 0.1:
-        period += f"; life used per year is scaled ×{scale:.2g} to a year (see the notes)"
+        period += f"; life used per year is scaled ×{scale_text(scale)} to a year (see the notes)"
     smhi = f"{res.smhi_station}"
     if res.smhi_station == SMHI_STATION:
         smhi += f" {SMHI_STATION_NAME} (the default — choose the station nearest the place)"
@@ -277,10 +281,13 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
                   "worst_week": "The worst week — the seven days that used the most insulation life"}
         for name in CHARTS:
             c = charts[name]
-            charts_html += f"<h3>{titles[name]}</h3>"
+            title = titles[name]
+            if clipped and name == "worst_week":
+                title = "The heaviest week — loading only"
+            charts_html += f"<h3>{title}</h3>"
             if clipped and name != "duration":
-                charts_html += (f"<p style='color:{VERDICT_COLORS['At risk']}'>The temperature curves come from a run "
-                                f"clipped at {K_MAX:g} × rated — not meaningful.</p>")
+                charts_html += (f"<p style='color:{VERDICT_COLORS['At risk']}'>No hot-spot or top-oil is drawn: the loading "
+                                f"went above {THERMAL_RANGE_K:g} × rated, beyond the thermal model's range.</p>")
             charts_html += (f"<p><img src='chart://{name}' width='{PAGE_W}'></p>"
                             f"<p style='color:{MUTED}; font-size:8.5pt'>{c['legend']}</p>"
                             f"<p style='font-size:9pt'>{_esc(c['caption'])}</p>")
@@ -298,8 +305,8 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
         not_checked_html = (f"{NUMBER_WORDS.get(len(not_checked), str(len(not_checked)))} "
                             f"{'rule reads' if len(not_checked) == 1 else 'rules read'} <i>not checked</i>: "
                             f"{_esc(', '.join(not_checked))}.")
-    clip_method = (f" Loading above {K_MAX:g} × rated is beyond the thermal model: life and temperatures were not computed."
-                   if clipped else "")
+    clip_method = (f" Above {THERMAL_RANGE_K:g} × rated (the IEC short-time emergency current limit) the thermal model "
+                   "is not used: life and temperatures were not computed." if clipped else "")
 
     return f"""
 <html><head><style>
@@ -341,7 +348,7 @@ shown for contrast. {not_checked_html}</p>
 <h2>Notes written during the run</h2>
 <ul>{notes_html}</ul>
 
-<h2 style='page-break-before: always'>How the numbers were made</h2>
+<h2>How the numbers were made</h2>
 <p>{_esc(s_estimate_text(res))}</p>
 <p>The transformer's loading K = S / {res.rated_kva:g} kVA drives the IEC 60076-7 difference equations with the outdoor
 temperature from SMHI as the ambient, at sub-steps of at most half the winding time constant, holding the load constant
@@ -356,8 +363,8 @@ year: a winter-only file therefore overstates the yearly figure and a summer-onl
 <h3>Rules behind the verdict</h3>
 <table width='100%' cellpadding='3' border='0'>
 <tr><th width='17%'>what</th><th width='18%'>Watch if</th><th width='18%'>At risk if</th><th width='32%'>source</th><th width='15%'>here</th></tr>{rules_html}</table>
-<p style='color:{MUTED}; font-size:9pt'>Table and equation numbers are those of IEC 60076-7:2005; the limit values are the same
-in the 2018 edition.</p>
+<p style='color:{MUTED}; font-size:9pt'>Table and equation numbers and all limit values are those of IEC 60076-7:2005. The
+2018 edition renumbers the tables and reviewed the temperature limits; it was not consulted for the values.</p>
 
 <h3>What this card is not</h3>
 <p>A screening with a simulation model and generic constants: the thermal constants are IEC 60076-7 defaults for a
@@ -390,6 +397,19 @@ def _is_heading(x) -> bool:
     return isinstance(x, QTextBlock) and x.blockFormat().headingLevel() > 0
 
 
+def _first_line_y(layout, x) -> float:
+    """Where an item's first line starts. A block pushed to the next page keeps a bounding rect that starts on the
+    previous one; its first line does not (round-2 code review: the test read two stranded headings as fine)."""
+    if isinstance(x, QTextFrame):
+        cell = x.cellAt(0, 0) if hasattr(x, "cellAt") else None
+        if cell is not None and cell.isValid():
+            return _first_line_y(layout, cell.firstCursorPosition().block())
+        return layout.frameBoundingRect(x).top()
+    r = layout.blockBoundingRect(x)
+    lay = x.layout()
+    return r.top() + (lay.lineAt(0).y() if lay is not None and lay.lineCount() else 0.0)
+
+
 def _first_orphan(doc: QTextDocument) -> int | None:
     """Index (in document order, counting every heading) of the first heading that does not start on the same page
     as its whole section (up to the next heading) although the section fits on a page — or, for a section longer
@@ -413,7 +433,7 @@ def _first_orphan(doc: QTextDocument) -> int | None:
             j += 1
         if j == i + 1:
             continue
-        top = rect(x).top()
+        top = _first_line_y(layout, x)
         end = rect(seq[j - 1]).bottom()
         if end - top > page_h * 0.95:                           # longer than a page: keep the heading with its first item
             end = rect(seq[i + 1]).bottom()
@@ -429,9 +449,13 @@ def _with_breaks(page_html: str, breaks: set[int]) -> str:
     def add(m):
         nonlocal count
         count += 1
-        if count in breaks and "style=" not in m.group(0):
-            return m.group(0)[:-1] + " style='page-break-before: always'>"
-        return m.group(0)
+        tag = m.group(0)
+        if count not in breaks or "page-break-before" in tag:
+            return tag
+        for q in ("'", '"'):                                     # a heading that already has a style keeps it
+            if f"style={q}" in tag:
+                return tag.replace(f"style={q}", f"style={q}page-break-before: always; ", 1)
+        return tag[:-1] + " style='page-break-before: always'>"
 
     return re.sub(r"<h[1-6](?:\s[^>]*)?>", add, page_html)
 
@@ -444,7 +468,7 @@ def page_of_items(doc: QTextDocument) -> list[tuple[str, int, int]]:
     for x in _top_level_items(doc):
         r = layout.frameBoundingRect(x) if isinstance(x, QTextFrame) else layout.blockBoundingRect(x)
         kind = "table" if isinstance(x, QTextFrame) else ("heading" if _is_heading(x) else "block")
-        out.append((kind, int(r.top() // page_h), int((r.bottom() - 1) // page_h)))
+        out.append((kind, int(_first_line_y(layout, x) // page_h), int((r.bottom() - 1) // page_h)))
     return out
 
 
@@ -494,8 +518,10 @@ def _print(doc: QTextDocument, device, title: str, footer: str) -> int:
             painter.restore()
             painter.setFont(QFont("Segoe UI", 8))
             painter.setPen(QColor(MUTED))
-            painter.drawText(QRectF(0, page.height() + 10, page.width(), 24), int(Qt.AlignRight | Qt.AlignTop),
-                             f"{footer} · page {i + 1} of {n}")
+            tail = f" · page {i + 1} of {n}"
+            room = page.width() - painter.fontMetrics().horizontalAdvance(tail)
+            text = painter.fontMetrics().elidedText(footer, Qt.ElideMiddle, int(room)) + tail   # a long file name
+            painter.drawText(QRectF(0, page.height() + 10, page.width(), 24), int(Qt.AlignRight | Qt.AlignTop), text)
     finally:
         painter.end()
     return n

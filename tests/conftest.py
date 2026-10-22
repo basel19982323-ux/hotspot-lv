@@ -5,8 +5,8 @@ or a hang).
   for a click that never comes. A test that expects a dialog patches it itself (its patch wins).
 * Every top-level widget a test creates is deleted when the test ends; module-scope fixtures delete theirs
   in their own teardown.
-* After pytest has written its whole report, a run that imported Qt leaves with os._exit(<pytest's own exit
-  status>). Interpreter shutdown with ~100 of pyqtgraph's parentless helper widgets still alive crashed
+* After pytest has written its whole report, a run that imported Qt leaves with hard_exit(<pytest's own exit
+  status>) — TerminateProcess on Windows, because even os._exit ran Qt's DLL unload code and crashed there. Interpreter shutdown with ~100 of pyqtgraph's parentless helper widgets still alive crashed
   (0xC0000409) or hung in about half of the runs, after a green summary — the problem pyqtgraph documents
   ("PyQt and PySide both are prone to crashing on exit") and works around the same way in pyqtgraph.exit().
   The exit code is always pytest's verdict; set HOTSPOTLV_TEST_SOFT_EXIT=1 to see the plain shutdown.
@@ -34,8 +34,10 @@ def _no_modal_dialogs(monkeypatch):
         yield
         return
     from PySide6.QtWidgets import QFileDialog, QMessageBox
+    opened = []
 
     def refuse(*args, **kwargs):
+        opened.append(args[1:3] if len(args) > 2 else args)
         raise AssertionError("a test opened a modal dialog — it would block the run; patch it in the test")
 
     for name in ("getSaveFileName", "getOpenFileName", "getExistingDirectory"):
@@ -43,6 +45,8 @@ def _no_modal_dialogs(monkeypatch):
     for name in ("exec", "warning", "question", "critical", "information"):
         monkeypatch.setattr(QMessageBox, name, refuse)
     yield
+    # inside a Qt slot (or an app-level except) the AssertionError is swallowed: fail the test here instead
+    assert not opened, f"a modal dialog was opened during the test: {opened}"
 
 
 @pytest.fixture(autouse=True)
@@ -82,9 +86,8 @@ def pytest_sessionfinish(session, exitstatus):
     _exit_status["code"] = int(exitstatus)
 
 
-@pytest.hookimpl(trylast=True)
+@pytest.hookimpl(tryfirst=True)                   # the report is complete; leave before the teardown
 def pytest_unconfigure(config):
     if "PySide6.QtWidgets" in sys.modules and os.environ.get("HOTSPOTLV_TEST_SOFT_EXIT") != "1":
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os._exit(_exit_status["code"])
+        from hotspotlv.app.workers import hard_exit
+        hard_exit(_exit_status["code"])

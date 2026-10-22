@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 import shiboken6
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 
@@ -59,7 +59,7 @@ class ElidedLabel(QLabel):
 
 from hotspotlv.app.theme import AMBIENT_COLOR, HOTSPOT_COLOR, LOAD_COLOR, OIL_COLOR, RULE_80, RULE_100
 from hotspotlv.timeseries import NAMEPLATE_RULE_PCT
-from hotspotlv.verdict import TOL
+from hotspotlv.verdict import TOL, fmt_quantity
 
 pg.setConfigOptions(antialias=True, background="w", foreground="#333333")
 LOCAL = "Europe/Stockholm"
@@ -70,27 +70,61 @@ LABEL_RIGHT = {"position": 0.98, "anchors": [(1, 0), (1, 1)]}     # text ends 2 
 LABEL_MIN_PLOT_PX = 120   # below this data-area height the rule labels collide with each other and the data (laptop)
 
 
-def rule_line(plot, y: float, color, text: str, where: dict, fill=None) -> pg.InfiniteLine:
-    """A dashed horizontal rule line with a label. The label is shown only while its line is inside the y-range
-    and the data area is tall enough — never a label without its line, never labels piled on each other
-    (review of 22 Oct 2026: at 1093 × 614 all three duration labels overlapped and the 1.5 × one floated alone)."""
+def rule_line(plot, y: float, color, text: str, where: dict, fill=None, priority: int = 0) -> pg.InfiniteLine:
+    """A dashed horizontal rule line with a label. A label is shown only while its line is inside the y-range, the
+    data area is tall enough, and it does not overlap a label of higher priority (the IEC limit before the
+    nameplate before the 80 % rule) — never a label without its line, never two labels on each other (reviews of
+    22 Oct 2026: overlapping and floating labels on the laptop and on every At-risk card)."""
     opts = {"color": color, **where}
     if fill is not None:
         opts["fill"] = fill
     line = pg.InfiniteLine(pos=y, angle=0, pen=pg.mkPen(color, style=Qt.DashLine), label=text, labelOpts=opts)
+    line._rule_priority = priority
     plot.addItem(line)
-    vb = plot.getViewBox()
-
-    def update(*_):
-        if not (shiboken6.isValid(vb) and shiboken6.isValid(line) and shiboken6.isValid(line.label)):
-            return                                              # the view box resizes while it is being torn down
-        lo, hi = vb.viewRange()[1]
-        line.label.setVisible(vb.height() >= LABEL_MIN_PLOT_PX and lo <= y <= hi)
-
-    vb.sigResized.connect(update)
-    vb.sigYRangeChanged.connect(update)
-    update()
+    lines = getattr(plot, "_rule_lines", None)
+    if lines is None:
+        lines = plot._rule_lines = []
+        vb = plot.getViewBox()
+        vb.sigResized.connect(lambda *_: _relabel_soon(plot))
+        vb.sigYRangeChanged.connect(lambda *_: _relabel_soon(plot))
+    lines.append(line)
+    _relabel_soon(plot)
     return line
+
+
+def _relabel_soon(plot) -> None:
+    """Relabel now and once more after the current event: the label positions follow the view's transform, which
+    pyqtgraph updates after the range-change signal (measured: two labels read as overlapping, one hidden)."""
+    relabel(plot)
+    if not getattr(plot, "_relabel_pending", False):
+        plot._relabel_pending = True
+
+        def later():
+            if shiboken6.isValid(plot):
+                plot._relabel_pending = False
+                relabel(plot)
+        QTimer.singleShot(0, later)
+
+
+def relabel(plot) -> None:
+    """Show each rule label that fits (see rule_line); called on every resize and y-range change."""
+    vb = plot.getViewBox()
+    lines = getattr(plot, "_rule_lines", [])
+    if not shiboken6.isValid(vb) or not all(shiboken6.isValid(x) and shiboken6.isValid(x.label) for x in lines):
+        return                                                  # the view box resizes while it is being torn down
+    vb.updateMatrix()                                           # the lines' places for the current range
+    lo, hi = vb.viewRange()[1]
+    tall = vb.height() >= LABEL_MIN_PLOT_PX
+    shown = []
+    for line in sorted(lines, key=lambda x: -x._rule_priority):
+        ok = tall and lo <= line.value() <= hi
+        if ok:
+            line.label.updatePosition()                         # its place for the current range, before comparing
+            rect = line.label.sceneBoundingRect()
+            ok = not any(rect.intersects(r) for r in shown)
+            if ok:
+                shown.append(rect)
+        line.label.setVisible(ok)
 
 
 def legend_html(items) -> str:
@@ -126,6 +160,11 @@ WORST_WEEK_LEGEND = ((HOTSPOT_COLOR, "&#9644;", "hot-spot °C"),
                                              "120 °C lines, it can overlap the outdoor line)"))
 
 
+def without_transformer_temperatures(items):
+    """The legend items left when the thermal figures are withdrawn: no hot-spot, no top-oil entry."""
+    return tuple(i for i in items if "hot-spot °C" not in i[2] and "top-oil °C" not in i[2])
+
+
 def _axis_date(index: pd.DatetimeIndex) -> np.ndarray:
     """Seconds since the epoch of the LOCAL wall-clock time (shown as-is by a utcOffset=0 axis)."""
     local = index.tz_convert(LOCAL).tz_localize(None)
@@ -157,9 +196,9 @@ class DurationCurve(QWidget):
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         self.legend = LegendStrip(DURATION_LEGEND)
         self.curve = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=2))
-        for y, c, txt in ((NAMEPLATE_RULE_PCT, RULE_80, "80 % rule"), (100, RULE_100, "nameplate"),
-                          (150, HOTSPOT_COLOR, "IEC 1.5 × rated")):
-            rule_line(self.plot, y, c, txt, LABEL_RIGHT)
+        for y, c, txt, prio in ((NAMEPLATE_RULE_PCT, RULE_80, "80 % rule", 0), (100, RULE_100, "nameplate", 1),
+                                (150, HOTSPOT_COLOR, "IEC 1.5 × rated", 2)):
+            rule_line(self.plot, y, c, txt, LABEL_RIGHT, priority=prio)
         self.caption = QLabel("")
         self.caption.setProperty("muted", True)
         lay.addWidget(self.legend)
@@ -192,11 +231,13 @@ class YearTimeline(QWidget):
         self.legend = LegendStrip(TIMELINE_LEGEND)
         self.load = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=1))
         # the rule labels sit mid-year (the summer trough), where the loading curve is far below them
-        for y, c, txt in ((NAMEPLATE_RULE_PCT, RULE_80, "80 % rule"), (100, RULE_100, "nameplate")):
-            rule_line(self.plot, y, c, txt, {"position": 0.5}, fill=pg.mkBrush(255, 255, 255, 220))   # white backing:
-                                                                                     # a hot summer can run through it
+        for y, c, txt, prio in ((NAMEPLATE_RULE_PCT, RULE_80, "80 % rule", 0), (100, RULE_100, "nameplate", 1)):
+            rule_line(self.plot, y, c, txt, {"position": 0.5}, fill=pg.mkBrush(255, 255, 255, 220),   # white backing:
+                      priority=prio)                                                 # a hot summer can run through it
         self.right = pg.ViewBox()
         self.plot.showAxis("right")
+        for side in ("left", "right"):
+            self.plot.getAxis(side).enableAutoSIPrefix(False)    # "1500 %", never "1.5 k%"
         self.plot.plotItem.layout.setContentsMargins(1, 1, RIGHT_AXIS_MARGIN, 1)
         self.plot.scene().addItem(self.right)
         self.plot.getAxis("right").linkToView(self.right)
@@ -233,6 +274,10 @@ class YearTimeline(QWidget):
         self.load.setData(self._x, hourly["loading_pct"].to_numpy())
         if thermal is not None:
             self.hot.setData(self._x, thermal["theta_h_max"].to_numpy())
+        else:                                                   # withdrawn (above 2 × rated) or none: draw nothing
+            self.hot.setData([], [])
+        self.legend.setText(legend_html(TIMELINE_LEGEND if thermal is not None
+                                        else without_transformer_temperatures(TIMELINE_LEGEND)))
         if ambient is not None:
             self.amb.setData(self._x, ambient.to_numpy())
         self.plot.setXRange(self._x[0], self._x[-1])
@@ -290,10 +335,12 @@ class WorstWeek(QWidget):
         self.hot = self.plot.plot([], [], pen=pg.mkPen(HOTSPOT_COLOR, width=2))
         self.oil = self.plot.plot([], [], pen=pg.mkPen(OIL_COLOR, width=1.5))
         self.amb = self.plot.plot([], [], pen=pg.mkPen(AMBIENT_COLOR, width=1.5))
-        rule_line(self.plot, 98, RULE_80, "98 °C: ageing rate 1", LABEL_LEFT)
-        rule_line(self.plot, 120, HOTSPOT_COLOR, "120 °C IEC limit", LABEL_LEFT)
+        rule_line(self.plot, 98, RULE_80, "98 °C: ageing rate 1", LABEL_LEFT, priority=0)
+        rule_line(self.plot, 120, HOTSPOT_COLOR, "120 °C IEC limit", LABEL_LEFT, priority=1)
         self.right = pg.ViewBox()
         self.plot.showAxis("right")
+        for side in ("left", "right"):
+            self.plot.getAxis(side).enableAutoSIPrefix(False)    # "1500 %", never "1.5 k%"
         self.plot.plotItem.layout.setContentsMargins(1, 1, RIGHT_AXIS_MARGIN, 1)
         self.plot.scene().addItem(self.right)
         self.plot.getAxis("right").linkToView(self.right)
@@ -313,22 +360,36 @@ class WorstWeek(QWidget):
         self.right.setGeometry(self.plot.getViewBox().sceneBoundingRect())
         self.right.linkedViewChanged(self.plot.getViewBox(), self.right.XAxis)
 
-    def set_week(self, week: pd.DataFrame, hourly: pd.DataFrame, ambient: pd.Series, step_h: float = 1.0):
+    def set_week(self, week: pd.DataFrame, hourly: pd.DataFrame, ambient: pd.Series, step_h: float = 1.0,
+                 thermal_valid: bool = True):
+        """thermal_valid=False (the verdict withdrew the thermal figures: loading above 2 × rated): the hot-spot and
+        top-oil curves are not drawn and the caption gives no life or temperature — a clipped or extrapolated run
+        printed '1583043024046439680.000 days' and '458 °C' here before 22 Oct 2026."""
         x = _axis_date(week.index)
-        self.hot.setData(x, week["theta_h_max"].to_numpy())
-        self.oil.setData(x, week["theta_o"].to_numpy())
+        if thermal_valid:
+            self.hot.setData(x, week["theta_h_max"].to_numpy())
+            self.oil.setData(x, week["theta_o"].to_numpy())
+        else:
+            self.hot.setData([], [])
+            self.oil.setData([], [])
+        self.legend.setText(legend_html(WORST_WEEK_LEGEND if thermal_valid
+                                        else without_transformer_temperatures(WORST_WEEK_LEGEND)))
         self.amb.setData(x, ambient.loc[week.index].to_numpy())
         lp = hourly.loc[week.index, "loading_pct"].to_numpy()
         self.load.setData(x, lp)
         self.plot.setXRange(x[0], x[-1])
         lo = min(float(ambient.loc[week.index].min()), 0) - 5
-        hi = max(float(week["theta_h_max"].max()), 125) + 5
+        hi = max(float(week["theta_h_max"].max()) if thermal_valid else 0, 125) + 5
         self.plot.setYRange(lo, hi)
         # the loading sits in the lower third of the chart so it never visually crosses the °C limit lines
         self.right.setYRange(0, max(110, float(lp.max()) * 1.05) * 3)
         self._sync()
-        life = float(week["V_mean"].sum() * step_h / 24)
         start = week.index[0].tz_convert(LOCAL)
-        self.caption.setText(f"Worst week starts {start:%d %b %Y}: {life:.3f} days of insulation life used, "
-                             f"max hot-spot {week['theta_h_max'].max():.0f} °C, "
-                             f"outdoor {ambient.loc[week.index].min():.0f} … {ambient.loc[week.index].max():.0f} °C")
+        outdoor = f"outdoor {ambient.loc[week.index].min():.0f} … {ambient.loc[week.index].max():.0f} °C"
+        if not thermal_valid:
+            self.caption.setText(f"Week starting {start:%d %b %Y}: life used and temperatures not computed — the loading "
+                                 f"went above 2 × rated, beyond the thermal model's range; {outdoor}")
+            return
+        life = float(week["V_mean"].sum() * step_h / 24)
+        self.caption.setText(f"Worst week starts {start:%d %b %Y}: {fmt_quantity(life, 'days')} days of insulation life "
+                             f"used, max hot-spot {week['theta_h_max'].max():.1f} °C, {outdoor}")

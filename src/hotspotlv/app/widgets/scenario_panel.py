@@ -28,6 +28,7 @@ from hotspotlv.catalogue import TRANSFORMERS
 from hotspotlv.feeder import fuse_kw
 from hotspotlv.loads.ev import EVParams
 from hotspotlv.neighbourhood import DEFAULT_HEATING_MIX, Scenario
+from hotspotlv.verdict import thermal_ok
 from hotspotlv.study import Case, CaseResult, run_case
 
 HEATING_LABELS = (("ground_source", "Ground-source heat pump"), ("air_water", "Air/water heat pump"),
@@ -139,8 +140,10 @@ class ScenarioPanel(QWidget):
         self.diagram_legend = QLabel(DIAGRAM_LEGEND); self.diagram_legend.setProperty("muted", True); self.diagram_legend.setWordWrap(True)
         dl.addWidget(self.diagram_legend)
         tl.addWidget(dbox)
-        tl.setSizes([320, 300])
-        self.diagram.setMinimumHeight(160)
+        tl.setSizes([380, 240])                          # the timeline drives the diagram: it gets the larger share
+        self.diagram.setMinimumHeight(120)
+        self.timeline.setMinimumHeight(150)              # a 46-px timeline on a laptop before 22 Oct 2026; 150 keeps
+                                                         # the window minimum within the declared 900 × 570
         self.timeline.hour_changed.connect(lambda i: self.diagram.set_hour(i, self.timeline.label_at(i)))
         self.duration = DurationCurve()
         self.week = WorstWeek()
@@ -296,7 +299,7 @@ class ScenarioPanel(QWidget):
         self.run_btn.setEnabled(False); self.cancel_btn.setVisible(True); self.progress.setVisible(True)
         self._t0 = time.perf_counter(); self._timer.start(500)
         self.status.setText("Building houses …")
-        self._worker = Worker(run_case, case, self.weather, fast=self.fast.isChecked())
+        self._worker = Worker(run_case, case, self.weather, fast=self.fast.isChecked(), with_checkpoint=True)
         self._worker.finished_ok.connect(self._done)
         self._worker.failed.connect(self._failed)
         self._worker.start()
@@ -339,12 +342,13 @@ class ScenarioPanel(QWidget):
             self._inputs_changed()
             self.card.set_verdict(res.verdict, res.case.name)
             amb = self.weather["temp_c"]
-            self.timeline.set_data(res.year.hourly, res.thermal.hourly, amb)
+            ok = thermal_ok(res.verdict)
+            self.timeline.set_data(res.year.hourly, res.thermal.hourly if ok else None, amb)
             self.diagram.set_case(res.neighbourhood.houses, res.neighbourhood.p_kw, res.year.hourly["loading_pct"],
                                   res.case.trafo_kva, n_feeders=res.case.n_feeders, cap_kw=fuse_kw(res.case.scenario.fuse_a))
             self.timeline._moved()
             self.duration.set_year(res.year.hourly)
-            self.week.set_week(res.thermal.worst_week(), res.year.hourly, amb)
+            self.week.set_week(res.thermal.worst_week(), res.year.hourly, amb, thermal_valid=ok)
             houses = res.neighbourhood.houses.copy()
             houses.insert(0, "house", range(1, len(houses) + 1))
             self.houses_model.set_df(houses.reset_index(drop=True))

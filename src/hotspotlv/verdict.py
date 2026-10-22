@@ -38,21 +38,23 @@ Rules (every threshold with its source):
                                              10-minute, per-phase extremes the law is about (Chalmers
                                              LV-grid generator uses 1.05 pu as the rise limit)
     • any cable     > 100 % of its rating   LV cable current rating of the feeder model (Prysmian AXQJ
-                                             in ground, 20 °C soil — conditions in feeder.py);
+                                             in ground, 20 °C soil);
                                              the max over main AND service cables — on a small street
                                              one fuse-capped house on its service cable sets it
   OK otherwise.
 
-Table and equation numbers are those of IEC 60076-7:2005, the edition read for
-this tool. In IEC 60076-7:2018 the temperature limits are Table 2, the current
-limits Table 3, the thermal constants Table 4 and the kiosk correction Table 5;
-the limit values are the same in both editions.
+Table and equation numbers and all limit values are those of IEC 60076-7:2005,
+the edition read for this tool. The 2018 edition renumbers the tables (temperature
+limits Table 2, current limits Table 3, thermal constants Table 4, kiosk
+correction Table 5) and reviewed the temperature limits; it was not consulted
+for the values.
 
-If the loading leaves the thermal model's range (above thermal.K_MAX × rated,
-mode B only — the scenario mode refuses such a case), the life, hot-spot and
-top-oil figures are withdrawn (NaN) together with the rules they decide, and a
-first At-risk reason says so: a clipped run gives numbers that look real and are
-not (review of 22 Oct 2026).
+Above 2.0 × rated — the short-time emergency current limit for distribution
+transformers, the most IEC 60076-7 foresees even briefly — the thermal model is
+not used: life used, hot-spot and top-oil are withdrawn (shown as "–") together
+with the rules they decide, and the first At-risk reason says the loading left
+that range. Extrapolated figures there (millions of days of life, 300 °C) look
+like results and are not.
 
 The nameplate counters (hours above 80 % / 100 %) never change the verdict.
 Voltages are hourly balanced means of a simulation; counters use a tiny
@@ -78,7 +80,9 @@ TOL = 1e-6                                 # "above" means above by more than th
 HOURS_PER_YEAR = 8760.0
 IEC_TABLE_4 = "IEC 60076-7:2005 Table 4 (2018: Tables 2–3), distribution transformers"
 CABLE_SOURCE = "LV cable current rating (feeder model: Prysmian AXQJ in ground, 20 °C soil)"
-OUT_OF_RANGE_RULE = "loading beyond the thermal model's range — life and temperatures not computed (check the rating)"
+THERMAL_RANGE_K = IEC_LIMITS_K["short_time_emergency"]     # 2.0: above it the thermal figures are withdrawn
+OUT_OF_RANGE_RULE = ("loading above the IEC short-time emergency limit — life and temperatures not computed "
+                     "(check the rating)")
 THERMAL_RULES = ("ageing faster than design", "ageing above half the design rate",
                  "hot-spot above long-time emergency limit", "hot-spot above normal cyclic limit",
                  "top-oil above long-time emergency limit", "top-oil above normal cyclic limit")
@@ -226,17 +230,28 @@ def judge(year: YearResult, thermal: ThermalResult) -> Verdict:
         "hours with voltage outside the planning band": v_plan_bad,
         "max cable loading (%)": cable_max,
     }
-    return Verdict(level, at_risk, watch, on_paper, really)
+    v = Verdict(level, at_risk, watch, on_paper, really)
+    if max_k > THERMAL_RANGE_K + TOL:
+        withdraw_thermal(v, max_k, THERMAL_RANGE_K,
+                         int(((h["loading_pct"] / 100) > THERMAL_RANGE_K + TOL).sum()))
+    return v
+
+
+def thermal_ok(v: Verdict) -> bool:
+    """False when the thermal figures were withdrawn (charts must then not draw or print temperatures or life)."""
+    return not any(r.rule == OUT_OF_RANGE_RULE for r in v.at_risk)
 
 
 def withdraw_thermal(v: Verdict, max_k: float, k_max: float, steps: int) -> Verdict:
-    """The thermal run was clipped at k_max × rated: its life, hot-spot and top-oil figures are not meaningful.
+    """The loading went above k_max × rated: the life, hot-spot and top-oil figures are not meaningful there.
     Withdraw them (NaN — never a number that looks real) and the rules they decided, and say so first.
     The current-limit rule saw the full loading, so it stays."""
     v.at_risk = [r for r in v.at_risk if r.rule not in THERMAL_RULES]
     v.watch = [r for r in v.watch if r.rule not in THERMAL_RULES]
     v.at_risk.insert(0, Reason(OUT_OF_RANGE_RULE, max_k, k_max, "× rated",
-                               f"the thermal model runs to {k_max:g} × rated; {steps} steps were above it"))
+                               f"IEC 60076-7:2005 Table 4: {k_max:g} × rated is the short-time emergency current "
+                               f"limit for distribution transformers; the thermal model is not used beyond it "
+                               f"({steps} steps above)"))
     for key in THERMAL_KEYS:
         v.really[key] = float("nan")
     v.level = "At risk"

@@ -104,7 +104,9 @@ def thermal_params_for(case: Case) -> ThermalParams:
 
 def run_case(case: Case, weather: pd.DataFrame, fast: bool = True,
              neighbourhood: Neighbourhood | None = None,
-             battery_sizing: BatterySizing | None = None) -> CaseResult:
+             battery_sizing: BatterySizing | None = None, checkpoint=None) -> CaseResult:
+    """One case: neighbourhood → power flows (fast: fitted proxy + exact hours near the limits) → thermal → verdict.
+    `checkpoint()` (optional) is called every few dozen power flows and stops the run by raising."""
     t0 = time.perf_counter()
     if not isinstance(weather.index, pd.DatetimeIndex) or weather.index.tz is None:
         raise ValueError("weather index must be a tz-aware DatetimeIndex (UTC) — use hotspotlv.weather.get_weather")
@@ -112,22 +114,24 @@ def run_case(case: Case, weather: pd.DataFrame, fast: bool = True,
     net = build_feeder(n_houses=case.scenario.n_houses, n_feeders=case.n_feeders, trafo_kva=case.trafo_kva)
     fit_error, exact_hours = {}, 0
     if fast:
-        proxy = fit_proxy(net, nb.cons_kw, nb.gen_kw)
+        proxy = fit_proxy(net, nb.cons_kw, nb.gen_kw, checkpoint=checkpoint)
         year = proxy.evaluate(nb.cons_kw, nb.gen_kw)
         fit_error = proxy.fit_error
         n_refine = int(refine_mask(year, fit_error).sum())
         if n_refine > MAX_REFINE_HOURS or fit_error["loading_pct_max_abs"] > MAX_PROXY_LOADING_ERROR_PP:
-            year = run_year(net, nb.cons_kw, nb.gen_kw)        # heavy feeder: the full run is cheaper and exact
+            year = run_year(net, nb.cons_kw, nb.gen_kw, checkpoint=checkpoint)   # heavy feeder: the full run is
+                                                                                 # cheaper and exact
             fast, exact_hours = False, len(year.hourly)
             mode_note = (f"full power flow for every hour: the fitted proxy would have needed {n_refine} exact "
                          f"hours (limit {MAX_REFINE_HOURS}) or its loading error was {fit_error['loading_pct_max_abs']:.1f} "
                          f"pp (limit {MAX_PROXY_LOADING_ERROR_PP:g})")
         else:
-            year, exact_hours = refine_near_limits(net, year, nb.cons_kw, nb.gen_kw, fit_error=fit_error)
+            year, exact_hours = refine_near_limits(net, year, nb.cons_kw, nb.gen_kw, fit_error=fit_error,
+                                                   checkpoint=checkpoint)
             mode_note = (f"fast mode: fitted proxy ({proxy.n_samples} power flows, loading error "
                          f"{fit_error['loading_pct_max_abs']:.2f} pp) plus {exact_hours} hours computed exactly near the limits")
     else:
-        year = run_year(net, nb.cons_kw, nb.gen_kw)
+        year = run_year(net, nb.cons_kw, nb.gen_kw, checkpoint=checkpoint)
         mode_note = "full power flow for every hour"
     if case.battery is not None:
         year = apply_battery(year, case.battery)
@@ -152,7 +156,8 @@ def enclosure_note(params: ThermalParams, kva: float | None = None) -> str:
     return "transformer outdoors: no enclosure correction"
 
 
-def sweep(base: Case, weather: pd.DataFrame, knob: str, values, fast: bool = True, progress=None) -> pd.DataFrame:
+def sweep(base: Case, weather: pd.DataFrame, knob: str, values, fast: bool = True, progress=None,
+          checkpoint=None) -> pd.DataFrame:
     """Vary one scenario knob (e.g. 'n_houses', 'ev_share') and collect the metrics per value.
     `progress(done, total, label)` is called before each run."""
     if knob not in SCENARIO_FIELDS or knob in ("name", "hp", "ev"):
@@ -163,12 +168,14 @@ def sweep(base: Case, weather: pd.DataFrame, knob: str, values, fast: bool = Tru
         if progress:
             progress(i, len(values), f"{knob} = {v}")
         sc = replace(base.scenario, **{knob: v}, name=f"{base.scenario.name} {knob}={v}")
-        res = run_case(replace(base, scenario=sc, name=f"{base.name} {knob}={v}"), weather, fast=fast)
+        res = run_case(replace(base, scenario=sc, name=f"{base.name} {knob}={v}"), weather, fast=fast,
+                       checkpoint=checkpoint)
         rows.append({knob: v, **res.metrics()})
     return pd.DataFrame(rows).set_index(knob)
 
 
-def monte_carlo(base: Case, weather: pd.DataFrame, seeds=range(10), fast: bool = True, progress=None) -> pd.DataFrame:
+def monte_carlo(base: Case, weather: pd.DataFrame, seeds=range(10), fast: bool = True, progress=None,
+                checkpoint=None) -> pd.DataFrame:
     """Same case, different dice (which houses get EVs/PV/heat pumps, when EVs charge…).
     `progress(done, total, label)` is called before each run."""
     seeds = list(seeds)
@@ -179,7 +186,7 @@ def monte_carlo(base: Case, weather: pd.DataFrame, seeds=range(10), fast: bool =
         if progress:
             progress(i, len(seeds), f"draw {int(s)}")
         sc = replace(base.scenario, seed=int(s))
-        res = run_case(replace(base, scenario=sc), weather, fast=fast)
+        res = run_case(replace(base, scenario=sc), weather, fast=fast, checkpoint=checkpoint)
         rows.append({"seed": int(s), **res.metrics()})
     return pd.DataFrame(rows).set_index("seed")
 
@@ -197,7 +204,8 @@ class FixComparison:
 
 
 def compare_fixes(base: Case, weather: pd.DataFrame, fast: bool = True,
-                  battery_cap_share: float = 0.8, bigger_kva: int = 800, progress=None) -> FixComparison:
+                  battery_cap_share: float = 0.8, bigger_kva: int = 800, progress=None,
+                  checkpoint=None) -> FixComparison:
     """Baseline vs the fixes on the SAME houses and dice (same seed).
     Smart charging comes in two flavours because they behave differently:
     'night timer' = what Swedish hourly-price customers do today (start 22:00–01:00,
@@ -213,19 +221,22 @@ def compare_fixes(base: Case, weather: pd.DataFrame, fast: bool = True,
     total = 5
     tick = (lambda i, label: progress(i, total, label)) if progress else (lambda i, label: None)
     tick(0, "baseline")
-    baseline = run_case(base, weather, fast=fast)
+    baseline = run_case(base, weather, fast=fast, checkpoint=checkpoint)
     out = {"baseline": baseline}
     # 1. bigger transformer — same neighbourhood, new transformer and ITS thermal constants
     tick(1, f"{bigger_kva} kVA")
     big = replace(base, name=f"{bigger_kva} kVA", trafo_kva=bigger_kva, thermal=None)
-    out[f"{bigger_kva} kVA"] = run_case(big, weather, fast=fast, neighbourhood=baseline.neighbourhood)
+    out[f"{bigger_kva} kVA"] = run_case(big, weather, fast=fast, neighbourhood=baseline.neighbourhood,
+                                        checkpoint=checkpoint)
     # 2. smart charging, two flavours — same cars, same energy, different start hours
     tick(2, "night timer 22–01")
     timer = replace(base.scenario, ev=replace(base.scenario.ev, smart=True, smart_start_min_h=22.0, smart_start_max_h=25.0))
-    out["night timer 22–01"] = run_case(replace(base, name="night timer 22–01", scenario=timer), weather, fast=fast)
+    out["night timer 22–01"] = run_case(replace(base, name="night timer 22–01", scenario=timer), weather, fast=fast,
+                                        checkpoint=checkpoint)
     tick(3, "spread 22–06")
     spread = replace(base.scenario, ev=replace(base.scenario.ev, smart=True, smart_start_min_h=22.0, smart_start_max_h=30.0))
-    out["spread 22–06"] = run_case(replace(base, name="spread 22–06", scenario=spread), weather, fast=fast)
+    out["spread 22–06"] = run_case(replace(base, name="spread 22–06", scenario=spread), weather, fast=fast,
+                                   checkpoint=checkpoint)
     # 3. battery sized by simulation to hold a share of nameplate (kVA)
     tick(4, "battery")
     cap = battery_cap_share * base.trafo_kva
@@ -239,7 +250,7 @@ def compare_fixes(base: Case, weather: pd.DataFrame, fast: bool = True,
             notes.append(f"battery: even {b.energy_kwh:.0f} kWh cannot hold {cap:.0f} kVA every hour "
                          f"({sizing.hours_above_cap_after:.0f} h left) — the problem is energy over a cold spell, not a peak")
         out[label] = run_case(replace(base, name=label, battery=b), weather, fast=fast,
-                              neighbourhood=baseline.neighbourhood, battery_sizing=sizing)
+                              neighbourhood=baseline.neighbourhood, battery_sizing=sizing, checkpoint=checkpoint)
     return FixComparison(out, notes)
 
 

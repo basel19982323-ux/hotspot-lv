@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 import pandas as pd
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget,
@@ -23,6 +23,7 @@ from hotspotlv.catalogue import TRANSFORMERS
 from hotspotlv.loads.ev import EVParams
 from hotspotlv.paths import package_data
 from hotspotlv.station import StationResult, ambient_for, assess_station, read_station_csv, to_hourly, with_overlay
+from hotspotlv.verdict import thermal_ok
 from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME
 
 EXAMPLE = package_data() / "examples" / "ns-102.csv"
@@ -39,8 +40,8 @@ def _assess(path, rated_kva, measured_at, tz, stamp, smhi_station, smhi_is_defau
     st = read_station_csv(path, measured_at=measured_at, tz=tz, stamp=stamp)
     overlay = {}
     if n_ev or n_hp:
+        measured = _energy_mwh(st)                               # from the file's own steps, before hourly means
         st = to_hourly(st)
-        measured = _energy_mwh(st)
         st = with_overlay(st, ambient_for(st.index, smhi_station), n_ev=n_ev, n_hp=n_hp, seed=seed)
         overlay = {"n_ev": n_ev, "n_hp": n_hp, "seed": seed, "charger_kw": EVParams().charger_kw,
                    "measured_mwh": measured}                     # so the card can tell measured from synthetic energy
@@ -180,9 +181,10 @@ class StationPanel(QWidget):
         self._update_export()
 
     def _inputs(self) -> tuple:
+        overlay = self.n_ev.value() or self.n_hp.value()          # the random draw matters only with an overlay
         return (self.path.text().strip(), self.kva.currentData(), self.measured.currentData(), self.tz.currentData(),
                 self.stamp.currentData(), self.smhi.value(), self.enclosure.currentText(), self.n_ev.value(),
-                self.n_hp.value(), self.seed.value())
+                self.n_hp.value(), self.seed.value() if overlay else None)
 
     def _update_export(self, *_):
         if self.result is None:
@@ -263,9 +265,10 @@ class StationPanel(QWidget):
             res, amb = payload
             self.card.set_verdict(res.verdict, f"{res.rated_kva:.0f} kVA")
             step_h = res.station.step_min / 60
-            self.timeline.set_data(res.year.hourly, res.thermal.hourly, amb)
+            ok = thermal_ok(res.verdict)
+            self.timeline.set_data(res.year.hourly, res.thermal.hourly if ok else None, amb)
             self.duration.set_year(res.year.hourly, step_h)
-            self.week.set_week(res.thermal.worst_week(), res.year.hourly, amb, step_h)
+            self.week.set_week(res.thermal.worst_week(), res.year.hourly, amb, step_h, thermal_valid=ok)
             self.result, self._amb = res, amb                    # only now is this the card on screen
             self._shown_inputs = self._pending_inputs
             self._update_export()
@@ -286,7 +289,10 @@ class StationPanel(QWidget):
             return
         source = Path(self.result.station.source or self._shown_inputs[0])
         name = source.name or "station"
-        suggested = source.with_name(f"station-card-{source.stem or 'station'}.pdf")   # next to the station's CSV
+        folder = source.parent
+        if not source.is_absolute() or folder.resolve() == EXAMPLE.parent.resolve():   # the shipped example lives
+            folder = Path(QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation))   # inside the program
+        suggested = folder / f"station-card-{source.stem or 'station'}.pdf"                # next to the station's CSV
         fn, _ = QFileDialog.getSaveFileName(self, "Save the station card", str(suggested), "PDF (*.pdf)")
         if not fn:
             return
@@ -309,5 +315,6 @@ class StationPanel(QWidget):
             self.status.setText("The station card was not saved."); self.status.setToolTip("")
             show_error(self, "Could not write the PDF", error)
         else:
-            self.status.setText(f"Station card for {name} ({self.result.rated_kva:g} kVA) saved as {out.name}.")
+            self.status.setText(f"Station card for {name} ({self.result.rated_kva:g} kVA) saved as {out.name} "
+                                f"in {out.parent}.")
             self.status.setToolTip(str(out))

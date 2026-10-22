@@ -96,8 +96,8 @@ class VerdictCard(QFrame):
     def _place(self, stacked: bool):
         for w in (self._paper[0], self._really[0]):
             self._cols.removeWidget(w)
-        if stacked:
-            self._cols.addWidget(self._paper[0], 0, 0); self._cols.addWidget(self._really[0], 1, 0)
+        if stacked:                                  # the column that decides comes first (on a laptop the
+            self._cols.addWidget(self._really[0], 0, 0); self._cols.addWidget(self._paper[0], 1, 0)   # second is below the fold)
             self._cols.setColumnStretch(1, 0)
         else:
             self._cols.addWidget(self._paper[0], 0, 0); self._cols.addWidget(self._really[0], 0, 1)

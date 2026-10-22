@@ -96,6 +96,25 @@ def test_reasons_print_at_the_cards_precision():
     assert "e+" not in str(Reason("r", 1.66e16, 365.0, "days of life per year", "s"))
 
 
+def test_judge_withdraws_the_thermal_figures_above_the_iec_short_time_limit():
+    """Catches: '82,090,208,192 days of life per year' and 345 °C printed as results at 2.75 × rated (round 2 of
+    22 Oct 2026): above 2.0 × rated — IEC 60076-7:2005 Table 4, short-time emergency, distribution — nothing thermal."""
+    import math
+    from hotspotlv.verdict import OUT_OF_RANGE_RULE, THERMAL_KEYS, thermal_ok
+    lp = np.full(8760, 60.0)
+    lp[4000:4010] = 220.0                                                     # ten hours at 2.2 × rated
+    yr = _year(lp)
+    v = judge(yr, _thermal(yr))
+    assert v.level == "At risk" and v.at_risk[0].rule == OUT_OF_RANGE_RULE and not thermal_ok(v)
+    assert "2.20 × rated (limit 2 × rated)" in str(v.at_risk[0]) and "10 steps above" in str(v.at_risk[0])
+    assert all(math.isnan(v.really[k]) for k in THERMAL_KEYS)
+    assert any("long-time emergency current limit" in r.rule for r in v.at_risk)      # the load rule stays
+    lp[4000:4010] = 199.0                                                     # just below: the figures stay
+    yr = _year(lp)
+    v = judge(yr, _thermal(yr))
+    assert thermal_ok(v) and not math.isnan(v.really["max hot-spot (°C)"])
+
+
 def test_withdraw_thermal_leaves_no_number_that_looks_real():
     """Catches: a clipped thermal run printing '440 °C' or '1.66e+16 days' as the verdict's reasons."""
     import math

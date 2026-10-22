@@ -54,7 +54,7 @@ from hotspotlv.loads.ev import EVParams, ev_charging_profile
 from hotspotlv.loads.heatpump import HeatPumpParams, heat_pump_profile
 from hotspotlv.thermal import K_MAX, ThermalParams, ThermalResult, simulate
 from hotspotlv.timeseries import YearResult
-from hotspotlv.verdict import HOURS_PER_YEAR, Verdict, judge, withdraw_thermal
+from hotspotlv.verdict import HOURS_PER_YEAR, Verdict, judge
 from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME, load_smhi_temperature
 
 LOCAL_TZ = "Europe/Stockholm"
@@ -219,7 +219,8 @@ def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, t
         raise ValueError(f"timestamps do not fit {zone!r} daylight-saving rules ({type(e).__name__}): a file in "
                          "'normaltid' (CET all year, no DST) must be read with tz='normaltid'; a file with a missing "
                          "or doubled hour in March/October must be fixed, not guessed; rows must be in time order") from e
-    notes.append(f"tz-naive timestamps taken as {zone}" + (" (normaltid, no DST)" if zone == NORMALTID_TZ else " local time"))
+    notes.append("tz-naive timestamps taken as " + ("normaltid (CET = UTC+1 all year, no summer time)"
+                                                      if zone == NORMALTID_TZ else f"{zone} local time"))
     out = pd.Series(loc.dt.tz_convert("UTC").to_numpy(), index=loc.index).reindex(range(len(raw)))  # back to file order
     return pd.DatetimeIndex(out), notes
 
@@ -425,6 +426,11 @@ def year_result_from_station(st: StationSeries, rated_kva: float,
     return YearResult(h, float(rated_kva))
 
 
+def scale_text(factor: float) -> str:
+    """A scaling factor in plain digits: '12', '11.8', '365' — never '3.6e+02'."""
+    return f"{factor:,.0f}" if factor >= 100 else f"{factor:,.1f}"
+
+
 # ---------------------------------------------------------------------------
 # assessment
 # ---------------------------------------------------------------------------
@@ -483,20 +489,18 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
     k = year.hourly["loading_pct"] / 100
     clipped = int((k > K_MAX).sum())
     if clipped:
-        notes.append(f"loading above {K_MAX:g} × rated in {clipped} steps — beyond the thermal model's range: life, "
-                     "hot-spot and top-oil are not computed and the temperature curves are clipped (check the rating); "
-                     "the current-limit rule sees the full loading")
+        notes.append(f"loading above {K_MAX:g} × rated in {clipped} steps — the thermal run was clipped there (its "
+                     "figures are withdrawn anyway above 2 × rated); the current-limit rule sees the full loading")
         k = k.clip(upper=K_MAX)
     hours = len(st.index) * st.step_min / 60
     if abs(HOURS_PER_YEAR / hours - 1) > 0.1:
-        notes.append(f"the data cover {hours / 24:,.0f} days: life used per year is scaled ×{HOURS_PER_YEAR / hours:.2g} "
-                     "as if this period repeated all year — a winter-only file overstates the yearly figure, a "
-                     "summer-only file understates it")
+        days = hours / 24
+        notes.append(f"the data cover {days:g} {'day' if days == 1 else 'days'}: life used per year is scaled "
+                     f"×{scale_text(HOURS_PER_YEAR / hours)} as if this period repeated all year — a winter-only file "
+                     "overstates the yearly figure, a summer-only file understates it")
     params = ThermalParams.for_transformer(int(rated_kva), enclosure=enclosure)
     thermal = simulate(k, ambient, params, step_min=st.step_min)
-    verdict = judge(year, thermal)
-    if clipped:
-        withdraw_thermal(verdict, float(year.hourly["loading_pct"].max() / 100), K_MAX, clipped)
+    verdict = judge(year, thermal)                           # withdraws the thermal figures above 2 × rated
     from hotspotlv.study import enclosure_note
     notes.append(enclosure_note(params, rated_kva))
     for key in NOT_CHECKED_KEYS:
@@ -536,7 +540,7 @@ def with_overlay(st: StationSeries, ambient: pd.Series, n_ev: int = 0, n_hp: int
         extra += np.minimum(house, cap)
     q_extra = extra * math.tan(math.acos(POWER_FACTOR))
     notes = st.notes + [f"overlay: +{n_ev} EV chargers ({ev.charger_kw:g} kW), +{n_hp} heat pumps — synthetic upper bound "
-                        f"(no base load, fuse {fuse_a:g} A per synthetic house, seed {seed})"]
+                        f"(no base load, fuse {fuse_a:g} A per synthetic house, random draw {seed})"]
     return replace(st, p_kw=(st.p_kw + extra).rename("p_kw"), q_kvar=(st.q_kvar + q_extra).rename("q_kvar"),
                    s_kva_measured=None, notes=notes)
 

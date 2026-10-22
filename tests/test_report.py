@@ -11,6 +11,7 @@ import math
 import os
 import sys
 from dataclasses import replace
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -92,8 +93,9 @@ def test_card_html_says_what_the_screen_card_says(station):
     assert "sum of customer meters" in page and "4.2 % of P at rated load" in page and "fitted" in page
     assert page.count("not checked here") == 2                                   # the voltage and cable rules, in the rules table
     assert "Three rules read" in page
-    assert "<h2 style='page-break-before: always'>How the numbers were made" in page   # the assumption list opens a page
+    assert "<h2>How the numbers were made" in page                                # flows; headings kept with sections
     assert "IEC 60076-7:2005" in page and "2018" in page                         # the edition the table numbers belong to
+    assert "it was not consulted for the values" in page and "the same in" not in page   # no unbacked 2018 claim
     assert "feeder.py" not in page                                               # no file names on paper
     energy = res.station.p_kw.clip(lower=0).sum() / 1000                         # hourly kW → MWh, by hand
     assert f"{energy:,.1f} MWh (net imports per step)" in page
@@ -152,17 +154,18 @@ def test_rendered_charts_are_the_print_size_and_not_blank(station, charts):
     from PySide6.QtGui import QColor
     from hotspotlv.app.theme import HOTSPOT_COLOR, LOAD_COLOR
 
-    def series_pixels(img, colour):
+    def series_pixels(img, colour, from_y=0.0):
         want = QColor(colour)
         n = 0
-        for y in range(0, img.height(), 2):
+        for y in range(int(img.height() * from_y), img.height(), 2):
             for x in range(0, img.width(), 2):
                 c = img.pixelColor(x, y)
                 n += abs(c.red() - want.red()) < 25 and abs(c.green() - want.green()) < 25 and abs(c.blue() - want.blue()) < 25
         return n
     assert series_pixels(charts["period"]["image"], LOAD_COLOR) > 500
     assert series_pixels(charts["duration"]["image"], LOAD_COLOR) > 300
-    assert series_pixels(charts["worst_week"]["image"], HOTSPOT_COLOR) > 300
+    # below the top 40 %: the 120 °C rule line (same red) sits up there and alone passed the old check
+    assert series_pixels(charts["worst_week"]["image"], HOTSPOT_COLOR, from_y=0.4) > 150
     v = res.verdict
     assert f"Above 80 %: {v.on_paper['hours above 80 % of nameplate']:,.0f} h" in charts["duration"]["caption"]
     assert charts["period"]["caption"].startswith("At the time of peak loading (black line)")
@@ -230,7 +233,23 @@ def test_a_clipped_thermal_run_shows_no_number_that_looks_real(clipped):
     for k in THERMAL_KEYS:
         assert f"{html.escape(k)}</td><td align='right' style='color:#6b6b6b'><b>–</b>" in page
     assert page.index("beyond the thermal model's range") < page.index("ON PAPER")           # said first, on page 1
-    assert any("beyond the thermal model's range" in n for n in v.notes)
+    assert any("thermal run was clipped" in n for n in v.notes)
+
+
+def test_charts_of_a_withdrawn_run_print_no_temperature_or_life(clipped):
+    """Catches: '1583043024046439680.000 days of insulation life used, max hot-spot 458 °C' in the worst-week caption
+    and '452 °C' in the period readout of a clipped run (round 2 of 22 Oct 2026) — on paper and on screen."""
+    import re
+    res, amb = clipped
+    charts = render_charts(res, amb)
+    for name, c in charts.items():
+        text = c["caption"] + " " + c["legend"]
+        assert not re.search(r"\d{7,}", text.replace(",", "")), f"{name}: an absurd number in {text!r}"
+        assert not re.search(r"hot-spot \d|top-oil \d|days of insulation", text), f"{name}: {text!r}"
+    assert "not computed" in charts["worst_week"]["caption"]
+    page = station_card_html(res, charts)
+    assert "The heaviest week — loading only" in page and "No hot-spot or top-oil is drawn" in page
+    assert all("hot-spot °C" not in c["legend"] and "top-oil °C" not in c["legend"] for c in charts.values())
 
 
 def test_short_files_say_that_life_is_scaled_to_a_year(app):
@@ -239,9 +258,12 @@ def test_short_files_say_that_life_is_scaled_to_a_year(app):
     st = replace(st, p_kw=st.p_kw.iloc[:24 * 31], q_kvar=st.q_kvar.iloc[:24 * 31])            # January only
     res = assess_station(st, 500, ambient_for(st.index))
     note = next(n for n in res.verdict.notes if "life used per year is scaled" in n)
-    assert "×12" in note and "31 days" in note and "winter-only file overstates" in note
+    assert "×11.8" in note and "cover 31 days" in note and "winter-only file overstates" in note
     page = station_card_html(res, None)
-    assert "744 h of data; life used per year is scaled ×12 to a year" in page
+    assert "744 h of data; life used per year is scaled ×11.8 to a year" in page
+    day = replace(st, p_kw=st.p_kw.iloc[:24], q_kvar=st.q_kvar.iloc[:24])     # one day: no '1 days', no 3.6e+02
+    note = next(n for n in assess_station(day, 500, ambient_for(day.index)).verdict.notes if "scaled" in n)
+    assert "cover 1 day:" in note and "×365" in note and "e+" not in note
 
 
 def test_overlay_energy_is_split_from_the_measured_energy(app):
@@ -340,9 +362,26 @@ def test_legends_sit_above_the_plots_not_on_the_data(app):
     shown = {it.label.format: it.label.isVisible() for it in dc.plot.plotItem.items
              if isinstance(it, pg.InfiniteLine) and it.label is not None}
     assert shown == {"80 % rule": True, "nameplate": True, "IEC 1.5 × rated": False}   # 150 % is off a 0–110 axis
+    dc.plot.setYRange(0, 600, padding=0); app.processEvents()                    # an At-risk station: 80 and 100 crowd
+    vis = [it.label for it in dc.plot.plotItem.items if isinstance(it, pg.InfiniteLine) and it.label and it.label.isVisible()]
+    rects = [lab.sceneBoundingRect() for lab in vis]
+    assert all(not a.intersects(b) for i, a in enumerate(rects) for b in rects[i + 1:]), "two labels on each other"
+    assert "IEC 1.5 × rated" in {lab.format for lab in vis}                      # the IEC limit wins the space
     dc.plot.setFixedSize(600, 120); app.processEvents()                          # too short: no labels at all
     assert not any(it.label.isVisible() for it in dc.plot.plotItem.items if isinstance(it, pg.InfiniteLine) and it.label)
     dc.close()
+
+
+def test_a_stacked_card_shows_the_deciding_column_first(app, station):
+    """Catches: REALLY (which decides the verdict) below ON PAPER when the columns stack — below the fold on a laptop."""
+    from hotspotlv.app.widgets.verdict_card import VerdictCard
+    card = VerdictCard()
+    card.set_verdict(station[0].verdict, "500 kVA")
+    card.resize(300, 600); card._place(stacked=True)
+    assert card._cols.itemAtPosition(0, 0).widget() is card._really[0]
+    assert card._cols.itemAtPosition(1, 0).widget() is card._paper[0]
+    card._place(stacked=False)
+    assert card._cols.itemAtPosition(0, 0).widget() is card._paper[0]          # side by side: paper left, really right
 
 
 def test_export_pdf_writes_the_result_on_screen_and_reports_failures(app, station, monkeypatch, tmp_path):
@@ -370,11 +409,13 @@ def test_export_pdf_writes_the_result_on_screen_and_reports_failures(app, statio
     panel.path.setText(str(tmp_path / "other.csv"))                              # a different file in the box …
     panel.path.setText(str(EXAMPLE))                                             # … and back: the card matches again
     panel.export_pdf()
-    assert calls == [str(EXAMPLE.with_name("station-card-ns-102.pdf"))]          # suggested next to the station's CSV
+    from PySide6.QtCore import QStandardPaths                                    # the shipped example lives inside
+    docs = Path(QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation))  # the program: suggest Documents
+    assert calls == [str(docs / "station-card-ns-102.pdf")]
     assert (tmp_path / "Card.PDF").exists() and not (tmp_path / "Card.PDF.pdf").exists()
     assert during == [(False, False)]                                            # nothing clickable while writing
     assert panel.export_btn.isEnabled() and panel.run_btn.isEnabled()
-    assert "saved as Card.PDF" in panel.status.text() and not errors
+    assert f"saved as Card.PDF in {tmp_path}" in panel.status.text() and not errors
     pypdf = pytest.importorskip("pypdf")
     assert "ns-102.csv" in pypdf.PdfReader(str(tmp_path / "Card.PDF")).metadata.title     # the result's file
     target["name"] = str(tmp_path / "plain")                                     # no suffix → .pdf appended
@@ -415,7 +456,7 @@ os._exit(0)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the windows platform plugin gives real fonts and screen scaling")
-def test_card_on_a_scaled_windows_screen_has_page_numbers_and_uncut_charts(tmp_path):
+def test_card_on_a_scaled_windows_screen_has_page_numbers_and_uncut_charts(tmp_path, station, charts):
     """Real fonts at 125 % scaling in a separate process (the suite itself runs offscreen, without fonts):
     every page says 'page i of n', the charts are 2x print images whatever the screen, and the right edge of the
     period chart carries no text (the right-axis label was cut in half before 22 Oct 2026)."""
@@ -430,8 +471,77 @@ def test_card_on_a_scaled_windows_screen_has_page_numbers_and_uncut_charts(tmp_p
     assert line.split()[1:4] == ["2.0", str(2 * CHART_W), str(2 * CHART_H)]
     assert int(line.split()[-1]) == 0, "text pixels at the right edge of the period chart: a label is cut"
     fitz = pytest.importorskip("fitz")
+    import re
+    heads = {h.strip() for h in re.findall(r"<h[1-3][^>]*>(.*?)</h[1-3]>", station_card_html(station[0], charts))}
     doc = fitz.open(str(out))
     n = len(doc)
     assert 4 <= n <= 6
     for i, page in enumerate(doc):
-        assert f"page {i + 1} of {n}" in page.get_text(), f"page {i + 1} has no page number"
+        lines = [x.strip() for x in page.get_text().splitlines() if x.strip()]
+        assert lines and lines[-1].endswith(f"page {i + 1} of {n}"), f"page {i + 1} has no page number"
+        body = lines[:-1]
+        assert len(body) >= (3 if i == n - 1 else 8), f"page {i + 1} is (nearly) empty: {body}"   # content, not a footer
+        assert body[-1] not in heads, f"page {i + 1} ends with the heading {body[-1]!r}"           # no stranded heading
+        for info in page.get_image_info():
+            assert page.rect.contains(fitz.Rect(info["bbox"])), f"an image lies outside page {i + 1}"
+
+
+
+def test_export_guards_hold(app, station, monkeypatch, tmp_path):
+    """The fix pass's protections, each pinned (round-2 code review: they were right but every one of them slipped
+    its mutant): a failure while printing keeps the old card; the inputs that count are those of Assess, not of the
+    moment the result arrives; a result that failed to draw is not exportable; an unexpected error says 'not saved';
+    no wait cursor over the error dialog."""
+    from hotspotlv.app import report as report_module
+    errors, cursors = [], []
+
+    def record(parent, title, msg):
+        errors.append(msg)
+        cursors.append(QApplication.overrideCursor())
+    monkeypatch.setattr(sp_module, "show_error", record)
+
+    # a failure in the middle of printing: the old card stays, no temporary file is left
+    target = tmp_path / "card.pdf"
+    target.write_bytes(b"OLD CARD")
+
+    def half_print(doc, device, title, footer):
+        device.write(b"%PDF-1.4 half a card")
+        raise RuntimeError("printer fell over")
+    monkeypatch.setattr(report_module, "_print", half_print)
+    with pytest.raises(RuntimeError):
+        report_module.write_station_card(station[0], station[1], target)
+    assert target.read_bytes() == b"OLD CARD" and sorted(x.name for x in tmp_path.iterdir()) == ["card.pdf"]
+    monkeypatch.undo()
+    monkeypatch.setattr(sp_module, "show_error", record)
+
+    class StubWorker:
+        def __init__(self, *a, **k): self._running = False
+        def start(self): self._running = True
+        def isRunning(self): return self._running
+        def cancel(self): self._running = False
+        finished_ok = failed = type("S", (), {"connect": lambda self, *a: None})()
+    monkeypatch.setattr(sp_module, "Worker", StubWorker)
+
+    panel = StationPanel()
+    panel.path.setText(str(EXAMPLE))
+    panel.run()
+    panel.kva.setCurrentIndex(panel.kva.findData(800))                          # changed while the run computes
+    panel._done(station); panel._worker._running = False
+    assert not panel.export_btn.isEnabled()                                      # the card is for 500 kVA, the box says 800
+    panel.kva.setCurrentIndex(panel.kva.findData(500))
+    assert panel.export_btn.isEnabled()
+
+    monkeypatch.setattr(panel.timeline, "set_data", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("draw")))
+    panel.run(); panel._done(station); panel._worker._running = False           # a result that failed to draw
+    assert len(errors) == 1 and "draw" in errors[0] and not panel.export_btn.isEnabled() and panel.result is None
+    monkeypatch.undo()
+    monkeypatch.setattr(sp_module, "show_error", record)
+
+    panel.run(); panel._done(station)
+    panel._worker._running = False
+    assert panel.export_btn.isEnabled()
+    monkeypatch.setattr(sp_module.QFileDialog, "getSaveFileName", lambda *a, **k: (str(tmp_path / "x.pdf"), ""))
+    monkeypatch.setattr(sp_module, "write_station_card", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("odd")))
+    panel.export_pdf()                                                           # an unexpected error: said, not raised
+    assert errors[-1] == "RuntimeError: odd" and panel.status.text() == "The station card was not saved."
+    assert cursors[-1] is None                                                    # the wait cursor is gone first

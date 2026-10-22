@@ -264,7 +264,8 @@ class SweepView(QWidget):
         self.run_btn.setEnabled(False); self.cancel_btn.setVisible(True)
         self.progress.setVisible(True); self.progress.setRange(0, len(vals)); self.progress.setValue(0)
         self._t0 = time.perf_counter(); self._timer.start(1000); self._progress_text = "Starting …"; self._tick()
-        self._worker = Worker(sweep, case, self.weather, self.knob, vals, fast=self.fast.isChecked(), with_progress=True)
+        self._worker = Worker(sweep, case, self.weather, self.knob, vals, fast=self.fast.isChecked(), with_progress=True,
+                              with_checkpoint=True)
         self._worker.progress.connect(self._progress)
         self._worker.finished_ok.connect(self._done)
         self._worker.failed.connect(self._failed)

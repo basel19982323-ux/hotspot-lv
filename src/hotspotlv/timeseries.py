@@ -73,11 +73,15 @@ class YearResult:
         }
 
 
+CHECK_EVERY = 50              # power flows between two calls of a run's checkpoint (≈ 0.3 s)
+
+
 def run_year(net: pp.pandapowerNet, cons_kw: pd.DataFrame, gen_kw: pd.DataFrame | None = None,
-             pf: float = POWER_FACTOR) -> YearResult:
+             pf: float = POWER_FACTOR, checkpoint=None) -> YearResult:
     """Power flow for every row (hour) of `cons_kw` (consumption per house) and
     `gen_kw` (PV generation per house, positive; None = no PV).
-    Returns hourly transformer and voltage results."""
+    Returns hourly transformer and voltage results. `checkpoint()` (optional, no arguments) is called every
+    CHECK_EVERY power flows; it stops the run by raising (the app's Cancel)."""
     if cons_kw.shape[1] != len(net.load):
         raise ValueError(f"cons_kw has {cons_kw.shape[1]} houses, the net has {len(net.load)} loads")
     if gen_kw is None:
@@ -92,6 +96,8 @@ def run_year(net: pp.pandapowerNet, cons_kw: pd.DataFrame, gen_kw: pd.DataFrame 
 
     init = "flat"
     for i in range(len(cons)):
+        if checkpoint is not None and i % CHECK_EVERY == 0:
+            checkpoint()
         set_house_loads(net, cons[i], gen[i], pf)
         try:
             pp.runpp(net, numba=False, init=init)

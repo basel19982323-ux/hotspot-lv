@@ -14,6 +14,7 @@ from hotspotlv.app.widgets.station_panel import show_error
 from hotspotlv.app.widgets.tables import DataFrameModel
 from hotspotlv.app.widgets.verdict_card import VerdictCard
 from hotspotlv.app.workers import Worker
+from hotspotlv.verdict import thermal_ok
 from hotspotlv.fleet import RESULT_COLUMNS, export_fleet_table, read_fleet_index, screen_fleet
 from hotspotlv.paths import package_data
 from hotspotlv.station import ambient_for
@@ -72,16 +73,18 @@ class FleetPanel(QWidget):
         self.view.horizontalHeader().setSortIndicatorShown(True)
         self.view.selectionModel().selectionChanged.connect(self._selected)
         split.addWidget(self.view)
-        detail = QSplitter(Qt.Vertical)                     # card and charts share the space, boundary draggable
+        detail = QSplitter(Qt.Horizontal)                   # card beside the charts: the table keeps its rows and
+                                                            # the charts their height (20-px plots before 22 Oct 2026)
         self.card = VerdictCard(empty_text="Select a station in the table to see its verdict and charts.")
         detail.addWidget(self.card.scrolled())
         self.tabs = QTabWidget()
         self.timeline = YearTimeline(); self.duration = DurationCurve(); self.week = WorstWeek()
         self.tabs.addTab(self.timeline, "Period"); self.tabs.addTab(self.duration, "Duration curve"); self.tabs.addTab(self.week, "Worst week")
         detail.addWidget(self.tabs)
-        detail.setStretchFactor(0, 0); detail.setStretchFactor(1, 1); detail.setSizes([420, 300])
+        self.tabs.setMinimumHeight(260); self.tabs.setMinimumWidth(420)
+        detail.setStretchFactor(0, 0); detail.setStretchFactor(1, 1); detail.setSizes([420, 900])
         split.addWidget(detail)
-        split.setSizes([200, 720])
+        split.setStretchFactor(0, 1); split.setStretchFactor(1, 2); split.setSizes([260, 520])
         lay.addWidget(split, 1)
 
     def browse(self):
@@ -107,11 +110,14 @@ class FleetPanel(QWidget):
         self._worker.start()
 
     def _progress(self, done, total, label):
+        if not self._current():                         # a tick queued before Cancel must not overwrite "Cancelled."
+            return
         self.progress.setRange(0, total); self.progress.setValue(done)
         self.status.setText(f"{done} / {total}: {label}")
 
     def _finish_ui(self):
         self.run_btn.setEnabled(True); self.cancel_btn.setVisible(False); self.progress.setVisible(False)
+        self.export_btn.setEnabled(self.table_df is not None)      # the table on screen stays exportable
 
     def cancel(self):
         w, self._worker = self._worker, None
@@ -170,9 +176,10 @@ class FleetPanel(QWidget):
                 self._ambient_cache[sid] = ambient_for(res.station.index, res.smhi_station)
             amb = self._ambient_cache[sid]
             step_h = res.station.step_min / 60
-            self.timeline.set_data(res.year.hourly, res.thermal.hourly, amb)
+            ok = thermal_ok(res.verdict)
+            self.timeline.set_data(res.year.hourly, res.thermal.hourly if ok else None, amb)
             self.duration.set_year(res.year.hourly, step_h)
-            self.week.set_week(res.thermal.worst_week(), res.year.hourly, amb, step_h)
+            self.week.set_week(res.thermal.worst_week(), res.year.hourly, amb, step_h, thermal_valid=ok)
         except Exception as e:
             show_error(self, "Could not show the station", f"{type(e).__name__}: {e}")
 

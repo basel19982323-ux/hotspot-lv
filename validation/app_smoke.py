@@ -82,8 +82,11 @@ def main(out: Path):
     assert st.export_btn.isEnabled(), "Export PDF must be enabled once a result is shown"
     win.resize(1093, 614); app.processEvents()           # the laptop: charts usable, buttons on screen
     vb_h = st.timeline.plot.getViewBox().height()
-    print(f"laptop station: plot data area h {vb_h:.0f}, export button visible {not st.export_btn.visibleRegion().isEmpty()}")
-    assert vb_h >= 120 and not st.export_btn.visibleRegion().isEmpty(), "station tab unusable at 1093 × 614"
+    real_fonts = app.platformName() == "windows"           # offscreen has no fonts: sizes there mean nothing
+    print(f"laptop station ({app.platformName()}): plot data area h {vb_h:.0f}, "
+          f"export button visible {not st.export_btn.visibleRegion().isEmpty()}")
+    if real_fonts:
+        assert vb_h >= 120 and not st.export_btn.visibleRegion().isEmpty(), "station tab unusable at 1093 × 614"
     win.resize(1400, 900); app.processEvents()
     from hotspotlv.app.report import write_station_card
     pdf = write_station_card(st.result, st._amb, out / "station_card.pdf", source_name=STATION_EXAMPLE.name)
@@ -103,6 +106,14 @@ def main(out: Path):
     fl.view.selectRow(0)
     win.centralWidget().setCurrentIndex(1); app.processEvents()
     win.grab().save(str(out / "fleet.png"))
+    win.resize(1093, 614); app.processEvents()
+    for i, w in enumerate((fl.timeline, fl.duration, fl.week)):
+        fl.tabs.setCurrentIndex(i); app.processEvents()
+        h = w.plot.getViewBox().height()
+        print(f"laptop fleet chart {i}: data area h {h:.0f}, table viewport h {fl.view.viewport().height()}")
+        if app.platformName() == "windows":
+            assert h >= 120 and fl.view.viewport().height() >= 60, "fleet tab unusable at 1093 × 614"
+    fl.tabs.setCurrentIndex(0); win.resize(1400, 900); app.processEvents()
     print("fleet:", fl.table_df[["station_id", "verdict", "peak_loading_pct"]].to_string())
 
     win.centralWidget().setCurrentIndex(3); app.processEvents()

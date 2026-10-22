@@ -45,7 +45,7 @@ import pandapower as pp
 import pandas as pd
 
 from hotspotlv.feeder import POWER_FACTOR, set_house_loads
-from hotspotlv.timeseries import YearResult
+from hotspotlv.timeseries import CHECK_EVERY, YearResult
 
 N_SAMPLES_DEFAULT = 300
 N_SAMPLES_MIN = 10
@@ -133,7 +133,8 @@ def _stratified_rows(p_net: np.ndarray, n: int, rng: np.random.Generator) -> np.
     return np.unique(np.concatenate([rows, extra]))
 
 
-def _exact_rows(net: pp.pandapowerNet, cons: np.ndarray, gen: np.ndarray, rows, pf: float) -> dict[str, np.ndarray]:
+def _exact_rows(net: pp.pandapowerNet, cons: np.ndarray, gen: np.ndarray, rows, pf: float,
+                checkpoint=None) -> dict[str, np.ndarray]:
     """Run the real power flow for the given rows; return the YearResult columns plus fitting extras."""
     rated_kva = float(net.trafo.sn_mva.iloc[0] * 1000)
     load_buses = net.load.bus.to_numpy()
@@ -142,7 +143,9 @@ def _exact_rows(net: pp.pandapowerNet, cons: np.ndarray, gen: np.ndarray, rows, 
     cols = {k: [] for k in ("s_kva", "loading_pct", "p_kw", "vmin_pu", "vmax_pu", "losses_kw", "line_max_pct",
                             "cable_losses_kw", "main_cable_pct", "q_loss_kvar")}
     init = "flat"
-    for i in rows:
+    for n, i in enumerate(rows):
+        if checkpoint is not None and n % CHECK_EVERY == 0:
+            checkpoint()
         set_house_loads(net, cons[i], gen[i], pf)
         try:
             pp.runpp(net, numba=False, init=init)
@@ -167,7 +170,8 @@ def _exact_rows(net: pp.pandapowerNet, cons: np.ndarray, gen: np.ndarray, rows, 
 
 
 def fit_proxy(net: pp.pandapowerNet, cons_kw: pd.DataFrame, gen_kw: pd.DataFrame,
-              n_samples: int = N_SAMPLES_DEFAULT, seed: int = 0, pf: float = POWER_FACTOR) -> FeederProxy:
+              n_samples: int = N_SAMPLES_DEFAULT, seed: int = 0, pf: float = POWER_FACTOR,
+              checkpoint=None) -> FeederProxy:
     """Run `n_samples` real power flows on hours of this scenario and fit the proxy curves."""
     _check_inputs(cons_kw, gen_kw, len(net.load))
     n_rows = len(cons_kw)
@@ -185,7 +189,7 @@ def fit_proxy(net: pp.pandapowerNet, cons_kw: pd.DataFrame, gen_kw: pd.DataFrame
         raise ValueError("net power hardly varies; a proxy cannot be fitted on this input")
     p_f = _feeder_sums(cons - gen, feeder_of_house)
     rows = _stratified_rows(p_net, n_samples, np.random.default_rng(seed))
-    ex = _exact_rows(net, cons, gen, rows, pf)
+    ex = _exact_rows(net, cons, gen, rows, pf, checkpoint=checkpoint)
 
     P = p_net[rows]
     Q = cons[rows].sum(axis=1) * math.tan(math.acos(pf))
@@ -224,7 +228,8 @@ def refine_mask(year: YearResult, fit_error: dict | None = None) -> np.ndarray:
 
 
 def refine_near_limits(net: pp.pandapowerNet, year: YearResult, cons_kw: pd.DataFrame, gen_kw: pd.DataFrame,
-                       pf: float = POWER_FACTOR, fit_error: dict | None = None) -> tuple[YearResult, int]:
+                       pf: float = POWER_FACTOR, fit_error: dict | None = None,
+                       checkpoint=None) -> tuple[YearResult, int]:
     """Replace every proxy row that sits near a verdict limit with the exact power flow.
     Returns the refined YearResult and the number of hours re-run."""
     _check_inputs(cons_kw, gen_kw, len(net.load))
@@ -234,7 +239,7 @@ def refine_near_limits(net: pp.pandapowerNet, year: YearResult, cons_kw: pd.Data
     rows = np.flatnonzero(refine_mask(year, fit_error))
     if len(rows) == 0:
         return year, 0
-    ex = _exact_rows(net, cons_kw.to_numpy(dtype=float), gen_kw.to_numpy(dtype=float), rows, pf)
+    ex = _exact_rows(net, cons_kw.to_numpy(dtype=float), gen_kw.to_numpy(dtype=float), rows, pf, checkpoint=checkpoint)
     new = h.copy()
     for col in ("s_kva", "loading_pct", "p_kw", "vmin_pu", "vmax_pu", "losses_kw", "line_max_pct"):
         new.iloc[rows, new.columns.get_loc(col)] = ex[col]
