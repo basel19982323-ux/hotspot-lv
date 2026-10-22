@@ -53,7 +53,10 @@ def _assess(path, rated_kva, measured_at, tz, stamp, smhi_station, smhi_is_defau
 
 def show_error(parent, title: str, msg: str):
     """First line for the planner, the traceback behind 'Show details'."""
-    box = QMessageBox(QMessageBox.Critical, title, msg.split("\n")[0].replace("ValueError: ", ""), parent=parent)
+    first = msg.split("\n")[0]
+    for prefix in ("ValueError: ", "ConnectionError: "):     # the planner's sentence, without the Python class name
+        first = first.removeprefix(prefix)
+    box = QMessageBox(QMessageBox.Critical, title, first, parent=parent)
     if "\n" in msg:
         box.setDetailedText(msg)
     box.exec()

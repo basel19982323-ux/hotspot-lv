@@ -31,7 +31,14 @@ It does not replace a full network study, transformer monitoring, or a DSO's own
 and accessory criteria. Voltage and cable rules are only checked in the scenario mode (a feeder model is
 needed); on your own station data they are reported as *not checked*.
 
-Author: Basel Haijar · MIT licence · source and issues on GitHub (link in the README).
+**Network use.** The program works offline with what it ships (Västerås / Eskilstuna A weather 2023 and the
+example stations). Another SMHI station, or station data outside 2023, downloads that station's hourly archive
+once from opendata.smhi.se (about 7 MB) into `%USERPROFILE%\\.hotspotlv`. Nothing else is sent or fetched.
+
+Author: Basel Haijar · MIT licence · source code and issues: see README.txt next to the program.
+Uses Qt for Python / Qt 6 (LGPL-3.0, © The Qt Company Ltd. and other contributors), numpy, pandas, scipy,
+pandapower, pyqtgraph and others — licences and source links in THIRD-PARTY-NOTICES.txt next to the program.
+The data keep their own licences (below), not MIT.
 """
 
 
@@ -66,7 +73,8 @@ class MainWindow(QMainWindow):
         self.tabs = tabs
         self.setCentralWidget(tabs)
         self.statusBar().showMessage("Simulation only — indicative results; every number has a stated source and limit. "
-                                     "Author: Basel Haijar. MIT licence.")
+                                     "Author: Basel Haijar. MIT licence. Uses Qt for Python (LGPL-3.0) — see "
+                                     "THIRD-PARTY-NOTICES.txt.")
 
     def _panels(self):
         return (self.scenario, self.station, self.fleet)

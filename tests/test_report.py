@@ -187,6 +187,9 @@ def test_pdf_is_written_with_the_three_charts(station, tmp_path):
     assert len(images) == 3                                                      # not a 16-px broken-image icon …
     assert all(im.image.size == (2 * CHART_W, 2 * CHART_H) for im in images)     # … each a full chart at 2×
     assert len({im.data for im in images}) == 3                                  # three different charts
+    filters = [x.get_object().get("/Filter") for pg in r.pages
+               for x in (pg["/Resources"].get("/XObject") or {}).values() if x.get_object()["/Subtype"] == "/Image"]
+    assert filters and all(f == "/FlateDecode" for f in filters), filters        # lossless, not JPEG (/DCTDecode)
     assert "Hotspot LV" in (r.metadata.title or "") and "ns-102.csv" in (r.metadata.title or "")
 
 

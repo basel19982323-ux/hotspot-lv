@@ -22,6 +22,8 @@ All timestamps are UTC (what SMHI and PVGIS deliver). Convert with
 from __future__ import annotations
 
 import io
+import os
+import urllib.error
 import urllib.request
 
 import numpy as np
@@ -58,25 +60,54 @@ def _longest_nan_run(s: pd.Series) -> int:
 # ---------------------------------------------------------------------------
 # SMHI temperature
 # ---------------------------------------------------------------------------
-def fetch_smhi_temperature(station: int = SMHI_STATION):
-    """Download the full hourly archive (~5 MB) once into the user cache."""
+OFFLINE_ENV = "HOTSPOTLV_OFFLINE"   # "1": never download (the build's self-test proves the shipped data suffice)
+
+
+def fetch_smhi_temperature(station: int = SMHI_STATION, refresh: bool = False):
+    """Download the station's full hourly archive (~7 MB) once into the user cache; refresh=True replaces it.
+    A failed download raises ConnectionError with a sentence a planner can act on (packaging review: a raw
+    'URLError [WinError 10061]' dialog on a PC without internet)."""
     path = raw_dir() / f"smhi_{station}_temp.csv"
-    if not path.exists():
-        path.write_bytes(urllib.request.urlopen(SMHI_URL.format(station=station), timeout=180).read())
+    if path.exists() and not refresh:
+        return path
+    hint = (f"Outdoor temperatures for SMHI station {station} are downloaded once from opendata.smhi.se "
+            f"(about 7 MB, kept in {path.parent}). ")
+    if os.environ.get(OFFLINE_ENV) == "1":
+        raise ConnectionError(hint + f"Downloads are switched off ({OFFLINE_ENV}=1).")
+    try:
+        data = urllib.request.urlopen(SMHI_URL.format(station=station), timeout=120).read()
+    except (urllib.error.URLError, OSError) as e:
+        reason = getattr(e, "reason", e)
+        raise ConnectionError(hint + f"The download failed ({reason}). Connect to the internet, or check the proxy "
+                              f"settings, and try again. The 2023 temperatures of station {SMHI_STATION} "
+                              f"{SMHI_STATION_NAME} ship with the program and work offline.") from None
+    part = path.with_name(path.name + ".part")              # never leave half an archive behind
+    part.write_bytes(data)
+    part.replace(path)
     return path
+
+
+def _shipped_temperature(year: int, station: int) -> pd.Series | None:
+    """The temperatures that ship with the program (station 96190, the weather years in package data):
+    identical to the processed SMHI archive (checked to the last digit), and available offline."""
+    shipped = package_data() / f"weather_vasteras_{year}.csv"
+    if station != SMHI_STATION or not shipped.exists():
+        return None
+    t = pd.read_csv(shipped, index_col=0, parse_dates=True)["temp_c"]
+    return t.rename("temp_c")
 
 
 def load_smhi_temperature(year: int, station: int = SMHI_STATION) -> pd.Series:
     """Hourly air temperature (°C) for one year, UTC index. Gaps of at most
-    MAX_GAP_HOURS consecutive hours are linearly interpolated; longer gaps raise."""
-    text = fetch_smhi_temperature(station).read_text(encoding="utf-8")
-    lines = text.splitlines()
-    header = next(i for i, line in enumerate(lines) if line.startswith("Datum"))
-    df = pd.read_csv(io.StringIO("\n".join(lines[header:])), sep=";", usecols=[0, 1, 2])
-    df.columns = ["date", "time", "temp_c"]
-    ts = pd.to_datetime(df["date"] + " " + df["time"], utc=True)      # column is "Tid (UTC)"
-    temp = pd.Series(df["temp_c"].to_numpy(dtype=float), index=ts, name="temp_c").loc[str(year)]
-    temp = temp[~temp.index.duplicated()].reindex(_year_index(year))
+    MAX_GAP_HOURS consecutive hours are linearly interpolated; longer gaps raise.
+    Station 96190 in a shipped weather year comes from the package (offline); everything else from the station's
+    SMHI archive, downloaded once — and downloaded again once if the cached archive ends before the year asked."""
+    shipped = _shipped_temperature(year, station)
+    if shipped is not None:
+        return shipped
+    temp = _year_from_archive(fetch_smhi_temperature(station), year)
+    if len(temp.dropna()) == 0:                               # an older cached archive: fetch the current one once
+        temp = _year_from_archive(fetch_smhi_temperature(station, refresh=True), year)
     if len(temp.dropna()) == 0:
         raise ValueError(f"SMHI {station}: no data for {year}")
     longest = _longest_nan_run(temp)
@@ -86,6 +117,17 @@ def load_smhi_temperature(year: int, station: int = SMHI_STATION) -> pd.Series:
     temp = temp.interpolate(limit_direction="both")
     temp.attrs["missing_hours_filled"] = n_missing
     return temp
+
+
+def _year_from_archive(path, year: int) -> pd.Series:
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    header = next(i for i, line in enumerate(lines) if line.startswith("Datum"))
+    df = pd.read_csv(io.StringIO("\n".join(lines[header:])), sep=";", usecols=[0, 1, 2])
+    df.columns = ["date", "time", "temp_c"]
+    ts = pd.to_datetime(df["date"] + " " + df["time"], utc=True)      # column is "Tid (UTC)"
+    temp = pd.Series(df["temp_c"].to_numpy(dtype=float), index=ts, name="temp_c").loc[str(year):str(year)]
+    return temp[~temp.index.duplicated()].reindex(_year_index(year))
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +164,7 @@ def get_weather(year: int = 2023, refresh: bool = False) -> pd.DataFrame:
 
     Looks for a shipped file (package data), then the user cache, else builds it."""
     name = f"weather_vasteras_{year}.csv"
-    for cache in (package_data() / name, cache_dir() / name):
+    for cache in (package_data() / name, cache_dir(create=False) / name):     # no folder made just to look
         if cache.exists() and not refresh:
             return pd.read_csv(cache, index_col=0, parse_dates=True)
     wx = pd.concat([load_smhi_temperature(year), load_pvgis_pv(year)], axis=1)

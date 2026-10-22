@@ -373,6 +373,8 @@ correction, which makes it optimistic in a Swedish winter (the Watch margin on l
 constant within each step. The ambient is the SMHI station's air; the extra heating inside the kiosk is approximated by the
 IEC enclosure correction above, not measured. It does not replace a network study, transformer monitoring, or the DSO's
 own reserve (N-1), growth and accessory criteria. Sources and licences: the app's <i>Assumptions &amp; sources</i> page.</p>
+<p style='color:{MUTED}; font-size:9pt'>Outdoor temperature: SMHI open data (Source: SMHI, CC BY 4.0,
+https://creativecommons.org/licenses/by/4.0/), re-indexed to whole hours with short gaps interpolated.</p>
 <p style='color:{MUTED}; font-size:9pt'>Made with Hotspot LV v{__version__} — an open screening tool by Basel Haijar, MIT
 licence · simulation, indicative</p>
 </body></html>
@@ -508,6 +510,7 @@ def _print(doc: QTextDocument, device, title: str, footer: str) -> int:
     page = doc.pageSize()
     n = doc.pageCount()
     painter = QPainter(writer)
+    painter.setRenderHint(QPainter.LosslessImageRendering)   # charts as Flate, not JPEG: thin lines stay sharp
     try:
         for i in range(n):
             if i:

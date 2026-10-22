@@ -4,14 +4,23 @@ Every dataset shipped inside the package (`hotspotlv/data/`) or downloaded by th
 its licence and the attribution it requires. Processed files are small and
 shipped with the package; raw downloads are fetched on demand.
 
+**The data are not under the program's MIT licence.** Each dataset keeps its own licence, listed below;
+the CC BY 4.0 datasets were processed for this tool by Basel Haijar as described in each row (the original
+data are unchanged at their source).
+
+**Network use.** The program works offline with what it ships (Västerås / Eskilstuna A weather 2023, the
+example stations). Choosing another SMHI station, or a station file whose period is not 2023, downloads that
+station's hourly archive once from `opendata-download-metobs.smhi.se` (about 7 MB) into
+`%USERPROFILE%\.hotspotlv\raw`; nothing else is sent or fetched.
+
 | File | Content | Source | Licence / terms | Attribution |
 |---|---|---|---|---|
-| `weather_vasteras_2023.csv` (column `temp_c`) | Hourly air temperature 2023, station 96190 Eskilstuna A (26 km from Västerås; Västerås's own station 96350 is manual, 06/18 UTC only) | SMHI Open Data, meteorological observations, parameter 1, period `corrected-archive` — https://opendata.smhi.se/apidocs/metobs | Creative Commons Attribution 4.0 (CC BY 4.0) — https://www.smhi.se/data/oppna-data/villkor-for-anvandning | "Source: SMHI" |
-| `weather_vasteras_2023.csv` (column `pv_kw_per_kwp`) | Hourly PV output of a 1 kWp south-facing 30° building-mounted system at 59.61 N 16.55 E, 2023, SARAH3 radiation database, 14 % system losses | PVGIS 5.3, European Commission Joint Research Centre, via `pvlib.iotools.get_pvgis_hourly` — https://joint-research-centre.ec.europa.eu/pvgis-online-tool_en | Free for any use; cite PVGIS — https://joint-research-centre.ec.europa.eu/photovoltaic-geographical-information-system-pvgis/getting-started-pvgis/api-non-interactive-service_en | "© European Union, 2001–2026, PVGIS" |
-| `base_load_norway_2021.csv.gz`, `…_meta.csv`, `…_README.md` | Hourly whole-house consumption 2021 of 63 Norwegian detached houses without heat pump, anonymised | Hofmann, M., Bjarghov, S., Nessa, S. (2023). *Norwegian hourly residential electricity demand data with consumer characteristics during the European energy crisis.* Zenodo, v3. https://doi.org/10.5281/zenodo.8423312 ; data article: Data in Brief 51 (2023) 109687, https://doi.org/10.1016/j.dib.2023.109687 | CC BY 4.0 | cite as above |
-| `ev_arrival_hist.csv`, `ev_energy_hist.csv` | Plug-in-hour and energy-per-session histograms of 35,377 residential charging sessions (Norwegian apartment garages, 2018–2021) | Sørensen, Å. L., et al. (2024). *Residential electric vehicle charging datasets from apartment buildings.* Zenodo. https://doi.org/10.5281/zenodo.12730566 ; Data in Brief (2021) https://doi.org/10.1016/j.dib.2021.107105 | CC BY 4.0 | cite as above |
+| `weather_vasteras_2023.csv` (column `temp_c`) | Hourly air temperature 2023, station 96190 Eskilstuna A (26 km from Västerås; Västerås's own station 96350 is manual, 06/18 UTC only) | SMHI Open Data, meteorological observations, parameter 1, period `corrected-archive` — https://opendata.smhi.se/apidocs/metobs | CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/ (SMHI's terms: https://www.smhi.se/data/oppna-data/villkor-for-anvandning) | "Source: SMHI" — processed: re-indexed to whole UTC hours, gaps of up to 6 h linearly interpolated |
+| `weather_vasteras_2023.csv` (column `pv_kw_per_kwp`) | Hourly PV output of a 1 kWp south-facing 30° building-mounted system at 59.61 N 16.55 E, 2023, SARAH3 radiation database, 14 % system losses | PVGIS 5.3, European Commission Joint Research Centre, via `pvlib.iotools.get_pvgis_hourly` — https://joint-research-centre.ec.europa.eu/pvgis-online-tool_en | Free for any use; cite PVGIS — https://joint-research-centre.ec.europa.eu/photovoltaic-geographical-information-system-pvgis/getting-started-pvgis/api-non-interactive-service_en | "PVGIS © European Communities, 2001–2026"; cite Huld, T., Müller, R., Gambardella, A. (2012), *A new solar radiation database for estimating PV performance in Europe and Africa*, Solar Energy 86, 1803–1815 — processed: stamps floored to the hour, W per kWp → kW per kWp |
+| `base_load_norway_2021.csv.gz`, `…_meta.csv`, `…_README.md` | Hourly whole-house consumption 2021 of 63 Norwegian detached houses without heat pump, anonymised | Hofmann, M., Bjarghov, S., Nessa, S. (2023). *Norwegian hourly residential electricity demand data with consumer characteristics during the European energy crisis.* Zenodo, v3. https://doi.org/10.5281/zenodo.8423312 ; data article: Data in Brief 51 (2023) 109687, https://doi.org/10.1016/j.dib.2023.109687 | CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/ | cite as above — processed: a subset (the 63 houses without a heat pump), renamed h001–h063, gaps filled as described in the README |
+| `ev_arrival_hist.csv`, `ev_energy_hist.csv` | Plug-in-hour and energy-per-session histograms built from 35,336 of the dataset's 35,377 residential charging sessions (12 Norwegian residential locations, 2018–2021). Reference only: the EV model uses the parametric fits documented in `ev_charging_parameters.md`; the code does not read these two files | Sørensen, Å. L. (2024). *Data files: Electric vehicle charging dataset with 35,000 charging sessions from 12 residential locations in Norway* (v1). Zenodo. https://doi.org/10.5281/zenodo.12730566 ; data article: Sørensen, Å. L., Sartori, I., Lindberg, K. B., Andresen, I. (2024), Data in Brief 57, 110883, https://doi.org/10.1016/j.dib.2024.110883 | CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/ | cite as above — processed: aggregated to histograms |
 | `ev_charging_parameters.md` | Parameter table for the EV model with per-row sources (Trafikanalys, Chalmers, Energiforsk, Power Circle) | listed inside the file | public reports / open statistics | see file |
-| `~/.hotspotlv/raw/smhi_*_temp.csv` | Full SMHI hourly archive for one station (fetched by `weather.py`) | SMHI, as above | CC BY 4.0 | "Source: SMHI" |
+| `~/.hotspotlv/raw/smhi_*_temp.csv` | Full SMHI hourly archive for one station (fetched by `weather.py` when needed) | SMHI, as above | CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/ | "Source: SMHI" |
 | `~/.hotspotlv/raw/pvgis_<tag>_<year>.csv` | Raw PVGIS hourly response (fetched by `weather.py`) | PVGIS, as above | as above | as above |
 | repo `data/raw/norway/`, `data/raw/ev/` | Original Zenodo downloads used to build the processed files (not committed) | as above | CC BY 4.0 | as above |
 
@@ -39,6 +48,7 @@ https://pxexternal.energimyndigheten.se/pxweb/sv/Energimyndighetens_statistikdat
 | Service lives | transformer 40 yr, battery 15 yr, charging control 10 yr | assumptions, shown so capex alone does not favour short-lived assets |
 
 ## Example station files (`data/examples/`)
-Synthetic: the sum of the scenario model's houses for three imaginary Västerås stations (Session 2 load
-models on SMHI 96190 / PVGIS 2023 weather, both CC BY 4.0 — attribution as above). Not measurements; the
-station names say "(synthetic)". Rebuilt by `validation/make_examples.py`.
+Synthetic: the sum of the scenario model's houses for three imaginary Västerås stations. Adapted from the
+Norwegian household data above (the base loads; CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/), with SMHI 96190 temperatures (CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/) and PVGIS
+2023 PV output (PVGIS terms) — attributions as above. Not measurements; the station names say "(synthetic)".
+Rebuilt by `validation/make_examples.py`.

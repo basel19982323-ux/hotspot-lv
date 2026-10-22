@@ -3,13 +3,20 @@
 The window is built as usual but never shown on the screen (WA_DontShowOnScreen); the steps run on the real event
 loop, with the real worker threads, and the run ends through the normal close path:
 
+    https     the TLS stack a station download needs (ssl, urllib's HTTPS handler) — no network used
     station   the shipped example assessed, the card drawn            → station.png
     pdf       Export PDF's writer on that result                     → station_card.pdf
-    fleet     the example fleet screened, first row selected         → fleet.png
+    fleet     the example fleet screened, first row selected; an error row is a failure → fleet.png
     scenario  a small case run in a worker thread to the end         → scenario.png
+    sweep     two values of the houses knob, worker thread           → sweep.png
+    spread    five random draws, worker thread                       → spread.png
+    fixes     the five-run fix comparison, worker thread              → fixes.png
     cancel    a full-power-flow case started and cancelled: its thread must end within seconds
     close     an assessment started, the window closed over it ("Stop it and close?" → Yes):
               the process must leave cleanly (the hard exit of the entry point)
+
+No dialog can block it: every message box is written to the log as a failure and closed (packaging review of
+22 Oct 2026: a missing data file put a modal box on the build machine's screen and hung the build).
 
 Everything goes to <folder>/self-test.txt — a frozen windowed program has no console. Exit code 0 when every step
 passed, 1 otherwise. Written for the packaging review of 22 Oct 2026: a test of the source tree says nothing about
@@ -30,6 +37,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from hotspotlv import __version__
 
 POLL_MS = 200
+STEP_TIMEOUT_S = 240
 
 
 class SelfTest:
@@ -78,15 +86,41 @@ class SelfTest:
                 QTimer.singleShot(POLL_MS, poll)
         QTimer.singleShot(POLL_MS, poll)
 
+    def no_dialogs(self) -> None:
+        """Every message box becomes a logged failure; 'Stop it and close?' is answered Yes (the close step)."""
+        test = self
+
+        def record(box_or_parent=None, title="", text="", *a, **k):
+            if isinstance(box_or_parent, QMessageBox):
+                title, text = box_or_parent.windowTitle(), box_or_parent.text()
+            test.result("dialog", False, f"a message box appeared — {title}: {text}")
+            return QMessageBox.Ok
+        QMessageBox.exec = record
+        for name in ("warning", "critical", "information"):
+            setattr(QMessageBox, name, staticmethod(lambda parent=None, title="", text="", *a, **k:
+                                                    record(None, title, text)))
+        QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+
     # ---------------------------------------------------------------- steps
     def start(self) -> None:
         from hotspotlv.paths import cache_dir, package_data
         self.log(f"Hotspot LV v{__version__} self-test — {time.strftime('%Y-%m-%d %H:%M:%S')}")
         self.log(f"frozen: {getattr(sys, 'frozen', False)} · executable: {sys.executable}")
         self.log(f"python {platform.python_version()} · {platform.platform()} · Qt platform {self.app.platformName()}")
-        self.log(f"package data: {package_data()} (exists: {package_data().exists()}) · cache: {cache_dir()}")
+        self.log(f"package data: {package_data()} (exists: {package_data().exists()}) · cache: {cache_dir(create=False)}")
         self.win.resize(1400, 900)
-        self.step_station()
+        self.no_dialogs()
+        self.step_https()
+
+    def step_https(self) -> None:
+        def run():
+            import ssl
+            import urllib.request
+            ctx = ssl.create_default_context()                  # loads the Windows certificate store
+            ok = hasattr(urllib.request, "HTTPSHandler") and ctx.verify_mode == ssl.CERT_REQUIRED
+            self.result("https", ok, f"{ssl.OPENSSL_VERSION}; urllib can open https:// (not used now)")
+        self.guarded("https", run)
+        QTimer.singleShot(0, self.step_station)
 
     def step_station(self) -> None:
         from hotspotlv.app.report import write_station_card
@@ -128,7 +162,10 @@ class SelfTest:
             self.win.tabs.setCurrentIndex(1)
             self.grab("fleet.png")
             n = 0 if fl.table_df is None else len(fl.table_df)
-            self.result("fleet", n == 3, f"{n} stations ranked ({time.perf_counter() - t:.1f} s)")
+            errors = [] if fl.table_df is None else list(fl.table_df.loc[fl.table_df["verdict"] == "error", "error"])
+            self.result("fleet", n == 3 and not errors,          # an error row is a failure, not a ranked station
+                        f"{n} stations ranked ({time.perf_counter() - t:.1f} s)" if not errors
+                        else f"{len(errors)} of {n} stations failed: {errors[0][:200]}")
         self.guarded("fleet", run)
         QTimer.singleShot(0, self.step_scenario)
 
@@ -147,12 +184,61 @@ class SelfTest:
             ok = sp.result is not None
             self.result("scenario", ok, (f"{sp.result.verdict.headline()} — a worker thread, {secs:.1f} s"
                                          if ok else "the run ended without a result"))
-            QTimer.singleShot(0, self.step_cancel)
+            QTimer.singleShot(0, self.step_sweep)
 
         def timeout(secs):
             self.result("scenario", False, f"no result after {secs:.0f} s")
-            QTimer.singleShot(0, self.step_cancel)
-        self.wait_until(lambda: not sp.is_running() and sp.result is not None, 300, done, timeout)
+            QTimer.singleShot(0, self.step_sweep)
+        self.wait_until(lambda: not sp.is_running() and sp.result is not None, STEP_TIMEOUT_S, done, timeout)
+
+    def _view_step(self, name: str, tab: int, view, setup, finished, describe, then) -> None:
+        """Run one of the scenario panel's views (Sweep, Spread, Fixes) with its own Run button logic."""
+        sp = self.win.scenario
+
+        def start():
+            sp.tabs.setCurrentIndex(tab)
+            setup()
+            view.run()
+        if not self.guarded(name, start):
+            QTimer.singleShot(0, then); return
+
+        def done(secs):
+            self.grab(f"{name}.png")
+            self.result(name, True, f"{describe()} — {secs:.1f} s")
+            QTimer.singleShot(0, then)
+
+        def timeout(secs):
+            self.result(name, False, f"no result after {secs:.0f} s (status: {view.status.text()[:200]})")
+            QTimer.singleShot(0, then)
+        self.wait_until(lambda: not view.is_running() and finished(), STEP_TIMEOUT_S, done, timeout)
+
+    def step_sweep(self) -> None:
+        sw = self.win.scenario.sweep
+
+        def setup():
+            sw.table = None
+            sw.knob_box.setCurrentIndex(sw.knob_box.findData("n_houses"))
+            sw.start.setValue(6); sw.stop.setValue(12); sw.step.setValue(6); sw.fast.setChecked(True)
+        self._view_step("sweep", 5, sw, setup, lambda: sw.table is not None,
+                        lambda: f"{len(sw.table)} values, verdicts {', '.join(sw.table['verdict'])}", self.step_spread)
+
+    def step_spread(self) -> None:
+        mc = self.win.scenario.mc
+
+        def setup():
+            mc.table = None
+            mc.n_draws.setValue(mc.n_draws.minimum()); mc.first.setValue(0); mc.fast.setChecked(True)
+        self._view_step("spread", 6, mc, setup, lambda: mc.table is not None,
+                        lambda: f"{len(mc.table)} draws", self.step_fixes)
+
+    def step_fixes(self) -> None:
+        fx = self.win.scenario.fixes
+
+        def setup():
+            fx.comparison = None
+            fx.fast.setChecked(True)
+        self._view_step("fixes", 4, fx, setup, lambda: fx.comparison is not None,
+                        lambda: f"{len(fx.comparison.results)} cases compared", self.step_cancel)
 
     def step_cancel(self) -> None:
         from hotspotlv.app.workers import any_running
@@ -186,7 +272,6 @@ class SelfTest:
         st = self.win.station
 
         def start():
-            QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)   # "Stop it and close?" — yes
             self.win.tabs.setCurrentIndex(0)
             st.path.setText(str(EXAMPLE))
             st.run()

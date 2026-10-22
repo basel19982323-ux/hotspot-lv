@@ -18,9 +18,12 @@ def package_data() -> Path:
     return Path(str(files("hotspotlv") / "data"))
 
 
-def cache_dir() -> Path:
+def cache_dir(create: bool = True) -> Path:
+    """The per-user cache. create=False only names it — nothing is written to the user's profile until a
+    download or a built weather year actually needs the folder (packaging review of 22 Oct 2026)."""
     d = Path(os.environ.get("HOTSPOTLV_CACHE", Path.home() / ".hotspotlv"))
-    d.mkdir(parents=True, exist_ok=True)
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
     return d
 
 

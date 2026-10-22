@@ -53,9 +53,13 @@ def main() -> int:
             (self_test / "self-test.txt").write_text(f"FAIL start: {type(e).__name__}: {e}\n{traceback.format_exc()}",
                                                      encoding="utf-8")
             return 1
+        from pathlib import Path
+        folder = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
         box = QMessageBox(QMessageBox.Critical, "Hotspot LV could not start",
-                          f"{type(e).__name__}: {e}\n\nThe weather file is shipped with the package; if it is missing, "
-                          "reinstall or run with network access so it can be rebuilt.")
+                          f"{type(e).__name__}: {e}\n\nProgram folder: {folder}\n"
+                          "If the program folder is incomplete (only the .exe copied) or very deep (a path of more than "
+                          "about 140 characters), unzip the whole HotspotLV folder again to a short path such as "
+                          "C:\\Tools\\HotspotLV. The details below show where it stopped.")
         box.setDetailedText(traceback.format_exc())
         box.exec()
         return 1

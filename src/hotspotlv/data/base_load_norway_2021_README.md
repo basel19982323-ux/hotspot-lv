@@ -11,8 +11,7 @@ simulation adds on top). Prepared by Basel Haijar.
 | `base_load_norway_2021.csv.gz` | 8760 rows × 63 columns. Index `time_utc` = start of the hour, UTC, ISO 8601 (`2021-01-01T00:00:00Z`). Columns `h001`…`h063` = one house each. Values = **kWh consumed in that hour** (equal to the mean kW over the hour), rounded to 3 decimals. No missing values. |
 | `base_load_norway_2021_meta.csv` | One row per house: `id`, `annual_kwh`, `peak_kw` (highest single hour), `heating_type`, `wood_stove`, `hot_water`, `house_type`, `floor_area_m2` (survey bracket), `n_persons`, `city`, `gaps_filled` (hours interpolated). |
 
-Size: 5.9 MB (a 2 MB target was not reachable with ~100 houses × 8760 h at meter
-resolution; gzip brings it to 2.1 MB if ever needed).
+Size: 1.2 MB gzip-compressed (63 houses × 8760 h).
 
 ## Source and licence
 
@@ -59,10 +58,9 @@ Norwegian detached houses heat with electricity:
 heater type (Q28); 93 of 111 have their own electric storage tank, which is the normal
 Swedish villa case as well.
 
-**Recommended base-load set: h001–h063 (`heating_type != "heat_pump"`), 63 houses.**
-The 48 heat-pump houses are included so that the file reaches ~100 houses, but their
-heating demand is already heat-pump shaped; use them only if the simulation does not
-add a heat pump to that house.
+**Base-load set: h001–h063 (`heating_type != "heat_pump"`), 63 houses — the only houses shipped.**
+The 48 heat-pump houses of the original selection are not shipped: their demand is already heat-pump
+shaped, and the simulation adds its own heat pumps.
 
 ## What the load includes and excludes
 
