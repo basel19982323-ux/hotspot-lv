@@ -270,7 +270,7 @@ class FixesView(QWidget):
             w.setEnabled(False)
         self.run_btn.setEnabled(False); self.cancel_btn.setVisible(True)
         self.progress.setVisible(True); self.progress.setRange(0, 5); self.progress.setValue(0)
-        self._t0 = time.perf_counter(); self._timer.start(1000); self._progress_text = "Starting …"
+        self._t0 = time.perf_counter(); self._timer.start(1000); self._progress_text = "Starting …"; self._tick()
         self._worker = Worker(compare_fixes, case, self.weather, fast=self.fast.isChecked(),
                               battery_cap_share=self.cap.value() / 100, bigger_kva=self.bigger.currentData(),
                               with_progress=True)

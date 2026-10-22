@@ -50,7 +50,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(f"{TITLE} — v{__version__}")
         self.resize(1400, 900)
-        self.setMinimumSize(900, 560)                    # measured: 798 × 504 logical at 125 % (21 Oct); fits a 1366 × 768 laptop
+        self.setMinimumSize(900, 570)                    # measured hint 751 × 563 logical at 125 % with results (22 Oct); fits a 1366 × 768 laptop (1093 × 614)
         tabs = QTabWidget()
         self.scenario = ScenarioPanel(weather)
         self.station = StationPanel()

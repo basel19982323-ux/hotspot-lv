@@ -54,6 +54,16 @@ def main(out: Path):
     sp.mc.set_table(monte_carlo(sp.build_case(), weather, seeds=range(5), fast=True), sp.build_case())
     sp.tabs.setCurrentIndex(6); app.processEvents(); win.grab().save(str(out / "scenario_spread.png"))
     print("spread caption:", sp.mc.caption.text())
+    # the laptop case (1366 × 768 at 125 % = 1093 × 614 logical): the three input-driven tabs stay usable
+    win.resize(1093, 614); app.processEvents()
+    for idx, name in ((4, "fixes"), (5, "sweep"), (6, "spread")):
+        sp.tabs.setCurrentIndex(idx); app.processEvents()
+        view = (sp.fixes, sp.sweep, sp.mc)[idx - 4]
+        table = view.view if idx < 6 else view.summary_view
+        plot = (view.bars_paper[0] if idx == 4 else view.plot)
+        print(f"laptop {name}: banner {not view.banner.isHidden()}, plot h {plot.height()}, table viewport h {table.viewport().height()}")
+        assert plot.height() >= 90 and table.viewport().height() >= 26, f"{name} tab unusable at 1093 × 614"
+    win.resize(1400, 900); app.processEvents()
 
     # mode B
     import time

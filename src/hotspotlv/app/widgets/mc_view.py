@@ -57,6 +57,10 @@ METRICS = {
     "max_cable_pct": ("max main-cable loading (%)", " %", [(100.0, "Watch: cable rating", VERDICT_COLORS["Watch"])]),
 }
 HOUR_KEYS = ("hours_above_80", "hours_above_100", "hours_hot_spot_above_98", "voltage_bad_hours", "voltage_plan_hours")
+AXIS_LABELS = {"peak_loading_pct": "peak load (%)", "hours_above_80": f"h above {NAMEPLATE_RULE_PCT:g} %", "hours_above_100": "h above 100 %",
+               "life_days_per_year": "life used (days/yr)", "max_hot_spot_c": "max hot-spot (°C)", "hours_hot_spot_above_98": "h hot-spot > 98 °C",
+               "max_load_pu": "max load (× rated)", "voltage_bad_hours": "h outside ±10 %", "voltage_plan_hours": "h outside plan band",
+               "max_cable_pct": "max cable (%)"}
 SUMMARY_COLUMNS = ["mean", "min", "10%", "50%", "90%", "max"]
 SUMMARY_TIPS = {"mean": "Average of the draws.", "min": "Smallest draw.", "max": "Largest draw.",
                 "10%": "10th percentile: one draw in ten falls below this (linear interpolation between sorted draws).",
@@ -178,7 +182,7 @@ class MonteCarloView(QWidget):
         strip = QWidget(); sl = QVBoxLayout(strip); sl.setContentsMargins(0, 0, 0, 0); sl.setSpacing(1)
         sl.addWidget(self.limits_note); sl.addWidget(self.legend); sl.addWidget(self.caption)
         notes = QScrollArea(); notes.setWidget(strip); notes.setWidgetResizable(True); notes.setFrameShape(QScrollArea.NoFrame)
-        notes.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); notes.setMaximumHeight(64); notes.setMinimumHeight(40)
+        notes.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); notes.setMaximumHeight(112); notes.setMinimumHeight(48)
         notes.setToolTip(WHAT_VARIES)
         tv.addWidget(notes)
         split.addWidget(top)
@@ -249,7 +253,7 @@ class MonteCarloView(QWidget):
             w.setEnabled(False)
         self.run_btn.setEnabled(False); self.cancel_btn.setVisible(True)
         self.progress.setVisible(True); self.progress.setRange(0, len(seeds)); self.progress.setValue(0)
-        self._t0 = time.perf_counter(); self._timer.start(1000); self._progress_text = "Starting …"
+        self._t0 = time.perf_counter(); self._timer.start(1000); self._progress_text = "Starting …"; self._tick()
         self._worker = Worker(monte_carlo, case, self.weather, seeds=seeds, fast=self.fast.isChecked(), with_progress=True)
         self._worker.progress.connect(self._progress)
         self._worker.finished_ok.connect(self._done)
@@ -301,8 +305,8 @@ class MonteCarloView(QWidget):
     def _seeds_text(table: pd.DataFrame) -> str:
         idx = [int(i) for i in table.index]
         if idx == list(range(idx[0], idx[0] + len(idx))):
-            return f"draws {idx[0]}–{idx[-1]}"
-        return "draws " + ", ".join(str(i) for i in idx)
+            return f"seeds {idx[0]}–{idx[-1]}"
+        return "seeds " + ", ".join(str(i) for i in idx)
 
     def set_table(self, table: pd.DataFrame, case: Case | None = None):
         """Show a Monte Carlo result (used by the worker and by tests)."""
@@ -359,12 +363,12 @@ class MonteCarloView(QWidget):
         for item in self._limit_lines + self._strip:
             self.plot.removeItem(item)
         self._limit_lines, self._strip = [], []
-        # the range follows the DATA; a limit far above the draws is named under the chart, not squashed onto it
-        data_top = float(np.nanmax(y)) if np.isfinite(np.nanmax(y)) else 0.0
-        top = max(data_top * 1.25, 1.0)
+        # the range follows the SPREAD of the draws (a 0.05–0.10 days/yr spread fills the chart); a limit inside
+        # the range is drawn, one above it is named under the chart instead of squashing the draws onto one pixel row
+        y_lo, y_hi = self._data_range(key, y)
         on, off = [], []
         for value, text, color in limits:
-            if value <= top:
+            if y_lo <= value <= y_hi:
                 line = pg.InfiniteLine(angle=0, pos=value, pen=pg.mkPen(color, style=Qt.DashLine))
                 self.plot.addItem(line); self._limit_lines.append(line); on.append(f"{text} at {value:g}")
             else:
@@ -373,17 +377,47 @@ class MonteCarloView(QWidget):
         if on:
             note.append("dashed: " + " · ".join(on))
         if off:
-            note.append("off the chart, far above the draws: " + " · ".join(off))
+            far = all(v > 3 * max(float(np.nanmax(y)), 1e-9) for v, _, _ in limits if not (y_lo <= v <= y_hi))
+            note.append(("off the chart, far above the draws: " if far else "above the chart: ") + " · ".join(off))
         if not limits:
             note.append("no rule limit on this number")
         self.limits_note.setText("; ".join(note))
+        span = y_hi - y_lo
+        strip_y = y_lo + 0.08 * span                       # a strip of its own, below every dot
         for xi, v in zip(x, self.table["verdict"]):
-            s = pg.ScatterPlotItem([xi], [-0.10 * top], size=14, symbol="s", brush=VERDICT_COLORS.get(v, "#999"), pen=pg.mkPen(None))
+            s = pg.ScatterPlotItem([xi], [strip_y], size=14, symbol="s", brush=VERDICT_COLORS.get(v, "#999"), pen=pg.mkPen(None))
             s.setToolTip(str(v)); self.plot.addItem(s); self._strip.append(s)
-        self.plot.setLabel("left", label)
-        self.plot.getAxis("bottom").setTicks([[(float(s), str(int(s))) for s in x]])
+        self.plot.setLabel("left", AXIS_LABELS.get(key, label))
+        self._ticks()
         self.plot.setXRange(float(x.min()) - 0.5, float(x.max()) + 0.5)
-        self.plot.setYRange(-0.16 * top, top)
+        self.plot.setYRange(y_lo, y_hi)
+
+    @staticmethod
+    def _data_range(key: str, y: np.ndarray) -> tuple[float, float]:
+        """Bottom and top of the chart: the draws' range plus margins (a strip for the squares below, room above)."""
+        lo, hi = float(np.nanmin(y)), float(np.nanmax(y))
+        span = hi - lo
+        if span <= 0:                                      # every draw the same: show it with a sensible scale
+            span = 2.0 if key in HOUR_KEYS else max(abs(hi) * 0.1, 0.01)
+        if key in HOUR_KEYS:
+            span = max(span, 2.0)                          # whole-hour ticks, never 0 / 0.5 / 1.0 h
+        return lo - 0.35 * span, hi + 0.25 * span
+
+    def _ticks(self):
+        """One label per draw while they fit, else every k-th draw (40 draws on a laptop would smear)."""
+        if self.table is None:
+            return
+        x = [float(s) for s in self.table.index]
+        px = max(self.plot.getViewBox().width(), 1.0)
+        per_label = 30.0 * (x[-1] - x[0] + 1) / px if len(x) > 1 else 0.0
+        k = max(1, int(np.ceil(per_label / 1.0))) if per_label > 1.0 else 1
+        major = [(xi, str(int(xi))) for i, xi in enumerate(x) if i % k == 0]
+        minor = [(xi, "") for i, xi in enumerate(x) if i % k != 0]
+        self.plot.getAxis("bottom").setTicks([major, minor])
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._ticks()
 
     def _caption(self, table: pd.DataFrame, t: dict) -> str:
         n = len(table)
@@ -397,8 +431,14 @@ class MonteCarloView(QWidget):
         for key, name in names.items():
             y = table[key].to_numpy(dtype=float)
             unit = METRICS[key][1]
-            lo, hi, med = fmt_value(key, float(np.nanmin(y))), fmt_value(key, float(np.nanmax(y))), fmt_value(key, float(np.nanmedian(y)))
-            parts.append(f"{name} {lo}{unit} in every draw" if lo == hi else f"{name} {lo}–{hi}{unit} (median {med})")
+            raw_lo, raw_hi = float(np.nanmin(y)), float(np.nanmax(y))
+            lo, hi, med = fmt_value(key, raw_lo), fmt_value(key, raw_hi), fmt_value(key, float(np.nanmedian(y)))
+            if raw_lo == raw_hi:
+                parts.append(f"{name} {lo}{unit} in every draw")
+            elif lo == hi:
+                parts.append(f"{name} ≈ {lo}{unit} in all draws (spread {raw_hi - raw_lo:.2g}{unit})")
+            else:
+                parts.append(f"{name} {lo}–{hi}{unit} (median {med})")
         return "; ".join(parts) + "."
 
 

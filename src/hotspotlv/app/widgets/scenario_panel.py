@@ -202,14 +202,15 @@ class ScenarioPanel(QWidget):
             except ValueError:
                 now = None
         if self.result is not None and now is not None and now != self.result.case:
-            banner = (f"The inputs differ from the card's case ({self.result.case.name}) — this tab runs on the "
-                      "current inputs (Base case below), not on the card's case.")
+            banner = f"Inputs differ from the card ({self.result.case.name}): this tab uses the current inputs below."
             tip = f"Card: {describe_case(self.result.case)}\nInputs now: {describe_case(now)}"
         for view in (self.fixes, self.sweep):
             view.set_banner(banner); view.banner.setToolTip(tip); view.inputs_changed(now)
         # the Spread tab replaces the random draw, so a seed-only change is no difference there
         mc_banner = banner if (self.result is not None and now is not None and not same_but_seed(now, self.result.case)) else None
-        self.mc.set_banner(mc_banner); self.mc.banner.setToolTip(tip if mc_banner else ""); self.mc.inputs_changed(now)
+        mc_tip = (f"Card: {describe_case(self.result.case, seed=False)}\nInputs now: {describe_case(now, seed=False)}"
+                  if mc_banner else "")
+        self.mc.set_banner(mc_banner); self.mc.banner.setToolTip(mc_tip); self.mc.inputs_changed(now)
 
     def _sync_busy(self):
         """Run, Compare fixes, Run sweep and Run draws share one CPU and one time estimate: only one at a time."""

@@ -23,6 +23,32 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
+
+class ElidedLabel(QLabel):
+    """A one-line label that never constrains the window: too narrow, it ends in "…" (full text in the tooltip)."""
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self._full = text
+        self.setWordWrap(False)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def setText(self, text: str):
+        self._full = text
+        self.setToolTip(text)
+        self._elide()
+
+    def text(self) -> str:                       # callers (and tests) read the whole text, not the elided one
+        return self._full
+
+    def _elide(self):
+        width = max(self.contentsRect().width(), 10)
+        super().setText(self.fontMetrics().elidedText(self._full, Qt.ElideRight, width))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._elide()
+
 from hotspotlv.app.theme import AMBIENT_COLOR, HOTSPOT_COLOR, LOAD_COLOR, OIL_COLOR, RULE_80, RULE_100
 
 pg.setConfigOptions(antialias=True, background="w", foreground="#333333")
@@ -115,10 +141,8 @@ class YearTimeline(QWidget):
                                         labelOpts={"position": 0.97, "color": "#000000", "movable": False})
         self.plot.addItem(self.scrubber)
         self.scrubber.sigPositionChanged.connect(self._moved)
-        self.readout = QLabel("")
+        self.readout = ElidedLabel("")         # a wrapped label imposes its height on the column, an unwrapped one its width
         self.readout.setProperty("muted", True)
-        self.readout.setWordWrap(False)        # a wrapped label imposes its height on the whole column …
-        self.readout.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)   # … and an unwrapped one its width: neither here
         lay.addWidget(self.plot, 1)
         lay.addWidget(self.readout)
         self._x = np.array([])
@@ -159,7 +183,7 @@ class YearTimeline(QWidget):
             txt += f" · outdoor {self._ambient.iloc[i]:.1f} °C"
         if "vmin_pu" in h and h["vmin_pu"] != 1.0:
             txt += f" · lowest house {h['vmin_pu']:.3f} pu"
-        self.readout.setText(txt); self.readout.setToolTip(txt)
+        self.readout.setText(txt)
         self.hour_changed.emit(i)
 
     def go_to(self, i: int):
@@ -210,10 +234,8 @@ class WorstWeek(QWidget):
         self.right.addItem(self.load)
         self.plot.plotItem.legend.addItem(self.load, "loading % (right axis, shown low)")
         self.plot.getViewBox().sigResized.connect(self._sync)
-        self.caption = QLabel("")
+        self.caption = ElidedLabel("")
         self.caption.setProperty("muted", True)
-        self.caption.setWordWrap(False)
-        self.caption.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         lay.addWidget(self.plot, 1)
         lay.addWidget(self.caption)
 
@@ -240,4 +262,3 @@ class WorstWeek(QWidget):
         self.caption.setText(f"Worst week starts {start:%d %b %Y}: {life:.3f} days of insulation life used, "
                              f"max hot-spot {week['theta_h_max'].max():.0f} °C, "
                              f"outdoor {ambient.loc[week.index].min():.0f} … {ambient.loc[week.index].max():.0f} °C")
-        self.caption.setToolTip(self.caption.text())

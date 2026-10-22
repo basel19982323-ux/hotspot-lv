@@ -23,6 +23,7 @@ FRIENDLY = {
     "heat_kwh": "heating (kWh/yr)", "ev_kwh": "EV (kWh/yr)", "pv_kwh": "PV (kWh/yr)", "fuse_limited_hours": "fuse-limited h",
     "voltage_bad_hours": "voltage outside ±10 % (h)", "voltage_plan_hours": "outside planning band (h)",
     "max_cable_pct": "max cable (%)", "exact_hours": "exact power-flow hours", "battery_hours_above_cap": "battery h above cap",
+    "hours_hot_spot_above_98": "hot-spot > 98 °C (h)", "max_load_pu": "max load (× rated)",
 }
 WHOLE = ("hours", "h > ", "kVA", "gaps", "step", "kWh/yr", "fuse", "kSEK", "(yr)", "(h)", "bad h", "h above")
 IDS = ("SMHI", "rank", "house", "seed")                  # whole numbers without a thousands separator
