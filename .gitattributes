@@ -9,3 +9,4 @@ LICENSE text eol=lf
 *.json text eol=lf
 .gitattributes text eol=lf
 packaging/qt-attributions/** text eol=lf
+.gitignore text eol=lf

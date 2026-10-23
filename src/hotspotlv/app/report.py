@@ -12,7 +12,7 @@ the app needs: how S at the transformer was estimated, the thermal constants
 used, every rule threshold with its source, and what was NOT checked. Nothing is
 recomputed here.
 
-Review of 22 Oct 2026 (card-ux, card-physics) shaped three choices:
+The reviews of 22 Oct 2026 (usability, physics) shaped three choices:
   * charts are rendered at the size they print (680 × 257 px at 96 dpi = the A4 text
     width) with 2× pixels, so their 9-pt fonts print at 9 pt, not shrunk to 6.8 pt;
   * the file is written through QSaveFile (a temporary file renamed over the target on

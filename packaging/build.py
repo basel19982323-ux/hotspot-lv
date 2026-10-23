@@ -463,7 +463,7 @@ def run_self_test(env: dict, limit_s: int = 1200) -> int | str:
 
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")              # a redirected log in the console code page garbles
-    sys.stderr.reconfigure(encoding="utf-8")              # "—" and could fail on a FAIL line (review S-e)
+    sys.stderr.reconfigure(encoding="utf-8")              # "—" and could fail on a FAIL line (packaging review)
     test_build = "--test-build" in sys.argv[1:]
     problems = release_problems()
     if problems and not test_build:
@@ -487,7 +487,7 @@ def main() -> int:
     check_binary_origins()
     check_folder_limit()
     (APP / "LICENSE.txt").write_text((ROOT / "LICENSE").read_text(encoding="utf-8"), encoding="utf-8",
-                                     newline="\r\n")       # the same bytes from any checkout (review S-d)
+                                     newline="\r\n")       # the same bytes from any checkout (packaging review)
     readme = (PACKAGING / "README-windows.txt").read_text(encoding="utf-8")
     test_note = ("TEST BUILD — not a release (made with --test-build"
                  + (", and not fit for publishing because:\n" + "".join(f"  - {p}\n" for p in problems)

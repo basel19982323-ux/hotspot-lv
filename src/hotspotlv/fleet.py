@@ -1,7 +1,7 @@
 """
 Mode C — screen a whole fleet of stations and rank them.
 
-A planner never looks at one transformer: E.ON alone has ~48 000 nätstationer.
+A planner never looks at one transformer: a large Swedish DSO has tens of thousands of nätstationer.
 This module runs mode B (station.py) for every station in a list and returns
 one ranked table — the thing a planner forwards to a colleague.
 

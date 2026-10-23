@@ -15,3 +15,12 @@ data/raw/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local outputs and secrets (never public)
+ttm_venv/
+screenshots/
+*.pdf
+.env
+*.pem
+*.key
+validation/year_inputs.csv

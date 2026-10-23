@@ -22,7 +22,7 @@ Results recorded 21 Oct 2026 (after the ambient-lag fix, commit 79003ec):
 | case | max abs. hot-spot difference | loss of life |
 |---|---|---|
 | 48 h step 0 to 1.0 pu at 20 C | < 0.1 K (explicit Euler vs exact exponential) | +0.2 % |
-| 72 h random K 0.2-1.3, ambient -20 to 25 C | see research/reviews/2026-10-21-thermal-round2.md | |
+| 72 h random K 0.2-1.3, ambient -20 to 25 C | 0.10 K at a 2-min step, 0.01 K at 0.25 min (explicit Euler vs exact exponential) | +0.6 % (2 min), -0.08 % (0.25 min) |
 | Vasteras 2023, 45 houses "today" | 36.7 vs 36.7 C max hot-spot | 0.0603 vs 0.0603 days |
 
 The script also contains the IEC 60076-7:2005 Annex C worked example

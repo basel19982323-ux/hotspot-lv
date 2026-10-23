@@ -8,9 +8,9 @@ The two codes cannot live in one interpreter: the library pins pandas>=3,
 pandapower (pulled in by hotspotlv.feeder) pins pandas<3. So this script has
 three entry points and the driver runs the first two in separate interpreters:
 
-    python thermal_crosscheck.py ours  CASE DT_MIN OUT.csv     (Basel's Python, repo on sys.path)
-    python thermal_crosscheck.py lib   CASE OUT.csv            (venv with transformer-thermal-model)
-    python thermal_crosscheck.py drive OURS_PY LIB_PY WORKDIR  (runs everything, prints the table)
+    python validation/thermal_crosscheck_alliander.py ours  CASE DT_MIN OUT.csv     (the project's Python)
+    python validation/thermal_crosscheck_alliander.py lib   CASE OUT.csv            (venv with transformer-thermal-model)
+    python validation/thermal_crosscheck_alliander.py drive OURS_PY LIB_PY WORKDIR  (runs both, prints the table)
 
 Cases
     a : 48 h, K = 0 for 24 h then 1.0 for 24 h, ambient 20 C
@@ -45,7 +45,8 @@ SUB_MIN = 2
 SUB_PER_H = 60 // SUB_MIN
 
 
-YEAR_CSV = Path(__file__).with_name("year_inputs.csv")   # written by year_inputs.py
+YEAR_CSV = Path(__file__).with_name("year_inputs.csv")   # hourly K and theta_a of a full-year run; not in the
+                                                          # repository — cases a, b and annexc run without it
 
 
 def make_case(case: str) -> tuple[pd.Series, pd.Series]:
@@ -249,7 +250,7 @@ if __name__ == "__main__":
         run_lib(sys.argv[2], Path(sys.argv[3]))
     elif mode == "drive":
         drive(sys.argv[2], sys.argv[3], Path(sys.argv[4]), tuple(sys.argv[5:]) or ("a", "b"))
-    elif mode == "annexc":                      # Basel's Python, needs HOTSPOTLV_SRC
+    elif mode == "annexc":                      # the project's Python, needs HOTSPOTLV_SRC
         annex_c_report()
     else:
         raise SystemExit(__doc__)

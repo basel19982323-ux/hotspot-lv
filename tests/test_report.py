@@ -1,8 +1,8 @@
 """The station card PDF (mode B) and the legend strips. The card must say what the screen card says, carry
 the three charts, and list the assumptions the run used; legends sit above the plots, never on the data.
 Offscreen (no fonts): the PDF's structure is checked with pypdf, its words through the HTML. Each test is a
-mutation trap, like tests/test_app.py; the second group follows the review of 22 Oct 2026 (card-ux,
-card-physics): no false "saved", no stale card, no clipped-model number shown as real, headings kept with
+mutation trap, like tests/test_app.py; the second group follows the reviews of 22 Oct 2026 (usability,
+physics): no false "saved", no stale card, no clipped-model number shown as real, headings kept with
 their section."""
 
 import copy
@@ -260,7 +260,7 @@ def test_charts_of_a_withdrawn_run_print_no_temperature_or_life(clipped):
 
 
 def test_short_files_say_that_life_is_scaled_to_a_year(app):
-    """Catches: a winter month reported 'per year' without saying it was multiplied ×12 (card-physics M1)."""
+    """Catches: a winter month reported 'per year' without saying it was multiplied ×12 (physics review)."""
     st = read_station_csv(EXAMPLE)
     st = replace(st, p_kw=st.p_kw.iloc[:24 * 31], q_kvar=st.q_kvar.iloc[:24 * 31])            # January only
     res = assess_station(st, 500, ambient_for(st.index))
@@ -277,7 +277,7 @@ def test_short_files_say_that_life_is_scaled_to_a_year(app):
 
 
 def test_overlay_energy_is_split_from_the_measured_energy(app):
-    """Catches: 'energy in the period' quietly including the synthetic overlay (card-physics M3)."""
+    """Catches: 'energy in the period' quietly including the synthetic overlay (physics review)."""
     res, _ = _assess(EXAMPLE, 500, "meters", "Europe/Stockholm", "start", 96190, True, "kiosk", 3, 2, 7)
     o = res.overlay
     assert o["n_ev"] == 3 and o["n_hp"] == 2 and o["seed"] == 7 and o["charger_kw"] == 11
@@ -289,7 +289,7 @@ def test_overlay_energy_is_split_from_the_measured_energy(app):
 
 
 def test_headings_stay_with_their_section_on_paper(station, charts):
-    """Catches: a chart heading alone at the foot of a page, a table's first rows stranded (card-ux 6), also
+    """Catches: a chart heading alone at the foot of a page, a table's first rows stranded (usability review), also
     with a long list of notes."""
     res, _ = station
     many = copy.deepcopy(res)
