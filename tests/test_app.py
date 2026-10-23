@@ -111,6 +111,30 @@ def test_time_axis_labels_agree_with_the_readout(panel):
         assert tick in panel.timeline.readout.text()
 
 
+def test_time_axis_ticks_sit_on_swedish_month_starts_and_midnights(panel):
+    """Catches: month ticks on summer-time month starts labelled in winter time ('Jan Feb Apr … Oct Oct Nov'), and
+    day ticks an hour off across a DST switch (numbers audit, 23 Oct 2026)."""
+    ax = panel.timeline.plot.getAxis("bottom")
+    year = [pd.Timestamp(f"{y}-01-01", tz="Europe/Stockholm").timestamp() for y in (2023, 2024)]
+    for width in (1050, 560):
+        (spacing, vals), = ax.tickValues(year[0], year[1], width)
+        local = [pd.Timestamp(v, unit="s", tz="UTC").tz_convert("Europe/Stockholm") for v in vals]
+        assert all((t.day, t.hour, t.minute) == (1, 0, 0) for t in local)               # local month starts only
+        labels = ax.tickStrings(vals, 1, spacing)
+        assert labels == [str(t.year) if t.month == 1 else t.strftime("%b") for t in local]
+        assert len(set(labels)) == len(labels)                                            # no month twice
+    (_, vals), = ax.tickValues(year[0], year[1], 1050)
+    assert ax.tickStrings(vals, 1, 30 * 86400) == ["2023", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+                                                    "Oct", "Nov", "Dec"]                  # no "2024" on the end
+    for start in ("2023-03-22", "2023-10-26"):                                            # both DST switches
+        a = pd.Timestamp(start, tz="Europe/Stockholm")
+        b = a + pd.DateOffset(days=7)                                                     # 7 calendar days, 167 or 169 h
+        (spacing, vals), = ax.tickValues(a.timestamp(), b.timestamp(), 560)
+        local = [pd.Timestamp(v, unit="s", tz="UTC").tz_convert("Europe/Stockholm") for v in vals]
+        assert len(local) == 7 and all((t.hour, t.minute) == (0, 0) for t in local)
+        assert ax.tickStrings(vals, 1, spacing)[0] == a.strftime("%a %d")
+
+
 def test_captions_and_card_use_the_verdicts_hours_and_days(panel):
     """Catches: duration curve counting rows instead of hours, worst-week days off by step length."""
     res = panel.result
@@ -201,7 +225,7 @@ def test_sweep_view_draws_the_engines_rows(panel):
     assert np.allclose(10 ** np.asarray(ly), np.maximum(table["life_days_per_year"], 1e-4))
     assert [s.opts["brush"].color().name() for s in panel.sweep._strip] == [VERDICT_COLORS[v] for v in table["verdict"]]
     assert all(s.getData()[1][0] < 0 for s in panel.sweep._strip)                   # squares below the hours axis
-    assert "80 % rule" in panel.sweep.caption.text() and "houses" in panel.sweep.caption.text()
+    assert "80 % of nameplate" in panel.sweep.caption.text() and "houses" in panel.sweep.caption.text()
     assert panel.sweep.model.df.iloc[0]["houses"] == 6
     assert "voltage outside ±10 % (h)" in [panel.sweep.model.headerData(c, Qt.Horizontal)
                                             for c in range(panel.sweep.model.columnCount())]
@@ -223,7 +247,7 @@ def test_sweep_view_scales_share_knobs_to_percent_and_keeps_the_run_knob(panel):
     assert list(panel.sweep.h100.getData()[1]) == [0, 0, 1, 0]                     # not fed with h80
     assert panel.sweep.flip_line.value() == 60 and panel.sweep.flip_line.isVisible()
     cap = panel.sweep.caption.text()
-    assert "first flags the station at 60 %" in cap and "first turns At risk at 60 % because of a cable above its current rating;" in cap
+    assert "first passes 80 % of nameplate at 60 %" in cap and "first turns At risk at 60 % because of a cable above its current rating;" in cap
     assert "not monotonic" in cap
     assert list(panel.sweep.model.df.columns)[0] == "share of houses with an EV charger (%)"
 

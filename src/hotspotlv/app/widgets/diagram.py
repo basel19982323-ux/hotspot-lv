@@ -30,7 +30,8 @@ FEEDER_DY = 70
 X0 = 240
 BADGES_MAX_HOUSES = 60      # above this the badge letters would be unreadable; tooltips still carry them
 LEGEND = ("house colour = net kW this hour (dark = near the fuse cap, blue = exporting PV) · "
-          "transformer colour = loading % · badges: HP heat pump, EL direct electric heating, EV charger, PV solar")
+          "transformer colour = loading % · badges (shown up to 60 houses; hover a house for its details): "
+          "HP heat pump, EL direct electric heating, EV charger, PV solar")
 
 
 def loading_color(pct: float) -> QColor:
@@ -146,10 +147,6 @@ class FeederDiagram(QGraphicsView):
         self._items["hour_label"] = _readable(sc.addText("", font))
         self._items["hour_label"].setDefaultTextColor(QColor(ACCENT))
         self._items["hour_label"].setPos(20, 20)
-        if not show_badges:
-            note = _readable(sc.addText("badges hidden above 60 houses — hover a house", small))
-            note.setDefaultTextColor(QColor(MUTED))
-            note.setPos(X0, y_bot + 36)
         sc.setSceneRect(sc.itemsBoundingRect().adjusted(-10, -10, 30, 30))
 
     def _badges(self, j: int) -> list[str]:

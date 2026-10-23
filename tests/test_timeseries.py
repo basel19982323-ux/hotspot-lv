@@ -59,7 +59,7 @@ def test_export_hours_reverse_flow_and_raise_voltage(slice_result):
 def test_summary_counts(slice_result):
     _, _, yr = slice_result
     s = yr.summary()
-    assert s["80 % rule"] == int((yr.hourly["loading_pct"] > 80).sum())
+    assert s["above 80 % of nameplate"] == int((yr.hourly["loading_pct"] > 80).sum())
     assert s["below 0.90 pu"] == 0 and s["above 1.10 pu"] == 0
     dc = yr.duration_curve()
     assert dc[0] >= dc[-1] and dc[0] == pytest.approx(s["peak_loading_pct"])

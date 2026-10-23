@@ -76,7 +76,7 @@ def test_card_html_says_what_the_screen_card_says(station):
     assert f"<b>{v.really['max hot-spot (°C)']:,.1f}</b>" in page
     for k in NOT_CHECKED_KEYS:
         assert f"{html.escape(k)}</td><td align='right' style='color:#6b6b6b'><b>not checked</b>" in page
-    paper_at, really_at, inputs_at = page.index("ON PAPER (NAMEPLATE RULE)"), page.index("REALLY (THERMAL MODEL"), page.index("<h2>Inputs")
+    paper_at, really_at, inputs_at = page.index("ON PAPER (NAMEPLATE)"), page.index("REALLY (THERMAL MODEL"), page.index("<h2>Inputs")
     for k in v.on_paper:                                                         # each row under its own heading
         assert paper_at < page.index(f">{html.escape(k)}</td>") < really_at, k
     for k in v.really:
@@ -355,8 +355,8 @@ def test_legends_sit_above_the_plots_not_on_the_data(app):
     """Catches: a pyqtgraph legend box back inside the plot (it sat on the January peaks); an unlabelled rule line;
     a rule label shown although its line is off the axis."""
     import pyqtgraph as pg
-    for cls, words in ((YearTimeline, ("loading", "hot-spot", "outdoor", "80 % rule", "scrubber")),
-                       (DurationCurve, ("80 % rule", "nameplate", "1.5 × rated")),
+    for cls, words in ((YearTimeline, ("loading", "hot-spot", "outdoor", "80 %", "scrubber")),
+                       (DurationCurve, ("80 %", "nameplate", "1.5 × rated")),
                        (WorstWeek, ("hot-spot", "top-oil", "outdoor", "98 °C", "loading"))):
         w = cls()
         assert w.plot.plotItem.legend is None, f"{cls.__name__}: legend box inside the plot"
@@ -365,13 +365,13 @@ def test_legends_sit_above_the_plots_not_on_the_data(app):
             assert word in w.legend.text(), f"{cls.__name__}: legend does not name {word!r}"
     tl = YearTimeline()
     labels = {it.label.format for it in tl.plot.plotItem.items if isinstance(it, pg.InfiniteLine) and it.label is not None}
-    assert {"80 % rule", "nameplate"} <= labels
+    assert {"80 %", "nameplate"} <= labels
     dc = DurationCurve()
     dc.plot.setFixedSize(600, 400); dc.setAttribute(pg.QtCore.Qt.WA_DontShowOnScreen, True); dc.show()
     dc.plot.setYRange(0, 110, padding=0); app.processEvents()
     shown = {it.label.format: it.label.isVisible() for it in dc.plot.plotItem.items
              if isinstance(it, pg.InfiniteLine) and it.label is not None}
-    assert shown == {"80 % rule": True, "nameplate": True, "IEC 1.5 × rated": False}   # 150 % is off a 0–110 axis
+    assert shown == {"80 %": True, "nameplate": True, "IEC 1.5 × rated": False}   # 150 % is off a 0–110 axis
     dc.plot.setYRange(0, 600, padding=0); app.processEvents()                    # an At-risk station: 80 and 100 crowd
     vis = [it.label for it in dc.plot.plotItem.items if isinstance(it, pg.InfiniteLine) and it.label and it.label.isVisible()]
     rects = [lab.sceneBoundingRect().adjusted(0, 5, 0, -5) for lab in vis]       # the text, without its padding

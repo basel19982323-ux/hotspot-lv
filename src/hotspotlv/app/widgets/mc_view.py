@@ -6,7 +6,7 @@ numbers — and the verdict — depend on who happened to get a heat pump, an EV
     │ [Run 10 draws]       │ │ chart [peak load ▾]     ● one dot per draw, band = middle 80 %,   │
     │ ▓▓░ 2/10 · 0:40      │ │                         line = median, dashed = the rule limits   │
     └──────────────────────┘ │ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■   verdict squares per draw                   │
-                             │ limits line: "dashed: 80 % paper rule · 100 % of nameplate"       │
+                             │ limits line: "dashed: 80 % · 100 % of nameplate"              │
                              ├ spread table: quantity · mean · min · 10 % · 50 % · 90 % · max ──┤
                              └ every draw ────────────────────────────────────────────────────────┘
     caption: "10 draws (seeds 0–9): same verdict in all: OK; peak load 60–78 % (median 70) …"
@@ -39,7 +39,7 @@ from hotspotlv.verdict import DESIGN_LIFE_DAYS_PER_YEAR, LEVELS, WATCH_LIFE_DAYS
 # metric → (label, unit for the caption, [(limit value, limit label, colour)]) — limits are the verdict module's numbers
 METRICS = {
     "peak_loading_pct": ("peak load (% of nameplate)", " %",
-                         [(NAMEPLATE_RULE_PCT, f"{NAMEPLATE_RULE_PCT:g} % paper rule", RULE_80), (100.0, "100 % of nameplate", RULE_100)]),
+                         [(NAMEPLATE_RULE_PCT, f"{NAMEPLATE_RULE_PCT:g} % of nameplate", RULE_80), (100.0, "100 % of nameplate", RULE_100)]),
     "hours_above_80": (f"hours above {NAMEPLATE_RULE_PCT:g} % of nameplate", " h", []),
     "hours_above_100": ("hours above 100 % of nameplate", " h", []),
     "life_days_per_year": ("life used (days/yr)", " days/yr",

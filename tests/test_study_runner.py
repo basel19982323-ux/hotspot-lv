@@ -135,14 +135,15 @@ def test_the_first_limit_is_the_smallest_house_count_that_meets_it_in_any_row_or
                   {"houses": 65, "grid": False, "watch_thermal": True},
                   {"houses": 66, "grid": False, "watch_thermal": True, "at_risk_thermal": True},
                   {"houses": 60, "year": 2020}, {"houses": 70, "year": 2020, "at_risk_voltage": True},
-                  {"houses": 55, "watch_cable": True, "grid": False}])            # a refined cable row is ignored
+                  {"houses": 55, "watch_cable": True, "grid": False},             # a refined cable row is ignored
+                  {"houses": 62, "at_risk_voltage": True, "grid": False}])        # and so is a refined voltage row
     runs = runs.drop_duplicates(["street", "year", "houses"]).sample(frac=1, random_state=1)
     meters = pd.DataFrame({"street": "suburb", "year": [2010] * 4 + [2020] * 2, "houses": [50, 60, 55, 70, 60, 70],
                            "meter_peak_pct": [70.0, 85.0, 81.0, 101.0, 60.0, 70.0], "grid": True})
     first = figures.first_houses(runs, meters).set_index(["year", "criterion"])["houses"]
     assert first[(2010, figures.RULE80)] == 55 and first[(2010, figures.METER100)] == 70
     assert first[(2010, figures.WATCH)] == 65 and first[(2010, figures.RISK)] == 66
-    assert np.isnan(first[(2010, figures.CABLE)])                             # grid only for the cable
+    assert np.isnan(first[(2010, figures.CABLE)]) and np.isnan(first[(2010, figures.VOLT)])   # grid only for these
     assert first[(2020, figures.VOLT)] == 70 and np.isnan(first[(2020, figures.RULE80)])   # not reached: no number
 
 
@@ -237,8 +238,21 @@ def test_committed_runs_cover_every_planned_case_once_and_flags_match_rules():
     assert set(zip(meters.street, meters.year, meters.houses)) == planned and len(meters) == len(planned)
 
 
+def test_the_committed_refinement_fills_every_step_and_each_first_point_has_both_views():
+    """Catches: a refined step with a hole (a first limit read too late), and a first point without its meter sum or
+    full run (the 5.2 table silently skipped 58 of 66 meter values in round 1)."""
+    import figures
+    runs, meters = figures.load(RESULTS)                                    # raises on a gap in any step
+    first = figures.first_houses(runs, meters)
+    for crit in (figures.RULE80, figures.METER100, figures.WATCH, figures.RISK):
+        f = first[first.criterion == crit].dropna(subset=["houses"])
+        keys = set(zip(f.street, f.year, f.houses.astype(int)))
+        assert keys <= set(zip(runs.street, runs.year, runs.houses.astype(int))), crit
+        assert keys <= set(zip(meters.street, meters.year, meters.houses.astype(int))), crit
+
+
 def test_sensitivity_base_reproduces_runs_csv():
-    runs = pd.read_csv(RESULTS / "runs.csv")
+    runs = pd.concat([pd.read_csv(RESULTS / "runs.csv"), pd.read_csv(RESULTS / "runs_fine.csv")])
     for f in ("sensitivity_limits.csv", "sensitivity.csv"):
         s = pd.read_csv(RESULTS / f)
         base = s[s.variation.str.startswith("base")].reset_index(drop=True)
@@ -250,6 +264,24 @@ def test_sensitivity_base_reproduces_runs_csv():
             assert (m.at_risk_thermal_s == m.at_risk_thermal_r).all() and (m.watch_thermal_s == m.watch_thermal_r).all()
         if "verdict_s" in m:
             assert (m.verdict_s == m.verdict_r).all()
+    fine = pd.read_csv(RESULTS / "sensitivity_limits_fine.csv")
+    m = fine[fine.variation.str.startswith("base")].merge(runs, on=["street", "year", "houses"], suffixes=("_s", "_r"),
+                                                          validate="one_to_one")
+    assert len(m) > 0 and (m.at_risk_thermal_s == m.at_risk_thermal_r).all() and (m.watch_thermal_s == m.watch_thermal_r).all()
+
+
+def test_the_exact_sensitivity_base_finds_the_main_studys_exact_first_limits():
+    import figures
+    runs, meters = figures.load(RESULTS)
+    first = figures.first_houses(runs, meters)
+    lim = pd.concat([pd.read_csv(RESULTS / "sensitivity_limits.csv"), pd.read_csv(RESULTS / "sensitivity_limits_fine.csv")])
+    by = figures.limits_by_variation(lim, first)
+    base = by[by.variation.str.startswith("base")].set_index(["street", "year"])
+    main = first.pivot_table(index=["street", "year"], columns="criterion", values="houses", dropna=False)
+    for key, row in base.iterrows():
+        for col, crit in (("watch", figures.WATCH), ("at_risk", figures.RISK)):
+            a, b = row[col], main.loc[key, crit]
+            assert (np.isnan(a) and np.isnan(b)) or a == b, (key, col, a, b)
 
 
 # ---------------------------------------------------------------- charts end to end

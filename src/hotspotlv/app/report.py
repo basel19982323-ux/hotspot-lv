@@ -193,7 +193,8 @@ def rule_rows(checked: bool = False) -> list[tuple[str, str, str, str, str]]:
          "checked" if checked else nc),
         ("cable", "> 100 % of its rating", "—", CABLE_SOURCE, "checked" if checked else nc),
         (f"hours above {NAMEPLATE_RULE_PCT:g} % / 100 % of nameplate", "never changes the verdict", "never changes the verdict",
-         "the DSO rule of thumb (Energiforsk 2018:552) — shown for contrast", "counted"),
+         "echoes the DSO rule of thumb (Energiforsk 2018:552), which applies 80 % to summed meter kW, "
+         "about 10 % below the transformer's kVA — shown for contrast", "counted"),
     ]
 
 
@@ -358,7 +359,7 @@ simulation (IEC 60076-7 model with generic constants) — results are indicative
 
 <table width='100%' cellpadding='4'><tr>
 <td width='50%' valign='top'>
-  <p style='color:{ACCENT}; font-weight:bold; font-size:9pt; letter-spacing:1px'>ON PAPER (NAMEPLATE RULE)</p>
+  <p style='color:{ACCENT}; font-weight:bold; font-size:9pt; letter-spacing:1px'>ON PAPER (NAMEPLATE)</p>
   <table width='100%'>{_kv_rows(v.on_paper)}</table>
 </td>
 <td width='50%' valign='top'>

@@ -9,7 +9,7 @@ the station flips.
     │ ▓▓░ 2/6 · 1:05       │ ├─────────────────────────────────────────────────────────────────┤
     └──────────────────────┘ │ legend strip · table of the sweep rows                           │
                              └─────────────────────────────────────────────────────────────────┘
-    caption: "the 80 % rule first flags the station at 75 houses; the insulation stays below the
+    caption: "the transformer loading first passes 80 % of nameplate at 75 houses; the insulation stays below the
               IEC design rate …; the verdict first turns At risk at 90 houses because of …"
 
 The engine runs the sweep (study.sweep); this file only draws it.
@@ -46,7 +46,7 @@ SHOW = ["verdict", "peak_loading_pct", "hours_above_80", "hours_above_100", "lif
         "voltage_bad_hours", "voltage_plan_hours", "max_cable_pct", "exact_hours", "why"]
 DESIGN_RATE_DAYS = 365.0            # IEC 60076-7: V = 1 uses one day of life per day
 LIFE_FLOOR = 1e-4                   # smallest value drawn on the log axis
-LEGEND_HTML = (f"<span style='color:{LOAD_COLOR}'>&#9679; hours above 80 % (the paper rule)</span> &nbsp; "
+LEGEND_HTML = (f"<span style='color:{LOAD_COLOR}'>&#9679; hours above 80 % of nameplate (the nameplate view)</span> &nbsp; "
                f"<span style='color:{RULE_100}'>&#9660; hours above 100 %</span> &nbsp; "
                f"<span style='color:{HOTSPOT_COLOR}'>&#9679; life used, days/yr (right axis, log; dashed = 365, the IEC design rate; &#9670; = not computed, loading above 2 × rated)</span>"
                " &nbsp; squares below the axis = verdict: "
@@ -64,6 +64,14 @@ class LogAxis(pg.AxisItem):
             x = 10 ** float(v) * scale
             out.append(f"{x:g}" if x >= 1 else f"{x:.{max(0, -int(np.floor(np.log10(x) + 1e-9)))}f}")
         return out
+
+
+class HoursAxis(pg.AxisItem):
+    """The hours axis: the band below zero only holds the verdict squares, so negative ticks carry no label
+    ("−100 h/yr" read as a value — final README review, 23 Oct 2026)."""
+
+    def tickStrings(self, values, scale, spacing):
+        return ["" if v < 0 else s for v, s in zip(values, super().tickStrings(values, scale, spacing))]
 
 
 class SweepView(QWidget):
@@ -133,7 +141,7 @@ class SweepView(QWidget):
         self.base_label = QLabel(""); self.base_label.setProperty("muted", True); self.base_label.setWordWrap(True)
         rv.addWidget(self.banner); rv.addWidget(self.base_label)
         split = QSplitter(Qt.Vertical)
-        self.plot = pg.PlotWidget(axisItems={"right": LogAxis("right")})
+        self.plot = pg.PlotWidget(axisItems={"right": LogAxis("right"), "left": HoursAxis("left")})
         self.plot.setLabel("left", "h/yr above 80 % / 100 % of nameplate")
         self.plot.setMinimumHeight(130)
         self.plot.showGrid(x=True, y=True, alpha=0.2)
@@ -372,8 +380,8 @@ class SweepView(QWidget):
         fmt = lambda v: self._fmt(v, knob)
         parts = []
         paper = t.index[t["hours_above_80"] > 0]
-        parts.append(f"the 80 % rule first flags the station at {fmt(paper[0])}" if len(paper)
-                     else "the 80 % rule never flags the station in this range")
+        parts.append(f"the transformer loading first passes 80 % of nameplate at {fmt(paper[0])}" if len(paper)
+                     else "the transformer loading never passes 80 % of nameplate in this range")
         life = t["life_days_per_year"]
         over = t.index[life > DESIGN_RATE_DAYS]
         withdrawn = t.index[life.isna()]

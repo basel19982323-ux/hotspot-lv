@@ -52,7 +52,7 @@ HEADER_TIPS = {
                                               f"{REINFORCEMENT_YEARS:.0f} yr (Energiforsk 2024:1043 §6.2), undiscounted — "
                                               "what the same peak reduction would be worth as deferred reinforcement."),
     "peak %": "Peak load as % of that row's OWN nameplate (the 800 kVA row is measured against 800 kVA).",
-    "h > 80 %": "Hours per year above 80 % of that row's own nameplate (the paper rule).",
+    "h > 80 %": "Hours per year above 80 % of that row's own nameplate (the nameplate view).",
     "h > 100 %": "Hours per year above 100 % of that row's own nameplate.",
     "life days/yr": "Days of insulation life used per year (IEC 60076-7; 365 = the design rate).",
     "why": "The rule that decided the verdict, with its source.",
@@ -161,8 +161,11 @@ class FixesView(QWidget):
         column = QWidget(); cv = QVBoxLayout(column); cv.setContentsMargins(0, 0, 6, 0)
         cv.addWidget(g1); cv.addWidget(g2); cv.addStretch(1)
         scroll = QScrollArea(); scroll.setWidget(column); scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        column.setMinimumWidth(0); scroll.setMinimumWidth(250)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        # the cost fields sit two to a row: narrower than that, scroll sideways instead of cutting them off
+        # (they were clipped at the splitter in the README screenshot — final review, 23 Oct 2026)
+        column_w = column.minimumSizeHint().width()                 # the narrowest that shows every field
+        column.setMinimumWidth(column_w); scroll.setMinimumWidth(250)
 
         results = QWidget(); rv = QVBoxLayout(results); rv.setContentsMargins(0, 0, 0, 0)
         self.banner = QLabel(""); self.banner.setWordWrap(True); self.banner.setVisible(False)
@@ -187,7 +190,7 @@ class FixesView(QWidget):
         rv.addWidget(split, 1); rv.addWidget(self.notes)
         outer = QSplitter(Qt.Horizontal)
         outer.addWidget(scroll); outer.addWidget(results)
-        outer.setStretchFactor(0, 0); outer.setStretchFactor(1, 1); outer.setSizes([300, 900])
+        outer.setStretchFactor(0, 0); outer.setStretchFactor(1, 1); outer.setSizes([column_w + 16, 900])
         lay.addWidget(outer)
 
     @staticmethod

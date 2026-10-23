@@ -73,8 +73,9 @@ class ScenarioPanel(QWidget):
         f1.addRow("Feeders", self.feeders)
         f1.addRow("House main fuse", self.fuse)
         f1.addRow("Enclosure", self.enclosure)
-        wx = QLabel("2023, the Swedish calendar year (1 Jan – 31 Dec, Swedish time): SMHI 96190 Eskilstuna A "
-                    "temperatures + PVGIS solar for Västerås"); wx.setWordWrap(True)
+        wx = QLabel("2023 (1 Jan – 31 Dec, Swedish time): SMHI 96190 Eskilstuna A temperature, PVGIS solar "
+                    "for Västerås"); wx.setWordWrap(True)
+        wx.setMinimumHeight(3 * wx.fontMetrics().lineSpacing() + 4)   # a wrapped label in a form row got one line
         wx.setToolTip("Measured hourly air temperature from SMHI's checked archive and PVGIS hourly PV output. Other "
                       "places and years come later; mode B (own station data) already takes any SMHI station.")
         f1.addRow("Weather", wx)
@@ -142,6 +143,7 @@ class ScenarioPanel(QWidget):
         dbox = QWidget(); dl = QVBoxLayout(dbox); dl.setContentsMargins(0, 0, 0, 0)
         dl.addWidget(self.diagram, 1)
         self.diagram_legend = QLabel(DIAGRAM_LEGEND); self.diagram_legend.setProperty("muted", True); self.diagram_legend.setWordWrap(True)
+        self.diagram_legend.setMinimumHeight(3 * self.diagram_legend.fontMetrics().lineSpacing() + 4)   # never under the diagram
         dl.addWidget(self.diagram_legend)
         tl.addWidget(dbox)
         tl.setSizes([380, 240])                          # the timeline drives the diagram: it gets the larger share

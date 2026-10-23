@@ -68,6 +68,7 @@ from hotspotlv.catalogue import transformer
 
 REF_HOT_SPOT_C = 98.0        # IEC: normal ageing rate 1.0 at 98 °C (kraft paper)
 K_MAX = 3.0                  # above 3 × rated the model (and the transformer) is meaningless
+HOT_SPOT_COUNT_LIMITS_C = (98.0, 120.0, 140.0)   # time above these is counted from the sub-steps (ascending)
 MAX_SUBSTEPS = 10_000        # per row; guards against a dt that would run forever
 IEC_LIMITS_C = {             # IEC 60076-7 Table 4 (2005) — distribution transformers
     "normal_cyclic_hot_spot": 120.0,
@@ -165,7 +166,8 @@ def load_for_hot_spot(theta_h_c: float, theta_a_c: float, p: ThermalParams = The
 
 @dataclass
 class ThermalResult:
-    hourly: pd.DataFrame      # per step: theta_o, theta_h (end), theta_h_max (within step), V_mean, life_used_h
+    hourly: pd.DataFrame      # per step: theta_o, theta_h (end), theta_h_max (within step), V_mean, life_used_h,
+                              # h_above_98 / _120 / _140 (hours of the step the hot-spot spends above)
     params: ThermalParams
     step_min: float
     dt_min: float
@@ -181,8 +183,17 @@ class ThermalResult:
         return float(self.hourly["V_mean"].mean())
 
     def steps_hot_spot_above(self, limit_c: float) -> int:
-        """Number of steps whose within-step MAX hot-spot exceeds the limit (IEC limits are instantaneous)."""
+        """Number of steps whose within-step MAX hot-spot exceeds the limit (IEC limits are instantaneous). The max
+        includes the step's start value, so an excursion ending on a step boundary touches two steps: this counts
+        steps touched, not time — for time use hours_hot_spot_above."""
         return int((self.hourly["theta_h_max"] > limit_c).sum())
+
+    def hours_hot_spot_above(self, limit_c: float) -> float:
+        """Time the hot-spot spends above the limit, from the sub-steps (resolution: one sub-step, ≤ 2 min)."""
+        col = f"h_above_{limit_c:g}"
+        if col not in self.hourly:
+            raise ValueError(f"time above is counted for {HOT_SPOT_COUNT_LIMITS_C} °C only, not {limit_c:g}")
+        return float(self.hourly[col].sum())
 
     def summary(self) -> dict:
         h = self.hourly
@@ -237,10 +248,12 @@ def simulate(
     dt_min   : integration sub-step; IEC requires Δt ≤ τw/2 (default 2 min for τw = 4 min)
 
     Load and ambient are held constant within each step. Returns, per step: the
-    end-of-step temperatures, the max hot-spot reached within the step (after
-    the first sub-step), the mean ageing rate within the step and the
-    cumulative life used in hours. With start_from_steady_state=False the
-    transformer starts at ambient (cold) — allow a day of warm-up.
+    end-of-step temperatures, the max hot-spot reached within the step (its start
+    value included, so the hour a load drops shows where it came from), the time
+    the hot-spot spends above 98 / 120 / 140 °C (from the sub-steps), the mean
+    ageing rate within the step and the cumulative life used in hours. With
+    start_from_steady_state=False the transformer starts at ambient (cold) —
+    allow a day of warm-up.
     """
     if not K.index.equals(theta_a.index):
         raise ValueError("K and theta_a must share the same index")
@@ -275,6 +288,8 @@ def simulate(
     theta_h_end = np.empty(n)
     theta_h_max = np.empty(n)
     v_mean = np.empty(n)
+    above = np.zeros((n, len(HOT_SPOT_COUNT_LIMITS_C)))      # sub-steps above each counted limit
+    lim1, lim2, lim3 = HOT_SPOT_COUNT_LIMITS_C
     force_o = ((1 + p.R * k**2) / (1 + p.R)) ** p.x * p.d_theta_or   # constant within a step
     force_h = k**p.y * p.d_theta_hr
     ref = REF_HOT_SPOT_C
@@ -283,6 +298,7 @@ def simulate(
     for i in range(n):
         fo, fh, t_amb = force_o[i], force_h[i], ta[i]
         h_max, v_sum = th, 0.0          # the step's max includes its starting value (dt-independent)
+        c1 = c2 = c3 = 0
         for _ in range(n_sub):
             th_o += a_o * (fo - (th_o - t_amb))
             d_h1 += a_h1 * (p.k21 * fh - d_h1)
@@ -290,6 +306,12 @@ def simulate(
             th = th_o + d_h1 - d_h2
             if th > h_max:
                 h_max = th
+            if th > lim1:
+                c1 += 1
+                if th > lim2:
+                    c2 += 1
+                    if th > lim3:
+                        c3 += 1
             if p.paper == "kraft":
                 v_sum += 2.0 ** ((th - ref) / 6.0)
             else:
@@ -298,10 +320,12 @@ def simulate(
         theta_h_end[i] = th
         theta_h_max[i] = h_max
         v_mean[i] = v_sum / n_sub
+        above[i] = (c1, c2, c3)
 
     hourly = pd.DataFrame({
         "theta_o": theta_o, "theta_h": theta_h_end, "theta_h_max": theta_h_max,
         "V_mean": v_mean, "life_used_h": np.cumsum(v_mean) * step_min / 60,   # V × step length
+        **{f"h_above_{lim:g}": above[:, j] * dt / 60 for j, lim in enumerate(HOT_SPOT_COUNT_LIMITS_C)},
     }, index=K.index)
     return ThermalResult(hourly, params, step_min, dt)
 

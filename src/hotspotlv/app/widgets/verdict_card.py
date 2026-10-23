@@ -79,7 +79,7 @@ class VerdictCard(QFrame):
         # the two columns sit side by side when there is room, else one under the other —
         # the readouts are never squeezed (regression of 21 Oct)
         self._cols = QGridLayout()
-        self._paper = self._column("ON PAPER (nameplate rule)")
+        self._paper = self._column("ON PAPER (nameplate)")
         self._really = self._column("REALLY (thermal model + limits)")
         self._stacked = False
         self._place(stacked=False)

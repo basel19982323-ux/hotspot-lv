@@ -193,6 +193,27 @@ def test_within_hour_max_is_above_end_of_hour_after_a_step_down():
     assert r.summary()["max_hot_spot_time"] == r.hourly.theta_h_max.idxmax().isoformat()
 
 
+def test_time_above_a_limit_is_time_not_steps_touched():
+    """Catches: counting the steps whose max (start value included) is above — an excursion ending on a step
+    boundary was counted one extra hour (round-2 study review, 23 Oct 2026: 2 h above 140 °C were 14 min)."""
+    i = _idx(26)
+    K = pd.Series([1.5] * 24 + [0.5] * 2, index=i)
+    r = simulate(K, pd.Series(20.0, index=i))
+    # the hour the load drops starts above 120 °C (its max says so) but falls below within minutes
+    assert r.hourly.theta_h_max.iloc[24] > 120 and r.hourly.theta_h.iloc[24] < 120
+    assert r.steps_hot_spot_above(120) == r.hours_hot_spot_above(120) // 1 + 1      # one step touched, not timed
+    assert 0 < r.hourly.h_above_120.iloc[24] < 1                                     # part of that hour only
+    assert r.hours_hot_spot_above(120) < r.steps_hot_spot_above(120)
+    fine = simulate(K, pd.Series(20.0, index=i), dt_min=0.25)
+    assert fine.hours_hot_spot_above(120) == pytest.approx(r.hours_hot_spot_above(120), abs=2 / 60)
+    assert r.hours_hot_spot_above(98) >= r.hours_hot_spot_above(120) >= r.hours_hot_spot_above(140)
+    with pytest.raises(ValueError, match="counted"):
+        r.hours_hot_spot_above(110)
+    # constant above: every minute counts
+    c = simulate(*_const(24, 1.5, 20.0))
+    assert c.hours_hot_spot_above(98) == pytest.approx(24.0)
+
+
 def test_life_bookkeeping_and_limits():
     i = _idx(26)
     K = pd.Series([1.0] * 2 + [1.5] * 24, index=i)

@@ -28,7 +28,7 @@ import pandas as pd
 
 from hotspotlv.feeder import POWER_FACTOR, set_house_loads
 
-NAMEPLATE_RULE_PCT = 80.0     # the Swedish DSO rule of thumb (Energiforsk 2018:552)
+NAMEPLATE_RULE_PCT = 80.0     # echoes the Swedish DSO rule of thumb (Energiforsk 2018:552; there on summed meter kW)
 VMIN_LIMIT_PU, VMAX_LIMIT_PU = 0.90, 1.10   # EN 50160 ±10 %
 
 
@@ -41,7 +41,7 @@ class YearResult:
     def hours_above(self) -> dict[str, int]:
         lp = self.hourly["loading_pct"]
         return {
-            "80 % rule": int((lp > NAMEPLATE_RULE_PCT).sum()),
+            "above 80 % of nameplate": int((lp > NAMEPLATE_RULE_PCT).sum()),
             "100 % nameplate": int((lp > 100.0).sum()),
             "120 %": int((lp > 120.0).sum()),
         }

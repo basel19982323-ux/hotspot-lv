@@ -73,7 +73,7 @@ LABEL_MIN_PLOT_PX = 120   # below this data-area height the rule labels collide 
 def rule_line(plot, y: float, color, text: str, where: dict, fill=None, priority: int = 0) -> pg.InfiniteLine:
     """A dashed horizontal rule line with a label. A label is shown only while its line is inside the y-range, the
     data area is tall enough, and it does not overlap a label of higher priority (the IEC limit before the
-    nameplate before the 80 % rule) — never a label without its line, never two labels on each other (reviews of
+    nameplate before the 80 % line) — never a label without its line, never two labels on each other (reviews of
     22 Oct 2026: overlapping and floating labels on the laptop and on every At-risk card)."""
     opts = {"color": color, **where}
     if fill is not None:
@@ -145,12 +145,12 @@ class LegendStrip(QLabel):
 
 
 TIMELINE_LEGEND = ((LOAD_COLOR, "&#9644;", "loading % (left axis)"),
-                   (RULE_100, "&#9476;", "dashed: 80 % rule and nameplate (loading %, not °C)"),
+                   (RULE_100, "&#9476;", "dashed: 80 % and 100 % of nameplate (transformer loading %, not °C)"),
                    (HOTSPOT_COLOR, "&#9644;", "hot-spot °C (right axis)"),
                    (AMBIENT_COLOR, "&#9644;", "outdoor °C (right axis)"),
                    ("#000000", "&#9474;", "scrubber: drag it, or ← →"))
 DURATION_LEGEND = ((LOAD_COLOR, "&#9644;", "loading sorted high → low: read it as 'above x % for y hours'"),
-                   (RULE_100, "&#9476;", "dashed: 80 % rule · nameplate · 1.5 × rated (IEC 60076-7 normal cyclic current limit, "
+                   (RULE_100, "&#9476;", "dashed: 80 % · nameplate · 1.5 × rated (IEC 60076-7 normal cyclic current limit, "
                                          "on the chart when the peak reaches it)"))
 WORST_WEEK_LEGEND = ((HOTSPOT_COLOR, "&#9644;", "hot-spot °C"),
                      (OIL_COLOR, "&#9644;", "top-oil °C"),
@@ -193,21 +193,76 @@ def interval_text(t: pd.Timestamp, step: pd.Timedelta) -> str:
     return f"{t:%a %d %b %Y %H:%M}–{end:%H:%M} {t.tzname()}"
 
 
-class SwedishTimeAxis(pg.DateAxisItem):
-    """A date axis over UTC seconds whose tick labels are Swedish time (CET in winter, CEST in summer)."""
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+# (nominal spacing in seconds, unit, step): the axis takes the finest step whose labels still fit
+TICK_STEPS = ((3600, "h", 1), (2 * 3600, "h", 2), (3 * 3600, "h", 3), (6 * 3600, "h", 6), (12 * 3600, "h", 12),
+              (86400, "D", 1), (2 * 86400, "D", 2), (7 * 86400, "W", 1),
+              (30 * 86400, "M", 1), (61 * 86400, "M", 2), (91 * 86400, "M", 3), (182 * 86400, "M", 6),
+              (365 * 86400, "Y", 1))
+TICK_LABEL_PX = 64           # room one label needs ("Wed 06", "2023", "18:00") with a gap
+
+
+def local_ticks(lo: float, hi: float, unit: str, step: int) -> list[float]:
+    """UTC seconds of the Swedish wall-clock ticks between lo and hi: round hours, local midnights, Mondays, month
+    or year starts. Wall-clock times that do not exist or exist twice (the DST switches) get no tick."""
+    a, b = _local(lo).tz_localize(None), _local(hi).tz_localize(None)
+    if unit == "h":
+        naive = pd.date_range(a.floor("h"), b, freq="h")
+        naive = naive[naive.hour % step == 0]
+    elif unit == "D":
+        naive = pd.date_range(a.floor("D"), b, freq="D")
+        naive = naive[(naive.dayofyear - 1) % step == 0]
+    elif unit == "W":
+        naive = pd.date_range(a.floor("D"), b, freq="W-MON")
+    elif unit == "M":
+        naive = pd.date_range(a.to_period("M").to_timestamp(), b, freq="MS")
+        naive = naive[(naive.month - 1) % step == 0]
+    else:
+        naive = pd.date_range(pd.Timestamp(a.year, 1, 1), b, freq="YS")
+    stamps = naive.tz_localize(LOCAL, ambiguous="NaT", nonexistent="NaT").dropna()
+    return [s for s in (t.timestamp() for t in stamps) if lo <= s < hi]   # no tick ON the right end: there it is
+                                                                           # the next period's start ("2024" after Dec)
+
+
+class SwedishTimeAxis(pg.AxisItem):
+    """A time axis over UTC seconds whose ticks sit on Swedish wall-clock times (CET in winter, CEST in summer) and
+    are labelled in that same clock. pyqtgraph's DateAxisItem takes one UTC offset for all ticks: over a year it put
+    the month ticks on summer-time month starts, which are 23:00 the evening before in winter time — the labels then
+    read "Jan Feb Apr … Oct Oct Nov" (numbers audit, 23 Oct 2026). Here every tick is computed in local time."""
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, utcOffset=-3600, **kwargs)
+        super().__init__("bottom", *args, **kwargs)
+        self.enableAutoSIPrefix(False)                     # epoch seconds must never be shown "×1e9"
+        self.setStyle(hideOverlappingLabels=20)            # the first tick sits on the left edge ("2023" on 1 Jan):
+                                                           # pyqtgraph hid it as overflowing by a few pixels
+
+    def boundingRect(self):
+        # with the grid on, pyqtgraph's boundingRect skips the hideOverlappingLabels allowance, so a label centred
+        # on either end of the axis was still dropped: give the text 20 px of room on both sides
+        return super().boundingRect().adjusted(-20, 0, 20, 0)
 
     def tickValues(self, minVal, maxVal, size):
-        self.utcOffset = -_local((minVal + maxVal) / 2).utcoffset().total_seconds()  # ticks on local midnights/hours
-        return super().tickValues(minVal, maxVal, size)
+        if not (np.isfinite(minVal) and np.isfinite(maxVal)) or maxVal <= minVal or size <= 0:
+            return []
+        fit = max(2, int(size / TICK_LABEL_PX))
+        spacing, unit, step = next((s for s in TICK_STEPS if (maxVal - minVal) / s[0] <= fit), TICK_STEPS[-1])
+        return [(spacing, local_ticks(minVal, maxVal, unit, step))]
 
     def tickStrings(self, values, scale, spacing):
         out = []
         for v in values:
-            self.utcOffset = -_local(v).utcoffset().total_seconds()                   # each label in its own zone
-            out += super().tickStrings([v], scale, spacing)
+            t = _local(v)
+            if spacing >= 300 * 86400:
+                out.append(f"{t.year}")
+            elif spacing >= 27 * 86400:                     # months; January carries the year
+                out.append(f"{t.year}" if t.month == 1 else MONTHS[t.month - 1])
+            elif spacing >= 6 * 86400:
+                out.append(f"{t.day:02d} {MONTHS[t.month - 1]}")
+            elif spacing >= 86400 or (t.hour == 0 and t.minute == 0):
+                out.append(f"{WEEKDAYS[t.weekday()]} {t.day:02d}")
+            else:
+                out.append(f"{t.hour:02d}:{t.minute:02d}")
         return out
 
 
@@ -238,7 +293,7 @@ class DurationCurve(QWidget):
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         self.legend = LegendStrip(DURATION_LEGEND)
         self.curve = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=2))
-        for y, c, txt, prio in ((NAMEPLATE_RULE_PCT, RULE_80, "80 % rule", 0), (100, RULE_100, "nameplate", 1),
+        for y, c, txt, prio in ((NAMEPLATE_RULE_PCT, RULE_80, "80 %", 0), (100, RULE_100, "nameplate", 1),
                                 (150, HOTSPOT_COLOR, "IEC 1.5 × rated", 2)):
             rule_line(self.plot, y, c, txt, LABEL_RIGHT, priority=prio)
         self.caption = QLabel("")
@@ -274,7 +329,7 @@ class YearTimeline(QWidget):
         self.legend = LegendStrip(TIMELINE_LEGEND)
         self.load = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=1))
         # the rule labels sit mid-year (the summer trough), where the loading curve is far below them
-        for y, c, txt, prio in ((NAMEPLATE_RULE_PCT, RULE_80, "80 % rule", 0), (100, RULE_100, "nameplate", 1)):
+        for y, c, txt, prio in ((NAMEPLATE_RULE_PCT, RULE_80, "80 %", 0), (100, RULE_100, "nameplate", 1)):
             rule_line(self.plot, y, c, txt, {"position": 0.5}, fill=pg.mkBrush(255, 255, 255, 220),   # white backing:
                       priority=prio)                                                 # a hot summer can run through it
         self.right = pg.ViewBox()

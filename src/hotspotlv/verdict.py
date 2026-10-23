@@ -35,7 +35,7 @@ Rules (every threshold with its source):
     • top-oil       > 105 °C                IEC 60076-7 Table 4, normal cyclic
     • load          > 1.5 × rated           IEC 60076-7 Table 4, normal cyclic current limit
     • any hour below 0.92 or above 1.05 pu  planning margin: an hourly balanced mean understates the
-                                             10-minute, per-phase extremes the law is about (Chalmers
+                                             10-minute, per-phase extremes the regulation is about (Chalmers
                                              LV-grid generator uses 1.05 pu as the rise limit)
     • any cable     > 100 % of its rating   LV cable current rating of the feeder model (Prysmian AXQJ
                                              in ground, 20 °C soil);
@@ -56,7 +56,11 @@ with the rules they decide, and the first At-risk reason says the loading left
 that range. Extrapolated figures there (millions of days of life, 300 °C) look
 like results and are not.
 
-The nameplate counters (hours above 80 % / 100 %) never change the verdict.
+The nameplate counters (hours above 80 % / 100 %) never change the verdict. They count the transformer's own
+loading (a current ratio: with the assumed power factor, the losses and the busbar voltage). The DSO rule of
+thumb they echo (Energiforsk 2018:552) applies 80 % to the customers' summed hourly meter kW; at the peak hour
+the transformer carries 7–16 % more than that sum implies — so this counter starts a little earlier than that
+rule would.
 Voltages are hourly balanced means of a simulation; counters use a tiny
 tolerance so a value sitting exactly ON a threshold does not count as above it.
 """
@@ -223,8 +227,8 @@ def judge(year: YearResult, thermal: ThermalResult) -> Verdict:
         "days of life used per year": life_days_per_year,
         "max hot-spot (°C)": max_hot_spot,
         "max top-oil (°C)": max_top_oil,
-        "hours hot-spot above 98 °C": thermal.steps_hot_spot_above(98) * step_h,
-        "hours hot-spot above 120 °C": thermal.steps_hot_spot_above(IEC_LIMITS_C["normal_cyclic_hot_spot"]) * step_h,
+        "hours hot-spot above 98 °C": thermal.hours_hot_spot_above(98),
+        "hours hot-spot above 120 °C": thermal.hours_hot_spot_above(IEC_LIMITS_C["normal_cyclic_hot_spot"]),
         "max load (× rated)": max_k,
         "hours with voltage outside ±10 %": v_law_bad,
         "hours with voltage outside the planning band": v_plan_bad,
