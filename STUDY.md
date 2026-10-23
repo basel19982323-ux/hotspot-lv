@@ -17,9 +17,14 @@ Simulation only.**
 ## 1. In short
 
 Three illustrative Swedish streets grow from a few houses to many, in a deliberately high-electrification mix
-labelled 2030: 80 % of the houses heat with electricity, 60 % charge an EV at home and 40 % have rooftop PV.
-- **Weather:** each house count is judged in **13 real weather years** (2009–2023 without 2016 and 2019, SMHI
-  hourly temperature).
+labelled 2030:
+- 80 % of the houses heat with electricity;
+- 60 % charge an EV at home, unmanaged;
+- 40 % have rooftop PV.
+
+How they were judged:
+- **Weather:** each house count is judged in **13 weather years of measured SMHI temperature** (2009–2023 without
+  2016 and 2019).
 - **Models:** an hourly power flow and the IEC 60076-7 thermal model.
 - **Runs:** 741 simulated years on a grid of house counts, plus 552 runs that pin each first limit to the exact
   house.
@@ -27,50 +32,60 @@ labelled 2030: 80 % of the houses heat with electricity, 60 % charge an EV at ho
 
 1. **On these streets, the transformer reaches its IEC 60076-7 normal cyclic limit at 1.56–1.85 times the houses at
    which an 80 % planning rule first flags it (median 1.65).**
-   - The long-time emergency limit comes at 1.68–2.00 times (median 1.81).
+   - This holds in the 35 of 39 street-years that reached that limit within the studied range.
+   - The long-time emergency limit comes at 1.68–2.00 times (median 1.81; 31 of 39 street-years).
    - The rule is applied as documented, to the summed hourly meter values.
    - **This gap is an upper bound on usable headroom, not advice to load real transformers harder.** The rule's
-     margin is there for reactive power, phase imbalance and peaks inside the hour. This study models only an
-     assumed power factor (section 6).
+     margin is there for reactive power, phase imbalance and peaks inside the hour. This study includes reactive
+     power only through an assumed power factor of 0.95, and models neither imbalance nor peaks inside the hour
+     (section 4.6, section 7).
 2. **Most of that gap is set by the standard itself.**
-   - The summed meters reach 80 % when the transformer carries 0.87–0.91 × rated, because reactive power and losses
-     add about 10 %.
-   - IEC 60076-7 allows 1.5 × rated current in normal cyclic loading.
-   - In Swedish winter air, the modelled kiosk transformer's hot-spot reaches 120 °C at about that current: the first
+   - When the summed meters reach 80 %, the transformer carries 0.87–0.91 × rated. At the peak hour it carries
+     7–16 % more current than the meter sum implies: reactive power, cable losses and the busbar voltage under load.
+   - IEC 60076-7 allows 1.5 × rated current in normal cyclic loading, so the ratio is roughly 1.5 ÷ 0.9.
+   - In Swedish winter air, the modelled kiosk transformer's hot-spot reaches 120 °C near that current: the first
      Watch comes at 1.40–1.53 × rated.
-   - So the cold air does not stretch the limit beyond the standard's current limits; it lets the transformer reach
-     them.
-   - The peak per house barely changes above 40 houses, so the ratio of houses follows the ratio of loads.
-3. **The first limit to bind is the hot-spot in a few cold late-evening and night hours; yearly ageing follows close
-   behind.**
-   - Every time the long-time emergency limit was first passed, the hot-spot had gone above 140 °C on a winter peak.
-   - At that point the year's insulation ageing was still below the design rate: 19–167 days per year, against 365.
-   - In every case where the range reached far enough (25 of 31), ageing passed the design rate 6–26 houses later,
-     because the same hours drive it.
+   - So the cold air does not take the transformer past the standard's limits. It lets the load come close to the
+     1.5 × rated current limit before the hot-spot reaches 120 °C.
+   - The long-time emergency limit is set by the 140 °C hot-spot, at 1.53–1.75 × rated, below its 1.8 × rated
+     current limit.
+   - The transformer's peak per house, as a median over the 13 years, barely changes above 40 houses, so the ratio
+     of houses follows the ratio of loads.
+3. **The first limit to bind is a short winter peak; yearly ageing follows close behind.**
+   - At the first Watch, the hot-spot was above 120 °C in 29 of 35 cases; in the other 6, the 1.5 × current limit
+     came first.
+   - Every first At risk was a hot-spot above 140 °C.
+   - At that point the year's insulation ageing was still below the design rate: 20–167 days per year, against 365.
+   - In every case where the range reached far enough (25 of 31), ageing passed the design rate within at most
+     6–26 houses (read on the 5/10-house grid), because the same hours drive it.
 4. **Where the 80 % rule first flags, the modelled transformer is thermally far from its limits:** 0.08–0.34 days of
    insulation life used per year, and a hot-spot of at most 61 °C.
-5. **On these streets, which grow by adding cables, the street itself rarely limits before the transformer.**
+5. **On these streets, which grow by adding cables, voltage never limits before the transformer, and a cable does so
+   only in the dense town (4 of 13 years).**
    - This follows largely from the assumed design: a 240 mm² main cable everywhere, and at most 8, 15 or 25 houses
      per cable.
    - A house voltage left the ±10 % band only in the coldest year, at the top of two ranges, when the transformer
      carried 2.3–2.4 × rated.
-   - In the dense town, the fullest cable reached its continuous rating in 5 of 13 years, before the transformer's
-     Watch in 4 of them. That result turns on the 25-houses-per-cable assumption.
+   - In the dense town, the fullest cable reached its continuous rating in 5 of 13 years, by margins of 0–9 %, and
+     before the transformer's Watch in 4 of them. That turns on the 25-houses-per-cable assumption.
 6. **The weather year matters.**
    - The coldest year (2010) brought the At-risk limit 18–19 % fewer houses earlier than the 13-year median.
    - At the same station it used 2.3–3.3 times the insulation life of the median year.
    - The At-risk limit was not reached within the studied range in the two years with the fewest hours below −10 °C
      (2015, 2020), nor on the village road in 2014 and 2018.
 7. **The generic transformer constants move the limit only a little.**
-   - One constant was moved at a time over a plausible range. Three of the pessimistic changes go beyond what a unit
-     passing its temperature-rise test can have.
-   - The first At-risk point shifted by −11 % to +9 %.
-   - With the most pessimistic single change, the At-risk limit still came at 1.68 or more times the houses of the
-     80 % rule (in 2010 and 2023).
+   - One constant was moved at a time, from optimistic to deliberately pessimistic, in 2010, 2020 and 2023.
+   - Two of the pessimistic changes would fail the IEC 60076-2 temperature-rise test, and one doubles the kiosk
+     correction.
+   - The first At-risk point shifted by −8 % to +10 %, with exact counts.
+   - With the most pessimistic single change, the At-risk limit still came at 1.60 or more times the
+     houses of the 80 % rule (in 2010 and 2023).
    - The insulation ageing is far more sensitive (up to 3 times), but it stays small at those points.
 8. **This is consistent with earlier work, not a new discovery.**
-   - Nazir & Bollen (Energiforsk 2024:2009) needed 1.56 × load plus 10.5 K of air for a 140 °C hot-spot on a
-     measured northern-Swedish station. Here, 140 °C is reached at 1.53–1.75 × rated on cold evenings.
+   - Nazir & Bollen (Energiforsk 2024:2009) scaled the measured load of a northern-Swedish station: with load alone,
+     the hot-spot reached 140 °C at about 1.7 times the measured peak. Their unit sat outdoors, with no kiosk, and
+     used other thermal constants.
+   - Here, with the kiosk correction, 140 °C is reached at 1.53–1.75 × rated.
    - ENWL (2016) found the short-term peak risk matters more than the ageing.
    - This study adds three street types, 13 weather years, the documented rule next to the IEC limits, and a
      one-at-a-time sensitivity.
@@ -79,8 +94,10 @@ labelled 2030: 80 % of the houses heat with electricity, 60 % charge an EV at ho
 
 ## 2. The question
 
-**How DSOs plan.** Swedish distribution system operators (DSOs) plan secondary substations with nameplate rules.
-Karlstads Elnät documented one of them (Energiforsk 2018:552):
+**How a station is screened.** Swedish DSOs size secondary substations against the nameplate rating, for example
+with Velander's formula, as the national model in Energiforsk 2023:966 does.
+
+Energiforsk 2018:552 documents Karlstads Elnät's screening rule for EV charging:
 - sum the customers' hourly meter values per station;
 - compare the peak with **80 % of the transformer's rating**.
 
@@ -88,6 +105,9 @@ The report gives three reasons for the 20 % margin, and none of them is thermal.
 - no reactive power;
 - no imbalance between the phases;
 - no peaks inside the hour.
+
+It calls the 80 % level a judgement, not a scientific limit, and notes that a more detailed analysis could raise it
+after a separate evaluation.
 
 **What changes.** Electrification raises winter peaks: heat pumps with electric back-up on cold days, and EVs
 charging in the evening.
@@ -103,8 +123,9 @@ limits. For distribution transformers (IEC 60076-7:2005, Table 4):
 
 - **Emergency loading:** the long-time emergency limits are meant for prolonged outages, not for planned everyday
   peaks. A study for planning should lead with the normal cyclic limits.
-- **Other station equipment:** IEC 60076-7 (7.2.2) warns that above 1.5 × rated, other parts can limit first:
-  bushings, cable ends, leads and the oil expansion.
+- **Other limits:** IEC 60076-7 (7.2.2) warns that above 1.5 × rated, the transformer's own parts can limit first:
+  bushings, cable-end connections, leads and the oil expansion. The station's fuses, breakers and LV switchgear have
+  ratings of their own.
 - **Edition:** the 2018 edition renumbers these tables. Its values were not checked here.
 
 **What this study asks.** On a Swedish street growing towards a high-electrification future:
@@ -119,19 +140,20 @@ limits. For distribution transformers (IEC 60076-7:2005, Table 4):
 
 | Earlier work | What it found | How this study relates |
 |---|---|---|
-| Nazir & Bollen, LTU, Energiforsk RAPPORT 2024:2009 | IEC 60076-7 on a measured distribution transformer in northern Sweden, with the 10-minute load scaled to a 1.0 pu peak. Total ageing was about 0.35 days over 1.5 years, "försumbart" (negligible), because the highest loads come with low air temperature. To reach a 140 °C hot-spot, the load had to be raised 1.56 times **and** the air by 10.5 K. | Consistent. Here, 140 °C is reached on cold evenings at 1.53–1.75 × rated. This study adds three street types, 13 weather years, a one-at-a-time sensitivity and a comparison with voltage and cable limits. |
+| Nazir & Bollen, LTU, Energiforsk RAPPORT 2024:2009 | IEC 60076-7 on a measured distribution transformer in northern Sweden, with the 10-minute load scaled to a 1.0 pu peak. Total ageing was about 0.35 days over 1.5 years, "försumbart" (negligible), because the highest loads come with low air temperature. Raising the load alone, the hot-spot reached 140 °C at about 1.7 × the measured peak; a stress case with 1.56 × load and +10.5 K air also gave 140 °C (108 days of ageing in 22 months). Outdoor unit; other thermal constants. | Consistent. Here, with the kiosk correction, 140 °C is reached on cold evenings at 1.53–1.75 × rated. This study adds three street types, 13 weather years, a one-at-a-time sensitivity and a comparison with voltage and cable limits. |
 | Hilshey et al., IEEE Trans. Smart Grid 4(2), 2013 | In cool climates, moderate overloading from EV charging may not substantially shorten transformer life; warm climates age it more. | Consistent. The cold-climate result must not be carried to warm markets. |
-| Electricity North West (ENWL) and University of Manchester, *Distribution Asset Thermal Modelling*, NIA ENWL002 closedown report and appendix 1 (Gao), 2016 | EV charging gives moderate ageing; the larger risk is short-term, at peak load (around 1.5 pu). Generic IEC constants missed measured hot-spots by up to 8.15 K. | Consistent. Here too the peak-temperature limits bind before cumulative ageing. The sensitivity covers ±8 K and more. |
+| Electricity North West (ENWL) and University of Manchester, *Distribution Asset Thermal Modelling*, NIA ENWL002 closedown report and appendix 1 (Gao), 2016 | EV charging gives moderate ageing; the larger risk is short-term, at peak load (around 1.5 pu). On one monitored unit, generic IEC constants missed the measured hot-spot by up to 8.15 K. | Consistent. Here too the peak-temperature limits bind before cumulative ageing. The sensitivity covers ±8 K and more. |
 | Energiforsk 2023:966 (Chalmers, Profu; dated Dec 2024) | National Swedish model: in towns, EV-charging problems come mainly from transformer overload. Voltage drop is mainly rural, though few rural LV grids have problems at all. | Consistent for the villa suburb and dense town. The "village road" here is short, not a long rural line, so it does not test the rural voltage finding. |
 | Energiforsk 2026:1197 | Long periods of hard cold often dimension local grids. | Consistent: the coldest year dominates the results. |
-| Phase to Phase, Vision Network Analysis (commercial; IEC 60076-7 ageing since v0.98, June 2025); Alliander transformer-thermal-model (open library, MPL-2.0) | IEC 60076-7 thermal and ageing calculations are available in a commercial load-flow tool and as an open library. | Hotspot LV is not the first tool with IEC ageing. Its own contribution is a free, open, Swedish-rules package with measured hourly weather. |
+| Phase to Phase, Vision Network Analysis (commercial; IEC 60076-7 thermal and ageing calculation, announced Aug 2025, feature description 26-006 SNI of 16 Jan 2026); Alliander transformer-thermal-model (open library, MPL-2.0) | IEC 60076-7 thermal and ageing calculations are available in a commercial load-flow tool and as an open library. | Hotspot LV is not the first tool with IEC ageing. Its own contribution is a free, open, Swedish-rules package with measured hourly weather. |
 
 **What this study adds:**
-- the comparison across three street types and 13 measured weather years;
+- the comparison across three street types and 13 weather years of measured temperature;
 - the planning rule applied the way it is documented (summed meters), next to the transformer's IEC limits;
 - the first limit among transformer, house voltage (EIFS 2023:3) and cables;
 - a one-at-a-time sensitivity to the generic constants;
-- code and data that reproduce every number.
+- code and data that reproduce every table and chart, and a script for the spot checks quoted in the text
+  (`study/spot_checks.py`).
 
 ---
 
@@ -150,7 +172,7 @@ limits. For distribution transformers (IEC 60076-7:2005, Table 4):
  street: transformer + N main cables + a service cable per house ──► hourly power flow (pandapower)
             │                                                          │
             ▼                                                          ▼
- transformer loading K = kVA / rated kVA                    house voltages, cable currents
+ transformer loading K = current / rated current                    house voltages, cable currents
             │
             ▼
  IEC 60076-7 thermal model (kiosk) ──► top-oil, winding hot-spot, insulation ageing
@@ -187,11 +209,14 @@ The street types are **illustrative assumptions, not measured networks.**
   - Cable resistance at 20 °C (at full current it is up to about 28 % higher).
 - Power flow: balanced (one phase represents three) and hourly.
 
-**Impedance and voltage.** A Swedish DSO's specification (Ellevio, 2022) uses uk 4 % up to 500 kVA and 4.5 % at
-800 kVA, and a 420 V no-load secondary voltage.
-- The 6 % used here gives more voltage drop than that, which is conservative for undervoltage.
-- The 400 V secondary and 1.00 pu sending voltage give less voltage rise in PV hours, which is optimistic for
-  overvoltage.
+**Impedance and voltage.** A Swedish DSO's specification (Ellevio, 2022) uses uk 3.5 % up to 200 kVA, 4 % at 315
+and 500 kVA and 4.5 % at 800 kVA, and a 420 V no-load secondary voltage.
+- **Lower house voltages here.** Three choices put the house voltages lower than in that specification: uk 6 % at
+  500 and 800 kVA (315 kVA uses 4 %, as Ellevio does), the 400 V secondary, and the 1.00 pu sending voltage.
+  - That is conservative for undervoltage, the case that limits here, and optimistic for overvoltage.
+  - The larger uk also raises the transformer current by about 1 %, which is conservative for the transformer.
+- **The other direction.** Cable resistance at 20 °C, and a 10 kV feeder that sags at the shared winter peak (not
+  modelled), work the other way.
 
 ### 4.3 The houses: a high-electrification mix, labelled 2030
 
@@ -290,8 +315,14 @@ end of one winter and the start of the next. File details and attribution are in
 
 **What the planner sees.** The houses' hourly meter values are summed: the active power each house draws, without
 reactive power or losses. The sum is compared with the transformer's kVA rating, as the documented 80 % rule does.
-At the same hour, the transformer's modelled loading is 1.08–1.16 times this sum (power factor 0.95 assumed,
-plus losses). So the rule here flags later than a rule applied to the transformer's own kVA would.
+
+**What the transformer carries.** At the peak hour, the transformer's current is 1.07–1.16 times what the meter sum
+implies. The loading is a current ratio, as IEC 60076-7 uses. The difference has three parts:
+- about 5 % for reactive power (power factor 0.95 assumed for all consumption, 1/0.95 = 1.053);
+- the rest for the cable losses and because the busbar voltage sags under load.
+
+So the rule here flags later than a rule applied to the transformer's own loading would
+(`study/spot_checks.py` shows three cases).
 
 **What the transformer sees.** Each simulated year gets one verdict from the modelled loading, and any single rule
 is enough:
@@ -308,7 +339,8 @@ is enough:
 
 Above 2.0 × rated (the IEC short-time emergency limit), the thermal figures are not computed and the verdict says so.
 In the tables below, the transformer's **thermal limit** means its thermal and current rules (the first, second,
-fourth and fifth rows); voltage and cables are counted separately.
+fourth and fifth rows); voltage and cables are counted separately. "Hours hot-spot above 120 °C" in the app is the
+time the hot-spot spends above it, counted from the model's 2-minute sub-steps.
 
 ### 4.7 "First reached", exactly
 
@@ -316,6 +348,8 @@ fourth and fifth rows); voltage and cables are counted separately.
 - **The grid.** The study first runs a grid of house counts (steps of 5 or 10).
 - **The exact step.** Then, for the two meter rules and the transformer's thermal Watch and At risk, every house
   count inside the step just below the first grid count is run too. Those first counts are exact to one house.
+  - Every exact first count also has both a full run and a meter sum.
+  - The sensitivity (section 5.4) is refined the same way.
 - **Voltage and cables** are read on the grid only. The cable loading comes and goes as cables fill up, because the
   fullest cable carries up to N houses at almost any street size. A first count between grid points would only
   reflect that alignment.
@@ -367,15 +401,15 @@ How to read a cell:
 "Above x" is a lower bound: in that year the limit was not reached even at the largest house count studied.
 
 **Why the ratio is about 1.6–2.** It follows mostly from the IEC limits themselves, not from a large thermal margin:
-- The rule flags when the summed meters pass 0.8 × rating. The transformer then carries 0.87–0.91 × rated, because
-  it sees 1.08–1.16 times the meter sum (power factor 0.95 assumed, plus losses).
+- The rule flags when the summed meters pass 0.8 × rating. The transformer then carries 0.87–0.91 × rated
+  (section 4.6).
 - The transformer's first Watch comes at 1.40–1.53 × rated, close to the IEC normal cyclic current limit of 1.5.
-- The peak per house is 5.5–6.1 kVA at every house count from 40 up, so the ratio of houses follows the ratio of
-  loads.
+- The transformer's peak per house, as a median over the 13 years, is 5.5–6.1 kVA at every house count from 40 up
+  (6.9–7.5 in 2010). So the ratio of houses follows the ratio of loads.
 - In steady state at −25 °C, the modelled kiosk unit reaches 120 °C at 1.39–1.44 × rated and 140 °C at
   1.51–1.56 × rated.
-- The winter evening peaks reach 1.53–1.75 × rated before passing 140 °C only because the oil (τo = 3 h) lags behind
-  a peak lasting a few hours.
+- The winter evening peaks reach 1.53–1.75 × rated before passing 140 °C mainly because the oil (τo = 3 h) lags
+  behind a peak lasting a few hours, and partly because the air is colder than −25 °C on the coldest nights.
 
 **Which limit comes first**, among the transformer's thermal Watch, the house voltage and the cable rating:
 
@@ -400,20 +434,23 @@ How the transformer stands at each first-reached point (exact house counts):
 |---|---|---|---|---|---|
 | 80 % rule first flags | 80–83 % | 87–91 % | 41–61 °C | 0.08–0.34 days/yr | the rule |
 | Summed meters first above the rating | 100–103 % | 109–113 % | 64–87 °C | 0.13–1.6 days/yr | the rule |
-| Thermal Watch first reached | 130–136 % | 140–153 % | 112–125 °C | 2.0–22 days/yr | hot-spot above 120 °C in 29 of 35 cases; in the other 6, load above 1.5 × rated |
-| Thermal At risk first reached | 137–147 % | 153–175 % | 140–145 °C | 19–167 days/yr | hot-spot above 140 °C in all 31 cases |
+| Thermal Watch first reached | 126–139 % | 140–153 % | 112–125 °C | 2.0–22 days/yr | hot-spot above 120 °C in 29 of 35 cases; in the other 6, load above 1.5 × rated |
+| Thermal At risk first reached | 136–158 % | 153–175 % | 140–145 °C | 20–167 days/yr | hot-spot above 140 °C in all 31 cases |
 
 **The deciding peaks.**
-- They are a few cold late-evening and night hours. In the coldest year, at the village road's first At-risk point
-  (74 houses), the hot-spot was above 140 °C for 2 hours: 23:00 and midnight on 5–6 January, with the air at −29 and
-  −27 °C. It was above 120 °C for 35 hours that year, all between 18:00 and 11:00.
-- At the first At-risk point the year's ageing is still below the design rate, but it rises steeply. In every case
-  where the range reached far enough (25 of 31), it passed 365 days per year 6–26 houses later (7–19 % more houses).
+- **In the case examined hour by hour,** they are a few cold late-evening and night hours. That case is the
+  village road's first At-risk point in the coldest year (74 houses, 2010):
+  - the hot-spot was above 140 °C for about 14 minutes, just before midnight on 5 January, at 1.64 × rated with the
+    air at −28.7 °C;
+  - it was above 120 °C for about 30 hours that year, all between 18:00 and 11:00 (`study/spot_checks.py`).
+- **Ageing rises steeply.** At the first At-risk point the year's ageing is still below the design rate. In every case
+  where the range reached far enough (25 of 31), it passed 365 days per year within at most 6–26 houses (read on the
+  5/10-house grid).
 - This agrees with the ENWL finding that the short-term risk at peak load matters more than cumulative ageing.
 
 **Why the temperature limits matter in their own right.** IEC 60076-7:2005 (5.3, 7.2.1) links hot-spot temperatures
-above 140 °C to gas bubbles forming in the insulation, where the electrical stress is high. That threshold assumes
-dry paper (about 2 % moisture) and falls in wetter, older units.
+above 140 °C to gas bubbles forming in the insulation, where the electrical stress is high. That threshold is given for
+paper with about 2 % moisture. It is higher in drier paper and lower in wetter, older units.
 
 ![Nameplate view vs modelled ageing](docs/figures/paper_vs_real.png)
 
@@ -469,26 +506,28 @@ At the point where a planner first sees "overloaded on paper", no single plausib
 transformer near a thermal limit.
 
 **How far the limit itself moves.**
-- The same 16 variations were run for every house count on the grid of every street, in 2010, 2020 and 2023: 171
-  loading years, each judged 16 times.
-- The loading of a house count does not depend on the transformer constants, so the 80 % rule's first flag stays
-  where it is. Only the thermal verdict moves.
+- **What was run:** the same 16 variations, for every house count on the grid of every street, in 2010, 2020 and
+  2023 (171 loading years, each judged 16 times).
+- **The exact step:** then every house count in the step just below each variation's first grid count (189 more).
+  The first counts below are exact to one house. With generic constants they equal the main study's exact counts.
+- **What moves:** the loading of a house count does not depend on the transformer constants, so the 80 % rule's
+  first flag stays where it is. Only the thermal verdict moves.
 
 ![How far the first At-risk limit moves](docs/figures/sensitivity_limits.png)
 
-| Street | Weather year | 80 % rule first flags (exact) | First At risk, generic constants (grid) | First At risk, range over the 15 variations (grid) |
+| Street | Weather year | 80 % rule first flags | First At risk, generic constants | First At risk, range over the 15 variations |
 |---|---|---|---|---|
-| Village road | 2010 | 39 houses | 75 | 70–80 |
-| Village road | 2023 | 47 | 95 | 85–100 |
-| Villa suburb | 2010 | 63 | 110 | 110–120 |
-| Villa suburb | 2023 | 76 | 140 | 130–150 |
-| Dense town | 2010 | 101 | 180 | 170–190 |
-| Dense town | 2023 | 118 | 220 | 200–230 |
+| Village road | 2010 | 39 houses | 74 | 70–79 |
+| Village road | 2023 | 47 | 91 | 84–96 |
+| Villa suburb | 2010 | 63 | 110 | 105–118 |
+| Villa suburb | 2023 | 76 | 134 | 124–147 |
+| Dense town | 2010 | 101 | 173 | 162–185 |
+| Dense town | 2023 | 118 | 214 | 199–229 |
 
-- **The first At-risk point moves by −11 % to +9 %**, at most two steps of the grid. In every row, the two
-  pessimistic bounds (top-oil rise +10 K\*, hot-spot gradient +8 K\*) are among the changes that bring it earliest.
-- **With the most pessimistic single change, the At-risk limit still comes at 1.68 or more times** the houses at which
-  the 80 % rule flags (1.68–1.81 across the six rows). Over all variations the range is 1.68–2.13.
+- **The first At-risk point moves by −8 % to +10 %.** In every row, one of the three pessimistic bounds (\*) brings it
+  earliest.
+- **With the most pessimistic single change, the At-risk limit still comes at 1.60 or more times** the houses at which
+  the 80 % rule flags (1.60–1.80 across the six rows). Over all variations the range is 1.60–2.04.
 - **Watch moves less.** The first Watch comes at 1.49 or more times, partly because the 1.5 × rated current limit
   does not depend on the constants.
 - **In 2020**, the mildest year, no variation reached Watch or At risk within the studied range.
@@ -503,21 +542,26 @@ transformer near a thermal limit.
 ## 6. What it means
 
 **For a planner.** On these modelled streets, the step from "the 80 % rule flags the station" to "the transformer
-reaches its IEC normal cyclic limit" is 1.56–1.85 times the houses (median 1.65). That gap is an upper bound on usable headroom. A DSO could
+reaches its IEC normal cyclic limit" is 1.56–1.85 times the houses (median 1.65), mostly the standard's own
+1.5 × rated current against the rule's 0.8 × the meter sum. That gap is an upper bound on usable headroom. A DSO could
 consider using part of it only after, at least, these steps. This study checks none of them on a real station.
-1. Measure what the rule's margin covers: reactive power, phase imbalance and peaks inside the hour. Swedish meters
-   must be able to record these per phase, with energy every quarter-hour, from the 2025 metering year
-   (förordning 1999:716, §§ 25–26 and 30; from 1 Jan 2027 elsystemförordningen 2026:1522, 10 kap. 31, 32 and 36 §§).
+1. **Measure what the rule's margin covers:** reactive power, phase imbalance and peaks inside the hour.
+   - Swedish meters must be able to measure current, active and reactive power and voltage in each phase for remote
+     reading, and to register active energy every quarter-hour, from the 2025 metering year (förordning 1999:716,
+     §§ 25–26 and 30; from 1 Jan 2027 elsystemförordningen 2026:1522, 10 kap. 31, 32 and 36 §§).
+   - What a DSO actually stores, and whether quarter-hour values catch the peaks that matter, must be checked. The
+     winding responds in about 8 minutes.
 2. Check the unit's own thermal data, age, condition and kiosk.
-3. Check everything else in the station that carries the current. This means MV and LV fuses or breakers, the LV
-   switchgear, bushings and cable terminations (IEC 60076-7:2005, 7.2.2).
+3. Check everything else that carries the current:
+   - the transformer's own bushings, cable-end connections and leads (IEC 60076-7:2005, 7.2.2);
+   - the station's MV and LV fuses or breakers and the LV switchgear.
 4. Check voltage and cables on the real street.
 
 The decisive case is a cold year like 2010, not a typical one.
 
 **For transformer engineering.**
-- **The binding stress:** on these modelled streets it is a few cold late-evening and night hours at about
-  1.4–1.8 × rated current, not cumulative ageing, and the ageing follows close behind.
+- **The binding stress:** on these modelled streets it is a short winter peak at about 1.4–1.75 × rated current,
+  not cumulative ageing, and the ageing follows close behind.
 - **Where measured data would change a decision:** in those hours. That means measured temperatures (top-oil,
   hot-spot) and the manufacturer's heat-run data.
 - **What moves the answer most:** the top-oil rise, the hot-spot gradient and the kiosk. Upgraded paper changes the
@@ -530,7 +574,7 @@ The decisive case is a cold year like 2010, not a typical one.
 
 1. **No validation against a measured station.** Nothing here shows that the summed synthetic houses match a real
    transformer's current, or that the generic constants match a real unit. With generic constants, ENWL found
-   measured hot-spot errors of up to 8 K.
+   hot-spot errors of up to 8 K on one monitored unit.
 
    The next step that would most strengthen the study is one real station: summed meters against a station
    measurement, and a top-oil log through a cold week.
@@ -542,6 +586,9 @@ The decisive case is a cold year like 2010, not a typical one.
      section 1 are optimistic by an amount not estimated here.
    - **Harmonics:** harmonics from inverter heat pumps and EV chargers add winding losses (IEEE C57.110), which acts
      in the same direction.
+   - **Meter-to-transformer factor:** the headline ratio scales with it, and it rests on an assumed power factor of
+     0.95 for all consumption. Resistive heaters and EV chargers run near unity: at 0.98 the transformer current
+     would be about 3 % lower, and the thermal limits about 3 % more houses away. Not varied here.
 3. **Only the transformer's windings and oil are judged.**
    - The unit is assumed new and dry. Moisture and oxygen in an older unit speed up ageing several times and lower
      the temperature at which gas bubbles can form.
@@ -562,7 +609,8 @@ The decisive case is a cold year like 2010, not a typical one.
 6. **Generic IEC constants, one at a time.**
    - Section 5.4 shows how much each matters on its own.
    - Several constants wrong in the same direction were not tested together.
-   - The pessimistic side of three variations goes beyond what a unit passing its temperature-rise test can have.
+   - Two pessimistic variations go beyond a unit that passes its temperature-rise test, and one doubles the kiosk
+     correction.
 7. **No cold-oil (viscosity) correction.**
    - In very cold, lightly loaded oil the model is optimistic.
    - At the deciding peaks the top-oil is already 90–98 °C, so the effect there is probably small. It is
@@ -583,8 +631,9 @@ python study/make_weather_years.py   # 13 weather files in study/data/weather (a
 python study/run_study.py            # 741 runs → study/results/runs.csv (resumable; about 45 min on 12 cores)
 python study/run_study.py --meters   # summed meter values → study/results/meter_sums.csv (about 2 min)
 python study/refine.py               # exact first counts → study/results/*_fine.csv (about 1 h)
-python study/sensitivity.py          # → study/results/sensitivity.csv and sensitivity_limits.csv (about 20 min)
+python study/sensitivity.py          # → sensitivity.csv, sensitivity_limits.csv, *_fine.csv (about 35 min)
 python study/figures.py              # → docs/figures/*.png and study/results/summary_*.csv
+python study/spot_checks.py          # the hand checks quoted in the text
 pytest tests/test_study_runner.py    # the study's own checks
 ```
 
@@ -602,7 +651,7 @@ The weather files are committed, so `make_weather_years.py` is needed only to re
   cooling).
 - Energimarknadsinspektionen, EIFS 2023:3, 6 kap. 3 § (voltage within 90–110 % in all 10-minute values).
   https://lagen.nu/eifs/2023:3
-- Lindborg, Schumacher (Sustainable Innovation), *Elbilsutvecklingens påverkan på lokalnätsdimensionering av
+- Lindborg (Sustainable Innovation), Schumacher, *Elbilsutvecklingens påverkan på lokalnätsdimensionering av
   nätstationer*, Energiforsk 2018:552 (Dec 2018). The method is Karlstads Elnät's: the 80 % rule and its three stated
   reasons.
 - Nazir, Bollen (LTU), *Stokastisk dynamisk belastningsförmåga för transformatorer*, Energiforsk RAPPORT 2024:2009
@@ -610,21 +659,29 @@ The weather files are committed, so `make_weather_years.py` is needed only to re
 - Hilshey, Hines, Rezaei, Dowds, "Estimating the impact of electric vehicle smart charging on distribution
   transformer aging", IEEE Trans. Smart Grid 4(2), pp. 905–913, June 2013, doi:10.1109/TSG.2012.2217385.
 - Electricity North West / University of Manchester, *Distribution Asset Thermal Modelling*, NIA ENWL002 closedown
-  report (Sept 2016) and appendix 1 (Y. Gao).
-- Energiforsk 2023:966, *Påverkan på elsystemet och elnätet av en storskalig elektrifiering av fordonsflottan*
-  (Dec 2024).
+  report (Sept 2016). Its appendix 1: Y. Gao, *Thermal Monitoring and Thermodynamic Modelling of Distribution
+  Transformers* (May 2016).
+- Taljegård, Lundblad, Kobayshi (Chalmers), Nyholm, Blomqvist (Profu), *Påverkan på elsystemet och elnätet av en
+  storskalig elektrifiering av fordonsflottan*, Energiforsk 2023:966 (Dec 2024).
 - Fritz, Helbrink, Zaya, Lindén, Andersson, *Konkurrensen om efterfrågeflexibilitet – delrapport:
   simuleringsstudie olika effektavgifter*, Energiforsk 2026:1197 (June 2026).
 - Förordning (1999:716) om mätning, beräkning och rapportering av överförd el, §§ 25–26, 30. It is repealed from
   1 Jan 2027 by elsystemförordningen (2026:1522), where the same requirements are in 10 kap. 31, 32 and 36 §§.
 - Commission Regulation (EU) No 548/2014 (Ecodesign for power transformers), as amended by (EU) 2019/1783, Annex I,
   Table I.1.
-- Ellevio, *Technical specifications oil-immersed distribution transformers*, rev 3.0, 2022 (uk and secondary
-  voltage for comparison).
+- Ellevio, *Technical specifications oil-immersed distribution transformers*, rev 3.0, 2022: uk, secondary
+  voltage, and Tier-2 losses, for comparison.
+- Prysmian, AXQJ Pure datasheet: cable current ratings in ground, 20 °C soil.
+- IEEE C57.110, *Recommended Practice for Establishing Liquid-Immersed and Dry-Type Power and Distribution Transformer
+  Capability When Supplying Nonsinusoidal Load Currents* (harmonics, limitation 2).
 - SMHI open data, station 96190 Eskilstuna A, hourly air temperature. CC BY 4.0, "Source: SMHI".
 - PVGIS 5.3, SARAH3. "PVGIS © European Communities, 2001–2026".
 - Hofmann, Bjarghov, Nessa, *Norwegian hourly residential electricity demand data with consumer characteristics
   during the European energy crisis*, Zenodo 8423312 (2023), CC BY 4.0.
 - Trafikanalys, *Fordon i län och kommuner 2025* (Statistik 2026:2, Feb 2026).
+- Energimyndigheten, energy statistics for one- and two-dwelling buildings (EN0102): household electricity level.
+- Sørensen, *Electric vehicle charging dataset with 35,000 charging sessions from 12 residential locations in
+  Norway*, Zenodo 12730566 (2024), CC BY 4.0: the EV model's arrival and energy parameters
+  (`src/hotspotlv/data/ev_charging_parameters.md`).
 - Phase to Phase, *Thermal loading capacity of cables and transformers*, 26-006 SNI (16 Jan 2026).
 - Alliander, transformer-thermal-model (MPL-2.0).

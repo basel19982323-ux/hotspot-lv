@@ -1,6 +1,6 @@
 """How much do the thermal results depend on the generic IEC 60076-7 constants? A one-at-a-time sensitivity.
 
-    python study/sensitivity.py [--part stations|limits|all] [--workers 10]
+    python study/sensitivity.py [--part stations|limits|limits-fine|all] [--workers 10]
                                            (after study/run_study.py: it picks its cases from study/results/runs.csv)
 
 Two parts, both in the weather years 2010 (coldest), 2020 (mildest) and 2023:
@@ -30,6 +30,7 @@ The air variation moves only the temperature around the transformer, not the hea
 
 Results: study/results/sensitivity.csv — per street, year and variation: life used, max hot-spot, verdict.
          study/results/sensitivity_limits.csv — per street, year, house count and variation: the thermal flags.
+         study/results/sensitivity_limits_fine.csv — the same in the step just below each first grid count.
 """
 
 from __future__ import annotations
@@ -124,6 +125,32 @@ def limits(workers: int) -> None:
     out.to_csv(run_study.RESULTS / "sensitivity_limits.csv", index=False, lineterminator="\n")
 
 
+def limits_fine(workers: int) -> None:
+    """Every house count in the step just below each variation's first grid Watch and At risk, judged with all 16
+    variations, so the first count of every variation is exact to one house, like the main study's. Resumable."""
+    import refine
+    lim = pd.read_csv(run_study.RESULTS / "sensitivity_limits.csv")
+    tasks = set()
+    for _, g in lim.groupby("variation"):
+        for mask in (g["watch_thermal"] | g["at_risk_thermal"], g["at_risk_thermal"]):
+            for (s, y), counts in refine.gaps_below_first(g, mask).items():
+                tasks |= {(s, y, n) for n in counts}
+    out_file = run_study.RESULTS / "sensitivity_limits_fine.csv"
+    old = pd.read_csv(out_file) if out_file.exists() else pd.DataFrame(columns=lim.columns)
+    done = set(zip(old["street"], old["year"].astype(int), old["houses"].astype(int)))
+    todo = sorted(tasks - done, key=lambda t: -t[2] * run_study.STREETS[t[0]]["per_cable"])
+    print(f"limits, exact step: {len(todo)} loading years × 16 variations ({len(done)} already done)", flush=True)
+    t0, rows = time.perf_counter(), []
+    with ProcessPoolExecutor(workers) as pool:
+        futures = {pool.submit(limit_rows, *t): t for t in todo}
+        for i, fut in enumerate(as_completed(futures), 1):
+            rows += fut.result()                              # a failed run stops the part: no silent holes
+            if i % 10 == 0 or i == len(todo):
+                print(f"{i}/{len(todo)} done, {time.perf_counter() - t0:.0f} s", flush=True)
+    out = pd.concat([old, pd.DataFrame(rows, columns=lim.columns)], ignore_index=True)
+    out.sort_values(["street", "year", "variation", "houses"]).to_csv(out_file, index=False, lineterminator="\n")
+
+
 def stations() -> None:
     from hotspotlv.study import run_case, thermal_params_for
     from hotspotlv.thermal import simulate
@@ -155,11 +182,13 @@ def stations() -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--part", choices=("stations", "limits", "all"), default="all")
+    ap.add_argument("--part", choices=("stations", "limits", "limits-fine", "all"), default="all")
     ap.add_argument("--workers", type=int, default=10)
     a = ap.parse_args()
     if a.part in ("limits", "all"):
         limits(a.workers)
+    if a.part in ("limits-fine", "all"):
+        limits_fine(a.workers)
     if a.part in ("stations", "all"):
         stations()
     return 0

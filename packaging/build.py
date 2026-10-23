@@ -49,7 +49,7 @@ LICENCE_STEMS = ("LICENSE", "LICENCE", "COPYING", "NOTICE", "AUTHORS")
 TEXT_SUFFIXES = ("", ".txt", ".md", ".rst", ".apache", ".bsd", ".mit", ".lgpl", ".gpl")
 RULE = "-" * 78
 ACK_MARKERS = ("Mersenne Twister", "Thai Open Source", "Stefan Krah", "mimalloc")   # expat, libmpdec: texts present
-MIN_OPENSSL = (3, 5)                # the 3.0 line is out of support; Python 3.14.6+ for Windows bundles 3.5
+MIN_OPENSSL = (3, 5)                # the 3.0 line is out of support; python.org 3.14.9 for Windows bundles 3.5.9
 QT_SOURCE = "https://download.qt.io/archive/qt/{minor}/{v}/submodules/"            # archive/: kept for every version
 QT_MODULES = ("qtbase", "qtsvg", "qtimageformats")
 # Qt attributions that describe code not in this Windows build: other platforms, build tools, Qt modules that are not
@@ -399,7 +399,7 @@ def release_problems() -> list[str]:
     problems = []
     if ssl.OPENSSL_VERSION_INFO[:2] < MIN_OPENSSL:
         problems.append(f"{ssl.OPENSSL_VERSION} (Python {sys.version.split()[0]}) is out of support — build with "
-                        "Python 3.14.8 or later, which bundles OpenSSL 3.5")
+                        "a Python that bundles OpenSSL 3.5 or newer (python.org 3.14.9 has 3.5.9; check ssl.OPENSSL_VERSION)")
     status = git("status", "--porcelain")
     if status is None:
         return problems + ["this is not a git checkout (or git is missing) — a release must come from a commit"]

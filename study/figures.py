@@ -78,8 +78,27 @@ def load(results: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
             if set(_keys(fine)) & set(keys) or len(_keys(fine)) != len(set(_keys(fine))):
                 raise ValueError(f"{fine_name} repeats a grid row or itself")
             parts.append(fine.assign(grid=False))
+        else:
+            print(f"note: no {fine_name} — first counts are read on the grid only (run refine.py)", flush=True)
         out.append(pd.concat(parts, ignore_index=True))
-    return out[0], out[1]
+    runs, meters = out
+    for name, df, masks in (("runs", runs, (runs["watch_thermal"] | runs["at_risk_thermal"], runs["at_risk_thermal"])),
+                            ("meter sums", meters, (meters["meter_peak_pct"] > 80, meters["meter_peak_pct"] > 100))):
+        if not (~df["grid"]).any():
+            continue
+        have = set(_keys(df))
+        for mask in masks:
+            missing = {(s, y, n) for (s, y), counts in gaps_below_first(df[df["grid"]], mask[df["grid"]]).items()
+                       for n in counts} - have
+            if missing:
+                raise ValueError(f"the refined {name} leave {len(missing)} gaps below a first limit, e.g. "
+                                 f"{sorted(missing)[:3]} — run refine.py again")
+    return runs, meters
+
+
+def gaps_below_first(grid: pd.DataFrame, mask: pd.Series) -> dict[tuple[str, int], range]:
+    import refine
+    return refine.gaps_below_first(grid, mask)
 
 
 def first_houses(runs: pd.DataFrame, meters: pd.DataFrame) -> pd.DataFrame:
@@ -149,6 +168,8 @@ def fig_first_limits(first: pd.DataFrame) -> None:
             vv = v.dropna()
             if len(vv):
                 ax.plot([vv.min(), vv.max()], [y, y], color=COLORS[street], lw=5, alpha=0.35, solid_capstyle="round")
+                ax.plot([vv.min(), vv.max()], [y, y], "|", color=COLORS[street], ms=9, mew=1.5)   # visible even
+                # when min = max (a limit reached in a single year)
             m = median_13(v)
             if np.isfinite(m):
                 ax.plot(m, y, "o", color=COLORS[street], ms=6)
@@ -266,9 +287,9 @@ def fig_sensitivity(sens: pd.DataFrame) -> None:
 
 
 def limits_by_variation(lim: pd.DataFrame, first: pd.DataFrame) -> pd.DataFrame:
-    """Per street, year and variation: the first house count with a thermal Watch / At risk on the grid (NaN: not
-    reached), next to where the 80 % rule first flags the same street in the same year (exact; the loading, and so
-    the rule, does not depend on the transformer constants)."""
+    """Per street, year and variation: the first house count with a thermal Watch / At risk (NaN: not reached; exact
+    when the rows include sensitivity_limits_fine.csv), next to where the 80 % rule first flags the same street in
+    the same year (exact; the loading, and so the rule, does not depend on the transformer constants)."""
     rule = first[first["criterion"] == RULE80].set_index(["street", "year"])["houses"]
     rows = []
     for (street, year, var), g in lim.groupby(["street", "year", "variation"]):
@@ -284,7 +305,7 @@ def limits_by_variation(lim: pd.DataFrame, first: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def fig_sensitivity_limits(by_var: pd.DataFrame, names: list[str]) -> None:
+def fig_sensitivity_limits(by_var: pd.DataFrame, names: list[str], exact: bool = False) -> None:
     years = {2010: "o", 2023: "s"}
     fig, axes = plt.subplots(1, len(ORDER), figsize=(11, 5.3), sharey=True)
     y_of = {n: len(names) - 1 - i for i, n in enumerate(names)}
@@ -311,7 +332,7 @@ def fig_sensitivity_limits(by_var: pd.DataFrame, names: list[str]) -> None:
     not_2020 = by_var[by_var["year"] == 2020]["at_risk"].isna().all()
     any_open = by_var[by_var["year"].isin(list(years))]["at_risk"].isna().any()
     fig.suptitle("How far the first thermal At-risk limit moves when one transformer constant is moved — houses where "
-                 "it is first reached (on the 5/10-house grid)\n"
+                 "it is first reached (" + ("exact to one house" if exact else "on the 5/10-house grid") + ")\n"
                  "● weather year 2010 (coldest)   □ 2023" + ("   ▷ not reached within the studied range" if any_open else "")
                  + ("   (2020, the mildest: not reached in any variation)" if not_2020 else "") + "\n"
                  "grey lines: where the 80 % rule (summed meters) first flags the same street — solid 2010, dashed 2023; "
@@ -372,9 +393,14 @@ def main() -> int:
         import sensitivity
         from hotspotlv.thermal import ThermalParams
         names = [n for n, _, _ in sensitivity.variations(ThermalParams())]
-        by_var = limits_by_variation(pd.read_csv(lim_file), first)
+        lim = pd.read_csv(lim_file)
+        lim_fine = res / "sensitivity_limits_fine.csv"
+        exact = lim_fine.exists()
+        if exact:                                    # the step below each first grid count, house by house
+            lim = pd.concat([lim, pd.read_csv(lim_fine)], ignore_index=True)
+        by_var = limits_by_variation(lim, first)
         by_var.to_csv(res / "summary_sensitivity_limits.csv", index=False, lineterminator="\n")
-        fig_sensitivity_limits(by_var, names)
+        fig_sensitivity_limits(by_var, names, exact)
     print(summary.to_string())
     return 0
 

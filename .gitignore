@@ -18,8 +18,11 @@ Thumbs.db
 
 # Local outputs and secrets (never public)
 ttm_venv/
-screenshots/
+# validation/app_smoke.py writes ./screenshots by default; docs/screenshots is published
+/screenshots/
 *.pdf
+*.zip
+*.sha256
 .env
 *.pem
 *.key

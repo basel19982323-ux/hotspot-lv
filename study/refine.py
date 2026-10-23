@@ -63,36 +63,62 @@ def _pool_map(fn, tasks, workers, label):
     return rows
 
 
+def _load_or_empty(path: Path, columns: list[str]) -> pd.DataFrame:
+    return pd.read_csv(path) if path.exists() else pd.DataFrame(columns=columns)
+
+
+def _keys(df: pd.DataFrame) -> set[tuple[str, int, int]]:
+    return set(zip(df["street"], df["year"].astype(int), df["houses"].astype(int)))
+
+
 def main() -> int:
+    """Resumable: rows already in the *_fine.csv files are kept and not run again."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--workers", type=int, default=10)
     a = ap.parse_args()
     res = run_study.RESULTS
+    mgrid = pd.read_csv(res / "meter_sums.csv")
+    mfine = _load_or_empty(res / "meter_sums_fine.csv", run_study.METER_FIELDS)
+    runs = pd.read_csv(res / "runs.csv")
+    rfine = _load_or_empty(res / "runs_fine.csv", run_study.FIELDS)
+
+    def add_meters(tasks: set) -> None:
+        nonlocal mfine
+        todo = sorted(tasks - _keys(mgrid) - _keys(mfine))
+        if todo:
+            new = pd.DataFrame(_pool_map(run_study.meter_sum, todo, a.workers, "meter sums"),
+                               columns=run_study.METER_FIELDS)
+            mfine = pd.concat([mfine, new], ignore_index=True).sort_values(["street", "year", "houses"])
+            mfine.to_csv(res / "meter_sums_fine.csv", index=False, float_format="%.3f", lineterminator="\n")
 
     # 1. the two meter rules, house by house below their first grid count
-    mgrid = pd.read_csv(res / "meter_sums.csv")
     mtasks = set()
     for thr in METER_THRESHOLDS["meter_peak_pct"]:
         for (s, y), counts in gaps_below_first(mgrid, mgrid["meter_peak_pct"] > thr).items():
             mtasks |= {(s, y, n) for n in counts}
-    mfine = pd.DataFrame(_pool_map(run_study.meter_sum, sorted(mtasks), a.workers, "meter sums"),
-                         columns=run_study.METER_FIELDS).sort_values(["street", "year", "houses"])
-    mfine.to_csv(res / "meter_sums_fine.csv", index=False, float_format="%.3f", lineterminator="\n")
+    add_meters(mtasks)
     mall = pd.concat([mgrid, mfine], ignore_index=True)
 
     # 2. full runs: below the first thermal Watch / At risk, and at the exact first counts of the meter rules
-    runs = pd.read_csv(res / "runs.csv")
-    done = set(zip(runs["street"], runs["year"].astype(int), runs["houses"].astype(int)))
     rtasks = set()
     for mask in (runs["watch_thermal"] | runs["at_risk_thermal"], runs["at_risk_thermal"]):
         for (s, y), counts in gaps_below_first(runs, mask).items():
             rtasks |= {(s, y, n) for n in counts}
     for thr in METER_THRESHOLDS["meter_peak_pct"]:
         rtasks |= {(s, y, n) for (s, y), n in first_exact(mall, mall["meter_peak_pct"] > thr).items()}
-    rtasks = sorted(rtasks - done, key=lambda t: -t[2] * run_study.STREETS[t[0]]["per_cable"])
-    print(f"{len(mfine)} meter sums done; {len(rtasks)} full runs to do", flush=True)
-    rfine = pd.DataFrame(_pool_map(run_study.run_one, rtasks, a.workers, "full runs"), columns=run_study.FIELDS)
-    rfine.sort_values(["street", "year", "houses"]).to_csv(res / "runs_fine.csv", index=False, lineterminator="\n")
+    rtasks = sorted(rtasks - _keys(runs) - _keys(rfine), key=lambda t: -t[2] * run_study.STREETS[t[0]]["per_cable"])
+    print(f"{len(rtasks)} full runs to do ({len(rfine)} already in runs_fine.csv)", flush=True)
+    if rtasks:
+        new = pd.DataFrame(_pool_map(run_study.run_one, rtasks, a.workers, "full runs"), columns=run_study.FIELDS)
+        rfine = pd.concat([rfine, new], ignore_index=True).sort_values(["street", "year", "houses"])
+        rfine.to_csv(res / "runs_fine.csv", index=False, lineterminator="\n")
+
+    # 3. the summed meters at the exact thermal first counts too (what the planner would see there)
+    rall = pd.concat([runs, rfine], ignore_index=True)
+    ttasks = set()
+    for mask in (rall["watch_thermal"] | rall["at_risk_thermal"], rall["at_risk_thermal"]):
+        ttasks |= {(s, y, n) for (s, y), n in first_exact(rall, mask).items()}
+    add_meters(ttasks)
     return 0
 
 
