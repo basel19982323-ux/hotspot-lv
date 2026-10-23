@@ -1,145 +1,145 @@
-street,year,variation,watch,at_risk,rule80,range_max,at_risk_vs_rule80
-dense,2010,air at the transformer +5 K,160.0,170.0,100.0,260.0,1.7
-dense,2010,air at the transformer −5 K,170.0,180.0,100.0,260.0,1.8
-dense,2010,"base (generic IEC constants, kiosk)",160.0,180.0,100.0,260.0,1.8
-dense,2010,full kiosk rise (IEC Table 6),150.0,170.0,100.0,260.0,1.7
-dense,2010,hot-spot gradient +8 K,160.0,170.0,100.0,260.0,1.7
-dense,2010,hot-spot gradient −8 K,170.0,190.0,100.0,260.0,1.9
-dense,2010,loss ratio R ×0.7,170.0,180.0,100.0,260.0,1.8
-dense,2010,loss ratio R ×1.3,160.0,180.0,100.0,260.0,1.8
-dense,2010,oil time constant 270 min,170.0,180.0,100.0,260.0,1.8
-dense,2010,oil time constant 90 min,160.0,170.0,100.0,260.0,1.7
-dense,2010,outdoor unit (no kiosk rise),170.0,190.0,100.0,260.0,1.9
-dense,2010,thermally upgraded paper,160.0,180.0,100.0,260.0,1.8
-dense,2010,top-oil rise +10 K,150.0,170.0,100.0,260.0,1.7
-dense,2010,top-oil rise −10 K,170.0,190.0,100.0,260.0,1.9
-dense,2010,winding exponent y 1.3,170.0,180.0,100.0,260.0,1.8
-dense,2010,winding exponent y 2.0,160.0,170.0,100.0,260.0,1.7
-dense,2020,air at the transformer +5 K,,,180.0,260.0,
-dense,2020,air at the transformer −5 K,,,180.0,260.0,
-dense,2020,"base (generic IEC constants, kiosk)",,,180.0,260.0,
-dense,2020,full kiosk rise (IEC Table 6),,,180.0,260.0,
-dense,2020,hot-spot gradient +8 K,,,180.0,260.0,
-dense,2020,hot-spot gradient −8 K,,,180.0,260.0,
-dense,2020,loss ratio R ×0.7,,,180.0,260.0,
-dense,2020,loss ratio R ×1.3,,,180.0,260.0,
-dense,2020,oil time constant 270 min,,,180.0,260.0,
-dense,2020,oil time constant 90 min,,,180.0,260.0,
-dense,2020,outdoor unit (no kiosk rise),,,180.0,260.0,
-dense,2020,thermally upgraded paper,,,180.0,260.0,
-dense,2020,top-oil rise +10 K,,,180.0,260.0,
-dense,2020,top-oil rise −10 K,,,180.0,260.0,
-dense,2020,winding exponent y 1.3,,,180.0,260.0,
-dense,2020,winding exponent y 2.0,,,180.0,260.0,
-dense,2023,air at the transformer +5 K,200.0,210.0,110.0,260.0,1.9090909090909092
-dense,2023,air at the transformer −5 K,200.0,220.0,110.0,260.0,2.0
-dense,2023,"base (generic IEC constants, kiosk)",200.0,220.0,110.0,260.0,2.0
-dense,2023,full kiosk rise (IEC Table 6),190.0,200.0,110.0,260.0,1.8181818181818181
-dense,2023,hot-spot gradient +8 K,190.0,200.0,110.0,260.0,1.8181818181818181
-dense,2023,hot-spot gradient −8 K,200.0,230.0,110.0,260.0,2.090909090909091
-dense,2023,loss ratio R ×0.7,200.0,220.0,110.0,260.0,2.0
-dense,2023,loss ratio R ×1.3,200.0,220.0,110.0,260.0,2.0
-dense,2023,oil time constant 270 min,200.0,220.0,110.0,260.0,2.0
-dense,2023,oil time constant 90 min,190.0,210.0,110.0,260.0,1.9090909090909092
-dense,2023,outdoor unit (no kiosk rise),200.0,230.0,110.0,260.0,2.090909090909091
-dense,2023,thermally upgraded paper,200.0,220.0,110.0,260.0,2.0
-dense,2023,top-oil rise +10 K,190.0,200.0,110.0,260.0,1.8181818181818181
-dense,2023,top-oil rise −10 K,200.0,230.0,110.0,260.0,2.090909090909091
-dense,2023,winding exponent y 1.3,200.0,230.0,110.0,260.0,2.090909090909091
-dense,2023,winding exponent y 2.0,190.0,210.0,110.0,260.0,1.9090909090909092
-rural,2010,air at the transformer +5 K,70.0,75.0,40.0,100.0,1.875
-rural,2010,air at the transformer −5 K,70.0,75.0,40.0,100.0,1.875
-rural,2010,"base (generic IEC constants, kiosk)",70.0,75.0,40.0,100.0,1.875
-rural,2010,full kiosk rise (IEC Table 6),65.0,75.0,40.0,100.0,1.875
-rural,2010,hot-spot gradient +8 K,65.0,70.0,40.0,100.0,1.75
-rural,2010,hot-spot gradient −8 K,70.0,80.0,40.0,100.0,2.0
-rural,2010,loss ratio R ×0.7,70.0,75.0,40.0,100.0,1.875
-rural,2010,loss ratio R ×1.3,70.0,75.0,40.0,100.0,1.875
-rural,2010,oil time constant 270 min,70.0,75.0,40.0,100.0,1.875
-rural,2010,oil time constant 90 min,70.0,75.0,40.0,100.0,1.875
-rural,2010,outdoor unit (no kiosk rise),70.0,80.0,40.0,100.0,2.0
-rural,2010,thermally upgraded paper,70.0,75.0,40.0,100.0,1.875
-rural,2010,top-oil rise +10 K,65.0,70.0,40.0,100.0,1.75
-rural,2010,top-oil rise −10 K,70.0,80.0,40.0,100.0,2.0
-rural,2010,winding exponent y 1.3,70.0,80.0,40.0,100.0,2.0
-rural,2010,winding exponent y 2.0,70.0,75.0,40.0,100.0,1.875
-rural,2020,air at the transformer +5 K,,,70.0,100.0,
-rural,2020,air at the transformer −5 K,,,70.0,100.0,
-rural,2020,"base (generic IEC constants, kiosk)",,,70.0,100.0,
-rural,2020,full kiosk rise (IEC Table 6),,,70.0,100.0,
-rural,2020,hot-spot gradient +8 K,,,70.0,100.0,
-rural,2020,hot-spot gradient −8 K,,,70.0,100.0,
-rural,2020,loss ratio R ×0.7,,,70.0,100.0,
-rural,2020,loss ratio R ×1.3,,,70.0,100.0,
-rural,2020,oil time constant 270 min,,,70.0,100.0,
-rural,2020,oil time constant 90 min,,,70.0,100.0,
-rural,2020,outdoor unit (no kiosk rise),,,70.0,100.0,
-rural,2020,thermally upgraded paper,,,70.0,100.0,
-rural,2020,top-oil rise +10 K,,,70.0,100.0,
-rural,2020,top-oil rise −10 K,,,70.0,100.0,
-rural,2020,winding exponent y 1.3,,,70.0,100.0,
-rural,2020,winding exponent y 2.0,,,70.0,100.0,
-rural,2023,air at the transformer +5 K,85.0,90.0,45.0,100.0,2.0
-rural,2023,air at the transformer −5 K,85.0,95.0,45.0,100.0,2.111111111111111
-rural,2023,"base (generic IEC constants, kiosk)",85.0,95.0,45.0,100.0,2.111111111111111
-rural,2023,full kiosk rise (IEC Table 6),80.0,90.0,45.0,100.0,2.0
-rural,2023,hot-spot gradient +8 K,80.0,85.0,45.0,100.0,1.8888888888888888
-rural,2023,hot-spot gradient −8 K,85.0,100.0,45.0,100.0,2.2222222222222223
-rural,2023,loss ratio R ×0.7,85.0,95.0,45.0,100.0,2.111111111111111
-rural,2023,loss ratio R ×1.3,85.0,90.0,45.0,100.0,2.0
-rural,2023,oil time constant 270 min,85.0,95.0,45.0,100.0,2.111111111111111
-rural,2023,oil time constant 90 min,80.0,90.0,45.0,100.0,2.0
-rural,2023,outdoor unit (no kiosk rise),85.0,95.0,45.0,100.0,2.111111111111111
-rural,2023,thermally upgraded paper,85.0,95.0,45.0,100.0,2.111111111111111
-rural,2023,top-oil rise +10 K,80.0,85.0,45.0,100.0,1.8888888888888888
-rural,2023,top-oil rise −10 K,85.0,100.0,45.0,100.0,2.2222222222222223
-rural,2023,winding exponent y 1.3,85.0,95.0,45.0,100.0,2.111111111111111
-rural,2023,winding exponent y 2.0,80.0,90.0,45.0,100.0,2.0
-suburb,2010,air at the transformer +5 K,110.0,110.0,60.0,160.0,1.8333333333333333
-suburb,2010,air at the transformer −5 K,110.0,120.0,60.0,160.0,2.0
-suburb,2010,"base (generic IEC constants, kiosk)",110.0,110.0,60.0,160.0,1.8333333333333333
-suburb,2010,full kiosk rise (IEC Table 6),100.0,110.0,60.0,160.0,1.8333333333333333
-suburb,2010,hot-spot gradient +8 K,100.0,110.0,60.0,160.0,1.8333333333333333
-suburb,2010,hot-spot gradient −8 K,110.0,120.0,60.0,160.0,2.0
-suburb,2010,loss ratio R ×0.7,110.0,120.0,60.0,160.0,2.0
-suburb,2010,loss ratio R ×1.3,110.0,110.0,60.0,160.0,1.8333333333333333
-suburb,2010,oil time constant 270 min,110.0,120.0,60.0,160.0,2.0
-suburb,2010,oil time constant 90 min,110.0,110.0,60.0,160.0,1.8333333333333333
-suburb,2010,outdoor unit (no kiosk rise),110.0,120.0,60.0,160.0,2.0
-suburb,2010,thermally upgraded paper,110.0,110.0,60.0,160.0,1.8333333333333333
-suburb,2010,top-oil rise +10 K,100.0,110.0,60.0,160.0,1.8333333333333333
-suburb,2010,top-oil rise −10 K,110.0,120.0,60.0,160.0,2.0
-suburb,2010,winding exponent y 1.3,110.0,120.0,60.0,160.0,2.0
-suburb,2010,winding exponent y 2.0,110.0,110.0,60.0,160.0,1.8333333333333333
-suburb,2020,air at the transformer +5 K,,,110.0,160.0,
-suburb,2020,air at the transformer −5 K,,,110.0,160.0,
-suburb,2020,"base (generic IEC constants, kiosk)",,,110.0,160.0,
-suburb,2020,full kiosk rise (IEC Table 6),,,110.0,160.0,
-suburb,2020,hot-spot gradient +8 K,,,110.0,160.0,
-suburb,2020,hot-spot gradient −8 K,,,110.0,160.0,
-suburb,2020,loss ratio R ×0.7,,,110.0,160.0,
-suburb,2020,loss ratio R ×1.3,,,110.0,160.0,
-suburb,2020,oil time constant 270 min,,,110.0,160.0,
-suburb,2020,oil time constant 90 min,,,110.0,160.0,
-suburb,2020,outdoor unit (no kiosk rise),,,110.0,160.0,
-suburb,2020,thermally upgraded paper,,,110.0,160.0,
-suburb,2020,top-oil rise +10 K,,,110.0,160.0,
-suburb,2020,top-oil rise −10 K,,,110.0,160.0,
-suburb,2020,winding exponent y 1.3,,,110.0,160.0,
-suburb,2020,winding exponent y 2.0,,,110.0,160.0,
-suburb,2023,air at the transformer +5 K,120.0,140.0,80.0,160.0,1.75
-suburb,2023,air at the transformer −5 K,130.0,140.0,80.0,160.0,1.75
-suburb,2023,"base (generic IEC constants, kiosk)",130.0,140.0,80.0,160.0,1.75
-suburb,2023,full kiosk rise (IEC Table 6),120.0,130.0,80.0,160.0,1.625
-suburb,2023,hot-spot gradient +8 K,120.0,130.0,80.0,160.0,1.625
-suburb,2023,hot-spot gradient −8 K,130.0,150.0,80.0,160.0,1.875
-suburb,2023,loss ratio R ×0.7,130.0,140.0,80.0,160.0,1.75
-suburb,2023,loss ratio R ×1.3,130.0,140.0,80.0,160.0,1.75
-suburb,2023,oil time constant 270 min,130.0,140.0,80.0,160.0,1.75
-suburb,2023,oil time constant 90 min,120.0,130.0,80.0,160.0,1.625
-suburb,2023,outdoor unit (no kiosk rise),130.0,150.0,80.0,160.0,1.875
-suburb,2023,thermally upgraded paper,130.0,140.0,80.0,160.0,1.75
-suburb,2023,top-oil rise +10 K,120.0,130.0,80.0,160.0,1.625
-suburb,2023,top-oil rise −10 K,130.0,150.0,80.0,160.0,1.875
-suburb,2023,winding exponent y 1.3,130.0,150.0,80.0,160.0,1.875
-suburb,2023,winding exponent y 2.0,120.0,130.0,80.0,160.0,1.625
+street,year,variation,watch,at_risk,rule80,range_max,watch_vs_rule80,at_risk_vs_rule80
+dense,2010,air at the transformer +5 K,160.0,170.0,101.0,260.0,1.5841584158415842,1.683168316831683
+dense,2010,air at the transformer −5 K,170.0,180.0,101.0,260.0,1.683168316831683,1.7821782178217822
+dense,2010,"base (generic IEC constants, kiosk)",160.0,180.0,101.0,260.0,1.5841584158415842,1.7821782178217822
+dense,2010,hot-spot gradient +8 K *,160.0,170.0,101.0,260.0,1.5841584158415842,1.683168316831683
+dense,2010,hot-spot gradient −8 K,170.0,190.0,101.0,260.0,1.683168316831683,1.881188118811881
+dense,2010,kiosk correction doubled *,150.0,170.0,101.0,260.0,1.4851485148514851,1.683168316831683
+dense,2010,loss ratio R ×0.7,170.0,180.0,101.0,260.0,1.683168316831683,1.7821782178217822
+dense,2010,loss ratio R ×1.3,160.0,180.0,101.0,260.0,1.5841584158415842,1.7821782178217822
+dense,2010,oil time constant 270 min,170.0,180.0,101.0,260.0,1.683168316831683,1.7821782178217822
+dense,2010,oil time constant 90 min,160.0,170.0,101.0,260.0,1.5841584158415842,1.683168316831683
+dense,2010,outdoor unit (no kiosk rise),170.0,190.0,101.0,260.0,1.683168316831683,1.881188118811881
+dense,2010,thermally upgraded paper,160.0,180.0,101.0,260.0,1.5841584158415842,1.7821782178217822
+dense,2010,top-oil rise +10 K *,150.0,170.0,101.0,260.0,1.4851485148514851,1.683168316831683
+dense,2010,top-oil rise −10 K,170.0,190.0,101.0,260.0,1.683168316831683,1.881188118811881
+dense,2010,winding exponent y 1.3,170.0,180.0,101.0,260.0,1.683168316831683,1.7821782178217822
+dense,2010,winding exponent y 2.0,160.0,170.0,101.0,260.0,1.5841584158415842,1.683168316831683
+dense,2020,air at the transformer +5 K,,,184.0,260.0,,
+dense,2020,air at the transformer −5 K,,,184.0,260.0,,
+dense,2020,"base (generic IEC constants, kiosk)",,,184.0,260.0,,
+dense,2020,hot-spot gradient +8 K *,,,184.0,260.0,,
+dense,2020,hot-spot gradient −8 K,,,184.0,260.0,,
+dense,2020,kiosk correction doubled *,,,184.0,260.0,,
+dense,2020,loss ratio R ×0.7,,,184.0,260.0,,
+dense,2020,loss ratio R ×1.3,,,184.0,260.0,,
+dense,2020,oil time constant 270 min,,,184.0,260.0,,
+dense,2020,oil time constant 90 min,,,184.0,260.0,,
+dense,2020,outdoor unit (no kiosk rise),,,184.0,260.0,,
+dense,2020,thermally upgraded paper,,,184.0,260.0,,
+dense,2020,top-oil rise +10 K *,,,184.0,260.0,,
+dense,2020,top-oil rise −10 K,,,184.0,260.0,,
+dense,2020,winding exponent y 1.3,,,184.0,260.0,,
+dense,2020,winding exponent y 2.0,,,184.0,260.0,,
+dense,2023,air at the transformer +5 K,200.0,210.0,118.0,260.0,1.694915254237288,1.7796610169491525
+dense,2023,air at the transformer −5 K,200.0,220.0,118.0,260.0,1.694915254237288,1.8644067796610169
+dense,2023,"base (generic IEC constants, kiosk)",200.0,220.0,118.0,260.0,1.694915254237288,1.8644067796610169
+dense,2023,hot-spot gradient +8 K *,190.0,200.0,118.0,260.0,1.6101694915254237,1.694915254237288
+dense,2023,hot-spot gradient −8 K,200.0,230.0,118.0,260.0,1.694915254237288,1.9491525423728813
+dense,2023,kiosk correction doubled *,190.0,200.0,118.0,260.0,1.6101694915254237,1.694915254237288
+dense,2023,loss ratio R ×0.7,200.0,220.0,118.0,260.0,1.694915254237288,1.8644067796610169
+dense,2023,loss ratio R ×1.3,200.0,220.0,118.0,260.0,1.694915254237288,1.8644067796610169
+dense,2023,oil time constant 270 min,200.0,220.0,118.0,260.0,1.694915254237288,1.8644067796610169
+dense,2023,oil time constant 90 min,190.0,210.0,118.0,260.0,1.6101694915254237,1.7796610169491525
+dense,2023,outdoor unit (no kiosk rise),200.0,230.0,118.0,260.0,1.694915254237288,1.9491525423728813
+dense,2023,thermally upgraded paper,200.0,220.0,118.0,260.0,1.694915254237288,1.8644067796610169
+dense,2023,top-oil rise +10 K *,190.0,200.0,118.0,260.0,1.6101694915254237,1.694915254237288
+dense,2023,top-oil rise −10 K,200.0,230.0,118.0,260.0,1.694915254237288,1.9491525423728813
+dense,2023,winding exponent y 1.3,200.0,230.0,118.0,260.0,1.694915254237288,1.9491525423728813
+dense,2023,winding exponent y 2.0,190.0,210.0,118.0,260.0,1.6101694915254237,1.7796610169491525
+rural,2010,air at the transformer +5 K,70.0,75.0,39.0,100.0,1.794871794871795,1.9230769230769231
+rural,2010,air at the transformer −5 K,70.0,75.0,39.0,100.0,1.794871794871795,1.9230769230769231
+rural,2010,"base (generic IEC constants, kiosk)",70.0,75.0,39.0,100.0,1.794871794871795,1.9230769230769231
+rural,2010,hot-spot gradient +8 K *,65.0,70.0,39.0,100.0,1.6666666666666667,1.794871794871795
+rural,2010,hot-spot gradient −8 K,70.0,80.0,39.0,100.0,1.794871794871795,2.051282051282051
+rural,2010,kiosk correction doubled *,65.0,75.0,39.0,100.0,1.6666666666666667,1.9230769230769231
+rural,2010,loss ratio R ×0.7,70.0,75.0,39.0,100.0,1.794871794871795,1.9230769230769231
+rural,2010,loss ratio R ×1.3,70.0,75.0,39.0,100.0,1.794871794871795,1.9230769230769231
+rural,2010,oil time constant 270 min,70.0,75.0,39.0,100.0,1.794871794871795,1.9230769230769231
+rural,2010,oil time constant 90 min,70.0,75.0,39.0,100.0,1.794871794871795,1.9230769230769231
+rural,2010,outdoor unit (no kiosk rise),70.0,80.0,39.0,100.0,1.794871794871795,2.051282051282051
+rural,2010,thermally upgraded paper,70.0,75.0,39.0,100.0,1.794871794871795,1.9230769230769231
+rural,2010,top-oil rise +10 K *,65.0,70.0,39.0,100.0,1.6666666666666667,1.794871794871795
+rural,2010,top-oil rise −10 K,70.0,80.0,39.0,100.0,1.794871794871795,2.051282051282051
+rural,2010,winding exponent y 1.3,70.0,80.0,39.0,100.0,1.794871794871795,2.051282051282051
+rural,2010,winding exponent y 2.0,70.0,75.0,39.0,100.0,1.794871794871795,1.9230769230769231
+rural,2020,air at the transformer +5 K,,,72.0,100.0,,
+rural,2020,air at the transformer −5 K,,,72.0,100.0,,
+rural,2020,"base (generic IEC constants, kiosk)",,,72.0,100.0,,
+rural,2020,hot-spot gradient +8 K *,,,72.0,100.0,,
+rural,2020,hot-spot gradient −8 K,,,72.0,100.0,,
+rural,2020,kiosk correction doubled *,,,72.0,100.0,,
+rural,2020,loss ratio R ×0.7,,,72.0,100.0,,
+rural,2020,loss ratio R ×1.3,,,72.0,100.0,,
+rural,2020,oil time constant 270 min,,,72.0,100.0,,
+rural,2020,oil time constant 90 min,,,72.0,100.0,,
+rural,2020,outdoor unit (no kiosk rise),,,72.0,100.0,,
+rural,2020,thermally upgraded paper,,,72.0,100.0,,
+rural,2020,top-oil rise +10 K *,,,72.0,100.0,,
+rural,2020,top-oil rise −10 K,,,72.0,100.0,,
+rural,2020,winding exponent y 1.3,,,72.0,100.0,,
+rural,2020,winding exponent y 2.0,,,72.0,100.0,,
+rural,2023,air at the transformer +5 K,85.0,90.0,47.0,100.0,1.8085106382978724,1.9148936170212767
+rural,2023,air at the transformer −5 K,85.0,95.0,47.0,100.0,1.8085106382978724,2.021276595744681
+rural,2023,"base (generic IEC constants, kiosk)",85.0,95.0,47.0,100.0,1.8085106382978724,2.021276595744681
+rural,2023,hot-spot gradient +8 K *,80.0,85.0,47.0,100.0,1.702127659574468,1.8085106382978724
+rural,2023,hot-spot gradient −8 K,85.0,100.0,47.0,100.0,1.8085106382978724,2.127659574468085
+rural,2023,kiosk correction doubled *,80.0,90.0,47.0,100.0,1.702127659574468,1.9148936170212767
+rural,2023,loss ratio R ×0.7,85.0,95.0,47.0,100.0,1.8085106382978724,2.021276595744681
+rural,2023,loss ratio R ×1.3,85.0,90.0,47.0,100.0,1.8085106382978724,1.9148936170212767
+rural,2023,oil time constant 270 min,85.0,95.0,47.0,100.0,1.8085106382978724,2.021276595744681
+rural,2023,oil time constant 90 min,80.0,90.0,47.0,100.0,1.702127659574468,1.9148936170212767
+rural,2023,outdoor unit (no kiosk rise),85.0,95.0,47.0,100.0,1.8085106382978724,2.021276595744681
+rural,2023,thermally upgraded paper,85.0,95.0,47.0,100.0,1.8085106382978724,2.021276595744681
+rural,2023,top-oil rise +10 K *,80.0,85.0,47.0,100.0,1.702127659574468,1.8085106382978724
+rural,2023,top-oil rise −10 K,85.0,100.0,47.0,100.0,1.8085106382978724,2.127659574468085
+rural,2023,winding exponent y 1.3,85.0,95.0,47.0,100.0,1.8085106382978724,2.021276595744681
+rural,2023,winding exponent y 2.0,80.0,90.0,47.0,100.0,1.702127659574468,1.9148936170212767
+suburb,2010,air at the transformer +5 K,110.0,110.0,63.0,160.0,1.746031746031746,1.746031746031746
+suburb,2010,air at the transformer −5 K,110.0,120.0,63.0,160.0,1.746031746031746,1.9047619047619047
+suburb,2010,"base (generic IEC constants, kiosk)",110.0,110.0,63.0,160.0,1.746031746031746,1.746031746031746
+suburb,2010,hot-spot gradient +8 K *,100.0,110.0,63.0,160.0,1.5873015873015872,1.746031746031746
+suburb,2010,hot-spot gradient −8 K,110.0,120.0,63.0,160.0,1.746031746031746,1.9047619047619047
+suburb,2010,kiosk correction doubled *,100.0,110.0,63.0,160.0,1.5873015873015872,1.746031746031746
+suburb,2010,loss ratio R ×0.7,110.0,120.0,63.0,160.0,1.746031746031746,1.9047619047619047
+suburb,2010,loss ratio R ×1.3,110.0,110.0,63.0,160.0,1.746031746031746,1.746031746031746
+suburb,2010,oil time constant 270 min,110.0,120.0,63.0,160.0,1.746031746031746,1.9047619047619047
+suburb,2010,oil time constant 90 min,110.0,110.0,63.0,160.0,1.746031746031746,1.746031746031746
+suburb,2010,outdoor unit (no kiosk rise),110.0,120.0,63.0,160.0,1.746031746031746,1.9047619047619047
+suburb,2010,thermally upgraded paper,110.0,110.0,63.0,160.0,1.746031746031746,1.746031746031746
+suburb,2010,top-oil rise +10 K *,100.0,110.0,63.0,160.0,1.5873015873015872,1.746031746031746
+suburb,2010,top-oil rise −10 K,110.0,120.0,63.0,160.0,1.746031746031746,1.9047619047619047
+suburb,2010,winding exponent y 1.3,110.0,120.0,63.0,160.0,1.746031746031746,1.9047619047619047
+suburb,2010,winding exponent y 2.0,110.0,110.0,63.0,160.0,1.746031746031746,1.746031746031746
+suburb,2020,air at the transformer +5 K,,,113.0,160.0,,
+suburb,2020,air at the transformer −5 K,,,113.0,160.0,,
+suburb,2020,"base (generic IEC constants, kiosk)",,,113.0,160.0,,
+suburb,2020,hot-spot gradient +8 K *,,,113.0,160.0,,
+suburb,2020,hot-spot gradient −8 K,,,113.0,160.0,,
+suburb,2020,kiosk correction doubled *,,,113.0,160.0,,
+suburb,2020,loss ratio R ×0.7,,,113.0,160.0,,
+suburb,2020,loss ratio R ×1.3,,,113.0,160.0,,
+suburb,2020,oil time constant 270 min,,,113.0,160.0,,
+suburb,2020,oil time constant 90 min,,,113.0,160.0,,
+suburb,2020,outdoor unit (no kiosk rise),,,113.0,160.0,,
+suburb,2020,thermally upgraded paper,,,113.0,160.0,,
+suburb,2020,top-oil rise +10 K *,,,113.0,160.0,,
+suburb,2020,top-oil rise −10 K,,,113.0,160.0,,
+suburb,2020,winding exponent y 1.3,,,113.0,160.0,,
+suburb,2020,winding exponent y 2.0,,,113.0,160.0,,
+suburb,2023,air at the transformer +5 K,120.0,140.0,76.0,160.0,1.5789473684210527,1.8421052631578947
+suburb,2023,air at the transformer −5 K,130.0,140.0,76.0,160.0,1.7105263157894737,1.8421052631578947
+suburb,2023,"base (generic IEC constants, kiosk)",130.0,140.0,76.0,160.0,1.7105263157894737,1.8421052631578947
+suburb,2023,hot-spot gradient +8 K *,120.0,130.0,76.0,160.0,1.5789473684210527,1.7105263157894737
+suburb,2023,hot-spot gradient −8 K,130.0,150.0,76.0,160.0,1.7105263157894737,1.9736842105263157
+suburb,2023,kiosk correction doubled *,120.0,130.0,76.0,160.0,1.5789473684210527,1.7105263157894737
+suburb,2023,loss ratio R ×0.7,130.0,140.0,76.0,160.0,1.7105263157894737,1.8421052631578947
+suburb,2023,loss ratio R ×1.3,130.0,140.0,76.0,160.0,1.7105263157894737,1.8421052631578947
+suburb,2023,oil time constant 270 min,130.0,140.0,76.0,160.0,1.7105263157894737,1.8421052631578947
+suburb,2023,oil time constant 90 min,120.0,130.0,76.0,160.0,1.5789473684210527,1.7105263157894737
+suburb,2023,outdoor unit (no kiosk rise),130.0,150.0,76.0,160.0,1.7105263157894737,1.9736842105263157
+suburb,2023,thermally upgraded paper,130.0,140.0,76.0,160.0,1.7105263157894737,1.8421052631578947
+suburb,2023,top-oil rise +10 K *,120.0,130.0,76.0,160.0,1.5789473684210527,1.7105263157894737
+suburb,2023,top-oil rise −10 K,130.0,150.0,76.0,160.0,1.7105263157894737,1.9736842105263157
+suburb,2023,winding exponent y 1.3,130.0,150.0,76.0,160.0,1.7105263157894737,1.9736842105263157
+suburb,2023,winding exponent y 2.0,120.0,130.0,76.0,160.0,1.5789473684210527,1.7105263157894737

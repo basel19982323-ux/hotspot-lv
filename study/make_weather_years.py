@@ -9,8 +9,9 @@ the program builds any year (hotspotlv.weather.get_weather):
 - pv_kw_per_kwp: PVGIS 5.3 (SARAH3) hourly PV output for Västerås, 1 kWp, 30° south (PVGIS © European
   Communities, 2001–2026).
 
-Years: 2009–2023 except 2016 and 2019, where SMHI's archive has a gap longer than 6 h (11 h each) — the program's
-own rule refuses to fill those, and the study follows it. 2008 has a 434-h gap; PVGIS SARAH3 ends in 2023.
+Years: 2009–2023 except 2016 and 2019, where SMHI's archive has gaps longer than 6 h (2016: four of 11 h; 2019:
+7 h and 11 h) — the program's own rule refuses to fill those, and the study follows it. 2008 has a 434-h gap (the
+record restarts on 19 Jan 2008); PVGIS SARAH3 ends in 2023.
 Downloads go to study/.cache (not committed); an SMHI archive already in the user cache is copied, not re-fetched.
 """
 
@@ -25,7 +26,7 @@ HERE = Path(__file__).resolve().parent
 CACHE = HERE / ".cache"
 OUT = HERE / "data" / "weather"
 YEARS = [2009, 2010, 2011, 2012, 2013, 2014, 2015, 2017, 2018, 2020, 2021, 2022, 2023]
-SKIPPED = {2016: "SMHI gap of 11 h", 2019: "SMHI gap of 11 h"}
+SKIPPED = {2016: "SMHI gaps of 11 h (four)", 2019: "SMHI gaps of 7 h and 11 h"}
 
 
 def main() -> int:

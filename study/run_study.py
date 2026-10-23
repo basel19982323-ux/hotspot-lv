@@ -13,7 +13,7 @@ cables from the same transformer — not ever-longer cables (the earlier sweep o
 favoured voltage and cable problems: research of 23 Oct 2026). The street types are illustrative assumptions, not
 measured networks:
 
-    rural   Rural road    315 kVA (uk 4 %)   60 m between house connections   at most  8 houses per cable
+    rural   Village road  315 kVA (uk 4 %)   60 m between house connections   at most  8 houses per cable
     suburb  Villa suburb  500 kVA (uk 6 %)   30 m                              at most 15 houses per cable
     dense   Dense town    800 kVA (uk 6 %)   15 m                              at most 25 houses per cable
 """
@@ -34,7 +34,7 @@ WEATHER = HERE / "data" / "weather"
 RESULTS = HERE / "results"
 YEARS = [2009, 2010, 2011, 2012, 2013, 2014, 2015, 2017, 2018, 2020, 2021, 2022, 2023]
 STREETS = {
-    "rural": dict(label="Rural road", kva=315, segment_km=0.060, per_cable=8, houses=list(range(10, 101, 5))),
+    "rural": dict(label="Village road", kva=315, segment_km=0.060, per_cable=8, houses=list(range(10, 101, 5))),
     "suburb": dict(label="Villa suburb", kva=500, segment_km=0.030, per_cable=15, houses=list(range(20, 161, 10))),
     "dense": dict(label="Dense town", kva=800, segment_km=0.015, per_cable=25, houses=list(range(40, 261, 10))),
 }
@@ -97,26 +97,61 @@ def run_one(street: str, year: int, houses: int) -> dict:
             "mode": "fast" if res.fast else "full", "runtime_s": round(res.runtime_s, 1)}
 
 
+METER_FIELDS = ["street", "year", "houses", "meter_peak_pct", "meter_hours_above_80", "meter_hours_above_100"]
+
+
+def meter_sum(street: str, year: int, houses: int) -> dict:
+    """What the 80 % rule looks at (Energiforsk 2018:552): the customers' hourly meter values summed per station —
+    active power drawn from the grid, without reactive power or losses — as % of the transformer's kVA rating.
+    The same houses as run_one (same scenario, same seed); no power flow is needed."""
+    from hotspotlv.neighbourhood import build_neighbourhood
+    nb = build_neighbourhood(scenario(houses), weather(year))
+    drawn = (nb.cons_kw - nb.gen_kw).clip(lower=0).sum(axis=1)    # each meter's import; PV export is not consumption
+    pct = drawn / STREETS[street]["kva"] * 100
+    return {"street": street, "year": year, "houses": houses, "meter_peak_pct": float(pct.max()),
+            "meter_hours_above_80": int((pct > 80).sum()), "meter_hours_above_100": int((pct > 100).sum())}
+
+
+def meters(workers: int) -> None:
+    tasks = [(s, y, n) for s in STREETS for y in YEARS for n in STREETS[s]["houses"]]
+    with ProcessPoolExecutor(workers) as pool:
+        rows = list(pool.map(meter_sum, *zip(*tasks), chunksize=8))
+    import pandas as pd
+    out = pd.DataFrame(rows, columns=METER_FIELDS).sort_values(["street", "year", "houses"])
+    out.to_csv(RESULTS / "meter_sums.csv", index=False, float_format="%.3f", lineterminator="\n")
+    print(f"{len(out)} meter sums → {RESULTS / 'meter_sums.csv'}", flush=True)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--only", default=",".join(STREETS))
     ap.add_argument("--years", default=",".join(map(str, YEARS)))
     ap.add_argument("--out", default=str(RESULTS / "runs.csv"))
+    ap.add_argument("--meters", action="store_true", help="only the summed meter values (minutes, no power flows)")
     a = ap.parse_args()
+    if a.meters:
+        meters(a.workers)
+        return 0
     streets = a.only.split(",")
     years = [int(y) for y in a.years.split(",")]
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     done = set()
-    if out.exists():                                            # resume: skip what is already there
+    new = not out.exists() or out.stat().st_size == 0
+    if not new:                                                 # resume: skip what is already there
+        text = out.read_text(encoding="utf-8")
+        if not text.endswith("\n"):
+            raise SystemExit(f"{out} ends in a cut-off row (a run was stopped mid-write): remove that row first")
         with open(out, newline="", encoding="utf-8") as f:
-            done = {(r["street"], int(r["year"]), int(r["houses"])) for r in csv.DictReader(f)}
+            reader = csv.DictReader(f)
+            if reader.fieldnames != FIELDS:
+                raise SystemExit(f"{out} has other columns than this script writes: start a new file (--out)")
+            done = {(r["street"], int(r["year"]), int(r["houses"])) for r in reader}
     tasks = [(s, y, n) for s in streets for y in years for n in STREETS[s]["houses"] if (s, y, n) not in done]
     tasks.sort(key=lambda t: -t[2] * STREETS[t[0]]["per_cable"])   # big ones first: better load balance
     print(f"{len(tasks)} runs to do ({len(done)} already in {out.name}), {a.workers} workers", flush=True)
-    t0 = time.perf_counter()
-    new = not out.exists()
+    t0, failed = time.perf_counter(), []
     with open(out, "a", newline="", encoding="utf-8") as f, ProcessPoolExecutor(a.workers) as pool:
         w = csv.DictWriter(f, fieldnames=FIELDS, lineterminator="\n")
         if new:
@@ -126,13 +161,17 @@ def main() -> int:
             t = futures[fut]
             try:
                 row = fut.result()
-            except Exception as e:                              # one failed run must not stop the study
+            except Exception as e:                              # one failed run must not stop the others
                 print(f"FAILED {t}: {type(e).__name__}: {e}", flush=True)
+                failed.append(t)
                 continue
             w.writerow(row)
             f.flush()
             if i % 10 == 0 or i == len(tasks):
                 print(f"{i}/{len(tasks)} done, {time.perf_counter() - t0:.0f} s", flush=True)
+    if failed:                                                  # a hole would silently move a first limit
+        print(f"{len(failed)} runs failed — run the script again to retry them: {failed}", flush=True)
+        return 1
     return 0
 
 

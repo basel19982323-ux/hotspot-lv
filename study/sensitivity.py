@@ -4,24 +4,29 @@
                                            (after study/run_study.py: it picks its cases from study/results/runs.csv)
 
 Two parts, both in the weather years 2010 (coldest), 2020 (mildest) and 2023:
-- stations: for each street type, the reference station is the smallest number of houses at which the transformer
-  is "overloaded on paper" (peak above nameplate) in the median winter. Its loading year is computed once per
+- stations: for each street type, the reference station is the smallest number of houses whose transformer peak,
+  as a median over the weather years, is above its rating. Its loading year is computed once per
   weather year, then only the thermal model is re-run with one constant moved at a time.
 - limits: the same variations for every house count of the street, to see how far the FIRST thermal limit (Watch,
   At risk) moves when a constant is moved. The loading of a house count does not depend on the transformer
   constants, so the 80 % rule's first flag stays where it is; only the thermal verdict moves.
 The ranges are assumptions, chosen to cover what a real unit can differ from the generic constants by:
 
-    top-oil rise at rated load  Δθor    −10 / +10 K       (IEC generic 55 K; units differ by design)
-    hot-spot gradient           Δθhr    −8 / +8 K         (UK measurements: generic constants off by up to 8 K)
+    top-oil rise at rated load  Δθor    −10 / +10 K *     (IEC generic 55 K; units differ by design)
+    hot-spot gradient           Δθhr    −8 / +8 K *       (UK measurements: generic constants off by up to 8 K in
+                                                           hot-spot; here on the gradient, so about ±17 K at 1.6 × rated)
     loss ratio                  R       ×0.7 / ×1.3       (load / no-load loss of the actual unit)
     oil time constant           τo      90 / 270 min      (IEC 180 min)
     winding exponent            y       1.3 / 2.0         (IEC 1.6 for distribution transformers)
-    enclosure                           outdoor / full kiosk rise   (base: kiosk, half of IEC Table 6 air rise)
+    enclosure                           outdoor / kiosk correction doubled *   (base: kiosk, IEC 60076-7:2005 8.3.2:
+                                                           half of the Table 6 air rise added to the top-oil rise)
     insulation paper                    thermally upgraded           (base: kraft, ageing doubles every 6 K)
     air at the transformer              −5 / +5 K          (kiosk site, microclimate, station far from SMHI's)
 
 The air variation moves only the temperature around the transformer, not the heating demand of the houses.
+* A pessimistic bound beyond a real unit: +10 K top-oil rise (65 K) or +8 K gradient (55 + 31 = 86 K hot-spot rise)
+  would fail the temperature-rise limits of IEC 60076-2 (60 K top-oil, 78 K hot-spot for ONAN), and the doubled
+  kiosk correction goes beyond either reading of IEC 60076-7 Table 6.
 
 Results: study/results/sensitivity.csv — per street, year and variation: life used, max hot-spot, verdict.
          study/results/sensitivity_limits.csv — per street, year, house count and variation: the thermal flags.
@@ -46,12 +51,15 @@ YEARS = (2010, 2020, 2023)
 
 
 def reference_houses(runs: pd.DataFrame) -> dict[str, int]:
-    """Per street: the smallest house count whose MEDIAN (over the winters) peak is above nameplate."""
+    """Per street: the smallest house count whose transformer peak, as a median over the weather years, is above
+    the rating. A street where no count qualifies is an error, not a silent fallback."""
     med = runs.groupby(["street", "houses"])["peak_loading_pct"].median().reset_index()
     out = {}
     for street, g in med.groupby("street"):
-        above = g[g["peak_loading_pct"] > 100].sort_values("houses")
-        out[street] = int(above["houses"].iloc[0]) if len(above) else int(g["houses"].max())
+        above = g[g["peak_loading_pct"] > 100]
+        if above.empty:
+            raise ValueError(f"{street}: no house count has a median peak above the rating")
+        out[street] = int(above["houses"].min())
     return out
 
 
@@ -60,9 +68,9 @@ def variations(base):
     kiosk_rise = base.enclosure_rise_k
     yield "base (generic IEC constants, kiosk)", base, 0.0
     yield "top-oil rise −10 K", replace(base, d_theta_or=base.d_theta_or - 10), 0.0
-    yield "top-oil rise +10 K", replace(base, d_theta_or=base.d_theta_or + 10), 0.0
+    yield "top-oil rise +10 K *", replace(base, d_theta_or=base.d_theta_or + 10), 0.0
     yield "hot-spot gradient −8 K", replace(base, d_theta_hr=base.d_theta_hr - 8), 0.0
-    yield "hot-spot gradient +8 K", replace(base, d_theta_hr=base.d_theta_hr + 8), 0.0
+    yield "hot-spot gradient +8 K *", replace(base, d_theta_hr=base.d_theta_hr + 8), 0.0
     yield "loss ratio R ×0.7", replace(base, R=base.R * 0.7), 0.0
     yield "loss ratio R ×1.3", replace(base, R=base.R * 1.3), 0.0
     yield "oil time constant 90 min", replace(base, tau_o_min=90.0), 0.0
@@ -71,7 +79,7 @@ def variations(base):
     yield "winding exponent y 2.0", replace(base, y=2.0), 0.0
     yield "outdoor unit (no kiosk rise)", replace(base, d_theta_or=base.d_theta_or - kiosk_rise, enclosure="outdoor",
                                                  enclosure_rise_k=0.0), 0.0
-    yield "full kiosk rise (IEC Table 6)", replace(base, d_theta_or=base.d_theta_or + kiosk_rise,
+    yield "kiosk correction doubled *", replace(base, d_theta_or=base.d_theta_or + kiosk_rise,
                                                   enclosure_rise_k=2 * kiosk_rise), 0.0
     yield "thermally upgraded paper", replace(base, paper="upgraded"), 0.0
     yield "air at the transformer −5 K", base, -5.0

@@ -1,19 +1,19 @@
-street,criterion,min,median,max,years_reached
-dense,80 % rule: peak above 80 % of nameplate,100.0,120.0,180.0,13
-dense,a cable above its current rating,150.0,150.0,200.0,5
-dense,house voltage outside ±10 % (EIFS 2023:3),250.0,250.0,250.0,1
-dense,nameplate: peak above 100 %,120.0,140.0,220.0,13
-dense,"thermal limit, At risk (IEC 60076-7)",180.0,220.0,260.0,11
-dense,"thermal limit, Watch (IEC 60076-7)",160.0,200.0,260.0,12
-rural,80 % rule: peak above 80 % of nameplate,40.0,45.0,70.0,13
-rural,a cable above its current rating,,,,0
-rural,house voltage outside ±10 % (EIFS 2023:3),,,,0
-rural,nameplate: peak above 100 %,45.0,55.0,80.0,13
-rural,"thermal limit, At risk (IEC 60076-7)",75.0,85.0,100.0,9
-rural,"thermal limit, Watch (IEC 60076-7)",70.0,85.0,100.0,11
-suburb,80 % rule: peak above 80 % of nameplate,60.0,80.0,110.0,13
-suburb,a cable above its current rating,,,,0
-suburb,house voltage outside ±10 % (EIFS 2023:3),160.0,160.0,160.0,1
-suburb,nameplate: peak above 100 %,80.0,90.0,130.0,13
-suburb,"thermal limit, At risk (IEC 60076-7)",110.0,140.0,160.0,11
-suburb,"thermal limit, Watch (IEC 60076-7)",110.0,130.0,160.0,12
+street,criterion,min,max_reached,median_13_years,median_beyond_range,years_reached,years,range_max
+dense,80 % rule: summed meters above 80 % of the rating,101.0,184.0,120.0,False,13,13,260.0
+dense,summed meters above the rating (100 %),122.0,235.0,151.0,False,13,13,260.0
+dense,"transformer thermal limit, Watch (IEC 60076-7)",160.0,256.0,196.0,False,12,13,260.0
+dense,"transformer thermal limit, At risk (IEC 60076-7)",173.0,255.0,214.0,False,11,13,260.0
+dense,house voltage outside ±10 % (EIFS 2023:3),250.0,250.0,,True,1,13,260.0
+dense,a cable above its continuous rating,150.0,200.0,,True,5,13,260.0
+rural,80 % rule: summed meters above 80 % of the rating,39.0,72.0,47.0,False,13,13,100.0
+rural,summed meters above the rating (100 %),47.0,92.0,62.0,False,13,13,100.0
+rural,"transformer thermal limit, Watch (IEC 60076-7)",68.0,96.0,82.0,False,11,13,100.0
+rural,"transformer thermal limit, At risk (IEC 60076-7)",74.0,98.0,91.0,False,9,13,100.0
+rural,house voltage outside ±10 % (EIFS 2023:3),,,,True,0,13,100.0
+rural,a cable above its continuous rating,,,,True,0,13,100.0
+suburb,80 % rule: summed meters above 80 % of the rating,63.0,113.0,77.0,False,13,13,160.0
+suburb,summed meters above the rating (100 %),79.0,142.0,99.0,False,13,13,160.0
+suburb,"transformer thermal limit, Watch (IEC 60076-7)",103.0,158.0,123.0,False,12,13,160.0
+suburb,"transformer thermal limit, At risk (IEC 60076-7)",110.0,158.0,134.0,False,11,13,160.0
+suburb,house voltage outside ±10 % (EIFS 2023:3),160.0,160.0,,True,1,13,160.0
+suburb,a cable above its continuous rating,,,,True,0,13,160.0
