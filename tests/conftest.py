@@ -77,6 +77,13 @@ def delete_widgets(widgets) -> None:
             w.close()
             w.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    # The Python side of the deleted widgets (pyqtgraph's helpers, their plots) is collected now, at a fixed point,
+    # and whatever deletes that posts is flushed — not at a random later moment inside another test's event loop
+    # (23 Oct 2026: an access violation in the self-test's unit tests, only in full-suite runs on Python 3.14.9,
+    # depending on when the garbage collector happened to run).
+    import gc
+    gc.collect()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 _exit_status = {"code": 0}
