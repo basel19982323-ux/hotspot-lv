@@ -1,0 +1,235 @@
+street,year,criterion,houses,range_max
+dense,2009,80 % rule: peak above 80 % of nameplate,110.0,260.0
+dense,2009,nameplate: peak above 100 %,130.0,260.0
+dense,2009,"thermal limit, Watch (IEC 60076-7)",180.0,260.0
+dense,2009,"thermal limit, At risk (IEC 60076-7)",200.0,260.0
+dense,2009,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2009,a cable above its current rating,150.0,260.0
+dense,2010,80 % rule: peak above 80 % of nameplate,100.0,260.0
+dense,2010,nameplate: peak above 100 %,120.0,260.0
+dense,2010,"thermal limit, Watch (IEC 60076-7)",160.0,260.0
+dense,2010,"thermal limit, At risk (IEC 60076-7)",180.0,260.0
+dense,2010,house voltage outside ±10 % (EIFS 2023:3),250.0,260.0
+dense,2010,a cable above its current rating,150.0,260.0
+dense,2011,80 % rule: peak above 80 % of nameplate,110.0,260.0
+dense,2011,nameplate: peak above 100 %,130.0,260.0
+dense,2011,"thermal limit, Watch (IEC 60076-7)",180.0,260.0
+dense,2011,"thermal limit, At risk (IEC 60076-7)",200.0,260.0
+dense,2011,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2011,a cable above its current rating,200.0,260.0
+dense,2012,80 % rule: peak above 80 % of nameplate,120.0,260.0
+dense,2012,nameplate: peak above 100 %,140.0,260.0
+dense,2012,"thermal limit, Watch (IEC 60076-7)",200.0,260.0
+dense,2012,"thermal limit, At risk (IEC 60076-7)",220.0,260.0
+dense,2012,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2012,a cable above its current rating,150.0,260.0
+dense,2013,80 % rule: peak above 80 % of nameplate,110.0,260.0
+dense,2013,nameplate: peak above 100 %,140.0,260.0
+dense,2013,"thermal limit, Watch (IEC 60076-7)",190.0,260.0
+dense,2013,"thermal limit, At risk (IEC 60076-7)",210.0,260.0
+dense,2013,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2013,a cable above its current rating,,260.0
+dense,2014,80 % rule: peak above 80 % of nameplate,120.0,260.0
+dense,2014,nameplate: peak above 100 %,160.0,260.0
+dense,2014,"thermal limit, Watch (IEC 60076-7)",230.0,260.0
+dense,2014,"thermal limit, At risk (IEC 60076-7)",250.0,260.0
+dense,2014,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2014,a cable above its current rating,,260.0
+dense,2015,80 % rule: peak above 80 % of nameplate,150.0,260.0
+dense,2015,nameplate: peak above 100 %,180.0,260.0
+dense,2015,"thermal limit, Watch (IEC 60076-7)",260.0,260.0
+dense,2015,"thermal limit, At risk (IEC 60076-7)",,260.0
+dense,2015,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2015,a cable above its current rating,,260.0
+dense,2017,80 % rule: peak above 80 % of nameplate,100.0,260.0
+dense,2017,nameplate: peak above 100 %,130.0,260.0
+dense,2017,"thermal limit, Watch (IEC 60076-7)",180.0,260.0
+dense,2017,"thermal limit, At risk (IEC 60076-7)",200.0,260.0
+dense,2017,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2017,a cable above its current rating,150.0,260.0
+dense,2018,80 % rule: peak above 80 % of nameplate,130.0,260.0
+dense,2018,nameplate: peak above 100 %,170.0,260.0
+dense,2018,"thermal limit, Watch (IEC 60076-7)",240.0,260.0
+dense,2018,"thermal limit, At risk (IEC 60076-7)",260.0,260.0
+dense,2018,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2018,a cable above its current rating,,260.0
+dense,2020,80 % rule: peak above 80 % of nameplate,180.0,260.0
+dense,2020,nameplate: peak above 100 %,220.0,260.0
+dense,2020,"thermal limit, Watch (IEC 60076-7)",,260.0
+dense,2020,"thermal limit, At risk (IEC 60076-7)",,260.0
+dense,2020,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2020,a cable above its current rating,,260.0
+dense,2021,80 % rule: peak above 80 % of nameplate,120.0,260.0
+dense,2021,nameplate: peak above 100 %,160.0,260.0
+dense,2021,"thermal limit, Watch (IEC 60076-7)",220.0,260.0
+dense,2021,"thermal limit, At risk (IEC 60076-7)",230.0,260.0
+dense,2021,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2021,a cable above its current rating,,260.0
+dense,2022,80 % rule: peak above 80 % of nameplate,120.0,260.0
+dense,2022,nameplate: peak above 100 %,150.0,260.0
+dense,2022,"thermal limit, Watch (IEC 60076-7)",210.0,260.0
+dense,2022,"thermal limit, At risk (IEC 60076-7)",230.0,260.0
+dense,2022,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2022,a cable above its current rating,,260.0
+dense,2023,80 % rule: peak above 80 % of nameplate,110.0,260.0
+dense,2023,nameplate: peak above 100 %,140.0,260.0
+dense,2023,"thermal limit, Watch (IEC 60076-7)",200.0,260.0
+dense,2023,"thermal limit, At risk (IEC 60076-7)",220.0,260.0
+dense,2023,house voltage outside ±10 % (EIFS 2023:3),,260.0
+dense,2023,a cable above its current rating,,260.0
+rural,2009,80 % rule: peak above 80 % of nameplate,45.0,100.0
+rural,2009,nameplate: peak above 100 %,50.0,100.0
+rural,2009,"thermal limit, Watch (IEC 60076-7)",80.0,100.0
+rural,2009,"thermal limit, At risk (IEC 60076-7)",85.0,100.0
+rural,2009,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2009,a cable above its current rating,,100.0
+rural,2010,80 % rule: peak above 80 % of nameplate,40.0,100.0
+rural,2010,nameplate: peak above 100 %,45.0,100.0
+rural,2010,"thermal limit, Watch (IEC 60076-7)",70.0,100.0
+rural,2010,"thermal limit, At risk (IEC 60076-7)",75.0,100.0
+rural,2010,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2010,a cable above its current rating,,100.0
+rural,2011,80 % rule: peak above 80 % of nameplate,45.0,100.0
+rural,2011,nameplate: peak above 100 %,50.0,100.0
+rural,2011,"thermal limit, Watch (IEC 60076-7)",80.0,100.0
+rural,2011,"thermal limit, At risk (IEC 60076-7)",85.0,100.0
+rural,2011,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2011,a cable above its current rating,,100.0
+rural,2012,80 % rule: peak above 80 % of nameplate,45.0,100.0
+rural,2012,nameplate: peak above 100 %,55.0,100.0
+rural,2012,"thermal limit, Watch (IEC 60076-7)",85.0,100.0
+rural,2012,"thermal limit, At risk (IEC 60076-7)",90.0,100.0
+rural,2012,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2012,a cable above its current rating,,100.0
+rural,2013,80 % rule: peak above 80 % of nameplate,40.0,100.0
+rural,2013,nameplate: peak above 100 %,50.0,100.0
+rural,2013,"thermal limit, Watch (IEC 60076-7)",80.0,100.0
+rural,2013,"thermal limit, At risk (IEC 60076-7)",85.0,100.0
+rural,2013,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2013,a cable above its current rating,,100.0
+rural,2014,80 % rule: peak above 80 % of nameplate,50.0,100.0
+rural,2014,nameplate: peak above 100 %,65.0,100.0
+rural,2014,"thermal limit, Watch (IEC 60076-7)",95.0,100.0
+rural,2014,"thermal limit, At risk (IEC 60076-7)",,100.0
+rural,2014,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2014,a cable above its current rating,,100.0
+rural,2015,80 % rule: peak above 80 % of nameplate,60.0,100.0
+rural,2015,nameplate: peak above 100 %,75.0,100.0
+rural,2015,"thermal limit, Watch (IEC 60076-7)",,100.0
+rural,2015,"thermal limit, At risk (IEC 60076-7)",,100.0
+rural,2015,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2015,a cable above its current rating,,100.0
+rural,2017,80 % rule: peak above 80 % of nameplate,40.0,100.0
+rural,2017,nameplate: peak above 100 %,50.0,100.0
+rural,2017,"thermal limit, Watch (IEC 60076-7)",75.0,100.0
+rural,2017,"thermal limit, At risk (IEC 60076-7)",85.0,100.0
+rural,2017,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2017,a cable above its current rating,,100.0
+rural,2018,80 % rule: peak above 80 % of nameplate,50.0,100.0
+rural,2018,nameplate: peak above 100 %,65.0,100.0
+rural,2018,"thermal limit, Watch (IEC 60076-7)",100.0,100.0
+rural,2018,"thermal limit, At risk (IEC 60076-7)",,100.0
+rural,2018,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2018,a cable above its current rating,,100.0
+rural,2020,80 % rule: peak above 80 % of nameplate,70.0,100.0
+rural,2020,nameplate: peak above 100 %,80.0,100.0
+rural,2020,"thermal limit, Watch (IEC 60076-7)",,100.0
+rural,2020,"thermal limit, At risk (IEC 60076-7)",,100.0
+rural,2020,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2020,a cable above its current rating,,100.0
+rural,2021,80 % rule: peak above 80 % of nameplate,50.0,100.0
+rural,2021,nameplate: peak above 100 %,60.0,100.0
+rural,2021,"thermal limit, Watch (IEC 60076-7)",90.0,100.0
+rural,2021,"thermal limit, At risk (IEC 60076-7)",100.0,100.0
+rural,2021,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2021,a cable above its current rating,,100.0
+rural,2022,80 % rule: peak above 80 % of nameplate,45.0,100.0
+rural,2022,nameplate: peak above 100 %,60.0,100.0
+rural,2022,"thermal limit, Watch (IEC 60076-7)",85.0,100.0
+rural,2022,"thermal limit, At risk (IEC 60076-7)",95.0,100.0
+rural,2022,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2022,a cable above its current rating,,100.0
+rural,2023,80 % rule: peak above 80 % of nameplate,45.0,100.0
+rural,2023,nameplate: peak above 100 %,55.0,100.0
+rural,2023,"thermal limit, Watch (IEC 60076-7)",85.0,100.0
+rural,2023,"thermal limit, At risk (IEC 60076-7)",95.0,100.0
+rural,2023,house voltage outside ±10 % (EIFS 2023:3),,100.0
+rural,2023,a cable above its current rating,,100.0
+suburb,2009,80 % rule: peak above 80 % of nameplate,70.0,160.0
+suburb,2009,nameplate: peak above 100 %,90.0,160.0
+suburb,2009,"thermal limit, Watch (IEC 60076-7)",120.0,160.0
+suburb,2009,"thermal limit, At risk (IEC 60076-7)",130.0,160.0
+suburb,2009,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2009,a cable above its current rating,,160.0
+suburb,2010,80 % rule: peak above 80 % of nameplate,60.0,160.0
+suburb,2010,nameplate: peak above 100 %,80.0,160.0
+suburb,2010,"thermal limit, Watch (IEC 60076-7)",110.0,160.0
+suburb,2010,"thermal limit, At risk (IEC 60076-7)",110.0,160.0
+suburb,2010,house voltage outside ±10 % (EIFS 2023:3),160.0,160.0
+suburb,2010,a cable above its current rating,,160.0
+suburb,2011,80 % rule: peak above 80 % of nameplate,70.0,160.0
+suburb,2011,nameplate: peak above 100 %,80.0,160.0
+suburb,2011,"thermal limit, Watch (IEC 60076-7)",120.0,160.0
+suburb,2011,"thermal limit, At risk (IEC 60076-7)",130.0,160.0
+suburb,2011,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2011,a cable above its current rating,,160.0
+suburb,2012,80 % rule: peak above 80 % of nameplate,80.0,160.0
+suburb,2012,nameplate: peak above 100 %,90.0,160.0
+suburb,2012,"thermal limit, Watch (IEC 60076-7)",130.0,160.0
+suburb,2012,"thermal limit, At risk (IEC 60076-7)",140.0,160.0
+suburb,2012,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2012,a cable above its current rating,,160.0
+suburb,2013,80 % rule: peak above 80 % of nameplate,70.0,160.0
+suburb,2013,nameplate: peak above 100 %,90.0,160.0
+suburb,2013,"thermal limit, Watch (IEC 60076-7)",120.0,160.0
+suburb,2013,"thermal limit, At risk (IEC 60076-7)",130.0,160.0
+suburb,2013,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2013,a cable above its current rating,,160.0
+suburb,2014,80 % rule: peak above 80 % of nameplate,80.0,160.0
+suburb,2014,nameplate: peak above 100 %,100.0,160.0
+suburb,2014,"thermal limit, Watch (IEC 60076-7)",140.0,160.0
+suburb,2014,"thermal limit, At risk (IEC 60076-7)",160.0,160.0
+suburb,2014,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2014,a cable above its current rating,,160.0
+suburb,2015,80 % rule: peak above 80 % of nameplate,90.0,160.0
+suburb,2015,nameplate: peak above 100 %,110.0,160.0
+suburb,2015,"thermal limit, Watch (IEC 60076-7)",160.0,160.0
+suburb,2015,"thermal limit, At risk (IEC 60076-7)",,160.0
+suburb,2015,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2015,a cable above its current rating,,160.0
+suburb,2017,80 % rule: peak above 80 % of nameplate,70.0,160.0
+suburb,2017,nameplate: peak above 100 %,80.0,160.0
+suburb,2017,"thermal limit, Watch (IEC 60076-7)",120.0,160.0
+suburb,2017,"thermal limit, At risk (IEC 60076-7)",130.0,160.0
+suburb,2017,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2017,a cable above its current rating,,160.0
+suburb,2018,80 % rule: peak above 80 % of nameplate,90.0,160.0
+suburb,2018,nameplate: peak above 100 %,110.0,160.0
+suburb,2018,"thermal limit, Watch (IEC 60076-7)",150.0,160.0
+suburb,2018,"thermal limit, At risk (IEC 60076-7)",160.0,160.0
+suburb,2018,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2018,a cable above its current rating,,160.0
+suburb,2020,80 % rule: peak above 80 % of nameplate,110.0,160.0
+suburb,2020,nameplate: peak above 100 %,130.0,160.0
+suburb,2020,"thermal limit, Watch (IEC 60076-7)",,160.0
+suburb,2020,"thermal limit, At risk (IEC 60076-7)",,160.0
+suburb,2020,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2020,a cable above its current rating,,160.0
+suburb,2021,80 % rule: peak above 80 % of nameplate,80.0,160.0
+suburb,2021,nameplate: peak above 100 %,100.0,160.0
+suburb,2021,"thermal limit, Watch (IEC 60076-7)",140.0,160.0
+suburb,2021,"thermal limit, At risk (IEC 60076-7)",150.0,160.0
+suburb,2021,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2021,a cable above its current rating,,160.0
+suburb,2022,80 % rule: peak above 80 % of nameplate,80.0,160.0
+suburb,2022,nameplate: peak above 100 %,100.0,160.0
+suburb,2022,"thermal limit, Watch (IEC 60076-7)",130.0,160.0
+suburb,2022,"thermal limit, At risk (IEC 60076-7)",150.0,160.0
+suburb,2022,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2022,a cable above its current rating,,160.0
+suburb,2023,80 % rule: peak above 80 % of nameplate,80.0,160.0
+suburb,2023,nameplate: peak above 100 %,90.0,160.0
+suburb,2023,"thermal limit, Watch (IEC 60076-7)",130.0,160.0
+suburb,2023,"thermal limit, At risk (IEC 60076-7)",140.0,160.0
+suburb,2023,house voltage outside ±10 % (EIFS 2023:3),,160.0
+suburb,2023,a cable above its current rating,,160.0
