@@ -157,8 +157,11 @@ def build_neighbourhood(scenario: Scenario, weather: pd.DataFrame) -> Neighbourh
     cols = [f"house{j + 1}" for j in range(n)]
     cons.columns = gen.columns = cols
     houses = pd.DataFrame({
-        "heating": heating, "ua_kw_per_k": ua.round(3), "q_nom_kw": qnom.round(2),
-        "has_ev": has_ev, "charger_kw": charger_kw, "has_pv": has_pv, "pv_kwp": pv_kwp.round(1),
+        # a size only where the house has the thing (numbers audit, 23 Oct: a "pump size" on direct-electric houses)
+        "heating": heating, "ua_kw_per_k": np.where(heating == "none", np.nan, ua.round(3)),
+        "q_nom_kw": np.where(np.isin(heating, ["ground_source", "air_water"]), qnom.round(2), np.nan),
+        "has_ev": has_ev, "charger_kw": np.where(has_ev, charger_kw, np.nan), "has_pv": has_pv,
+        "pv_kwp": np.where(has_pv, pv_kwp.round(1), np.nan),
         "base_kwh": base.sum().round(0).to_numpy(),
         "heat_kwh": heat.sum().round(0).to_numpy(),
         "ev_kwh": ev_capped.sum().round(0).to_numpy(),

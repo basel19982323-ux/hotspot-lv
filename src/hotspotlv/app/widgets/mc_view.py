@@ -165,6 +165,7 @@ class MonteCarloView(QWidget):
         split = QSplitter(Qt.Vertical)
         top = QWidget(); tv = QVBoxLayout(top); tv.setContentsMargins(0, 0, 0, 0); tv.setSpacing(2)
         self.plot = pg.PlotWidget(); self.plot.showGrid(x=True, y=True, alpha=0.2); self.plot.setMinimumHeight(110)
+        self.plot.getAxis("left").enableAutoSIPrefix(False)     # 0.31 days/yr, never "310 (×0.001)" (numbers audit)
         self.plot.setLabel("bottom", "random draw (seed) — a label, not a quantity")
         self.plot.setToolTip("One dot per draw. Shaded band = the middle 80 % of the draws (or the full range below "
                              f"{BAND_FROM} draws), solid line = median, dashed = the rule limits. Squares below the axis = "
@@ -391,9 +392,13 @@ class MonteCarloView(QWidget):
         note = []
         if on:
             note.append("dashed: " + " · ".join(on))
-        if off:
-            far = all(v > 3 * max(float(y[ok].max()) if k else 0.0, 1e-9) for v, _, _ in limits if not (y_lo <= v <= y_hi))
-            note.append(("off the chart, far above the draws: " if far else "above the chart: ") + " · ".join(off))
+        above = [f"{text} at {value:g}" for value, text, _ in limits if value > y_hi]
+        below = [f"{text} at {value:g}" for value, text, _ in limits if value < y_lo]
+        if above:
+            far = all(v > 3 * max(float(y[ok].max()) if k else 0.0, 1e-9) for v, _, _ in limits if v > y_hi)
+            note.append(("off the chart, far above the draws: " if far else "above the chart: ") + " · ".join(above))
+        if below:
+            note.append("below the chart: " + " · ".join(below))
         if not limits:
             note.append("no rule limit on this number")
         if not k:
@@ -412,6 +417,15 @@ class MonteCarloView(QWidget):
         self._ticks()
         self.plot.setXRange(float(x.min()) - 0.5, float(x.max()) + 0.5)
         self.plot.setYRange(y_lo, y_hi)
+        left = self.plot.getAxis("left")
+        if key in HOUR_KEYS:                    # whole hours, none below 0 (the squares' strip sits under the axis zero)
+            raw = max(y_hi, 1.0) / 5
+            mag = 10 ** np.floor(np.log10(raw))
+            step = next(m * mag for m in (1, 2, 5, 10) if m * mag >= raw)
+            step = max(1.0, step)
+            left.setTicks([[(v, f"{v:,.0f}") for v in np.arange(0.0, y_hi + step / 2, step) if v <= y_hi]])
+        else:
+            left.setTicks(None)
 
     @staticmethod
     def _data_range(key: str, y: np.ndarray) -> tuple[float, float]:

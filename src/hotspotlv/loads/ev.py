@@ -108,7 +108,13 @@ def ev_charging_profile(
         duration = int(round(energy / params.charger_kw * 60))
         minutes[start:start + duration] = params.charger_kw   # spill-over: next day's early hours
 
-    hourly = minutes[: n_days * 1440].reshape(n_days * 24, 60).mean(axis=1)
+    # the year repeats: a session still charging after the last day goes on in the first hours of the first day,
+    # so no energy is lost at the end of the year (a smart session starting late on 31 Dec lost part of its
+    # energy once the study year became the Swedish calendar year, numbers audit of 23 Oct 2026)
+    year = minutes[: n_days * 1440]
+    spill = minutes[n_days * 1440:]
+    year[: len(spill)] += spill
+    hourly = year.reshape(n_days * 24, 60).mean(axis=1)
     day_pos = {d: i for i, d in enumerate(dates)}
     pos = np.array([day_pos[d] * 24 + h for d, h in zip(local.date, local.hour)])
     return pd.Series(hourly[pos], index=index_utc, name="ev_kw")

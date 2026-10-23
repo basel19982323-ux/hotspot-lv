@@ -36,7 +36,10 @@ def test_cost_table_rows_and_ranges(cmp):
     row = t.loc["800 kVA"]
     assert row["peak kVA avoided"] == 0 and row["reinforcement-equivalent value (kSEK)"] == 0   # the swap IS the reinforcement
     other = t.drop(index="800 kVA")
-    assert (other["reinforcement-equivalent value (kSEK)"] - other["peak kVA avoided"] * 0.22).abs().max() < 1
+    bh = cmp.results["baseline"].year.hourly                     # kVA x the peak hour's power factor = kW
+    pf = abs(bh.loc[bh["s_kva"].idxmax(), "p_kw"]) / bh["s_kva"].max()
+    assert 0.8 < pf <= 1.0
+    assert (other["reinforcement-equivalent value (kSEK)"] - other["peak kVA avoided"] * pf * 0.22).abs().max() < 1
     assert t["verdict before → after"].str.contains("→").all()
 
 

@@ -41,8 +41,8 @@ from PySide6.QtWidgets import QApplication
 
 from hotspotlv import __version__
 from hotspotlv.app.theme import ACCENT, MUTED, PANEL, VERDICT_COLORS
-from hotspotlv.app.widgets.charts import (TIMELINE_LEGEND, DurationCurve, WorstWeek, YearTimeline, legend_html,
-                                         without_transformer_temperatures)
+from hotspotlv.app.widgets.charts import (TIMELINE_LEGEND, DurationCurve, WorstWeek, YearTimeline, interval_text,
+                                         legend_html, without_transformer_temperatures)
 from hotspotlv.app.widgets.verdict_card import fmt_card_value
 from hotspotlv.station import CABLE_LOSS_SHARE_AT_RATED, NOT_CHECKED_KEYS, StationResult, scale_text
 from hotspotlv.thermal import IEC_LIMITS_C, IEC_LIMITS_K, KIOSK_AIR_RISE_K, REF_HOT_SPOT_C, ThermalParams
@@ -118,9 +118,15 @@ def render_charts(res: StationResult, ambient: pd.Series, width: int = CHART_W, 
                 w.scrubber.label.setFormat("peak loading")           # "drag me" means nothing on paper
                 items = TIMELINE_LEGEND[:-1] if ok else without_transformer_temperatures(TIMELINE_LEGEND[:-1])
                 legend = legend_html(items + (("#000000", "&#9474;", "time of peak loading"),))
-                caption = (f"At the time of peak loading (black line): {w.readout.text()}. The hot-spot peaks a little "
-                           "later, as the oil warms; its maximum is in the card above and in the worst week."
-                           if ok else f"At the time of peak loading (black line): {w.readout.text()}.")
+                caption = f"At the time of peak loading (black line): {w.readout.text()}."
+                if ok:                     # where the hot-spot really peaks — not always after the load peak, nor in
+                    th = res.thermal.hourly["theta_h_max"]      # the worst week (numbers audit, 23 Oct 2026)
+                    t_max = th.idxmax()
+                    in_week = t_max in res.thermal.worst_week().index
+                    caption += (f" The highest hot-spot, {th.max():.1f} °C, is reached "
+                                f"{interval_text(t_max, pd.Timedelta(minutes=res.station.step_min))}"
+                                + (", inside the worst week." if in_week else ", outside the worst week (which is "
+                                   "ranked by insulation life used, not by temperature)."))
             elif name == "duration":
                 w.set_year(res.year.hourly, step_h)
                 caption, legend = w.caption.text(), w.legend.text()

@@ -13,11 +13,11 @@ box inside the plot sat on the January peaks — the busiest part of the year
 (usability review of 21 Oct 2026). The strip is rich text, so the PDF card can
 print the very same legend under its copy of the chart.
 
-Time axis: the x values are the Swedish wall-clock time expressed as epoch
-seconds, and the DateAxisItem is told utcOffset=0 so it prints them as they
-are — whatever time zone the PC runs in. (The first version let the axis add
-the machine's own offset on top: the ticks were hours off on any PC outside
-Sweden.)
+Time axis: the x values are UTC epoch seconds — they never repeat or go back
+(numbers audit of 23 Oct 2026: as Swedish wall-clock seconds, the October hour
+that the clock shows twice stalled the ← → keys). SwedishTimeAxis prints each
+tick in Swedish time, CET or CEST as it was at that moment, whatever time zone
+the PC runs in; the readout names the hour's interval and its zone.
 """
 
 from __future__ import annotations
@@ -170,9 +170,45 @@ def without_transformer_temperatures(items):
 
 
 def _axis_date(index: pd.DatetimeIndex) -> np.ndarray:
-    """Seconds since the epoch of the LOCAL wall-clock time (shown as-is by a utcOffset=0 axis)."""
-    local = index.tz_convert(LOCAL).tz_localize(None)
-    return np.asarray(local.to_numpy().astype("datetime64[s]").astype("int64"), dtype=float)
+    """UTC epoch seconds: always increasing, also through the October hour the Swedish clock shows twice."""
+    return np.asarray(index.tz_convert("UTC").tz_localize(None).to_numpy().astype("datetime64[s]").astype("int64"),
+                      dtype=float)
+
+
+def _local(seconds: float) -> pd.Timestamp:
+    return pd.Timestamp(seconds, unit="s", tz="UTC").tz_convert(LOCAL)
+
+
+def _step_seconds(index: pd.DatetimeIndex) -> float:
+    """One row of the data in seconds (the x range ends where the last interval ends, not where it starts)."""
+    return float(pd.Series(index).diff().median().total_seconds()) if len(index) > 1 else 3600.0
+
+
+def interval_text(t: pd.Timestamp, step: pd.Timedelta) -> str:
+    """'Wed 06 Dec 2023 16:00–17:00 CET': the interval a row covers, in Swedish time with its zone."""
+    t = t.tz_convert(LOCAL)
+    end = (t + step).tz_convert(LOCAL)
+    if end.tzname() != t.tzname():                       # the hour in which the clock changes: name both zones
+        return f"{t:%a %d %b %Y %H:%M} {t.tzname()}–{end:%H:%M} {end.tzname()}"
+    return f"{t:%a %d %b %Y %H:%M}–{end:%H:%M} {t.tzname()}"
+
+
+class SwedishTimeAxis(pg.DateAxisItem):
+    """A date axis over UTC seconds whose tick labels are Swedish time (CET in winter, CEST in summer)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, utcOffset=-3600, **kwargs)
+
+    def tickValues(self, minVal, maxVal, size):
+        self.utcOffset = -_local((minVal + maxVal) / 2).utcoffset().total_seconds()  # ticks on local midnights/hours
+        return super().tickValues(minVal, maxVal, size)
+
+    def tickStrings(self, values, scale, spacing):
+        out = []
+        for v in values:
+            self.utcOffset = -_local(v).utcoffset().total_seconds()                   # each label in its own zone
+            out += super().tickStrings([v], scale, spacing)
+        return out
 
 
 def _nearest(x: np.ndarray, value: float) -> int:
@@ -186,7 +222,7 @@ def _nearest(x: np.ndarray, value: float) -> int:
 
 
 def _date_axis():
-    return pg.DateAxisItem(utcOffset=0)
+    return SwedishTimeAxis()
 
 
 class DurationCurve(QWidget):
@@ -197,6 +233,8 @@ class DurationCurve(QWidget):
         self.plot = pg.PlotWidget()
         self.plot.setLabel("left", "loading", units="% of nameplate")
         self.plot.setLabel("bottom", "hours in the period above this loading")
+        for side in ("left", "bottom"):
+            self.plot.getAxis(side).enableAutoSIPrefix(False)    # never "k%" or "×0.001"
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         self.legend = LegendStrip(DURATION_LEGEND)
         self.curve = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=2))
@@ -217,7 +255,7 @@ class DurationCurve(QWidget):
         self.plot.setYRange(0, max(110, float(lp[0]) * 1.05))
         above80 = float((hourly["loading_pct"] > NAMEPLATE_RULE_PCT + TOL).sum() * step_h)     # the verdict's own count
         above100 = float((hourly["loading_pct"] > 100 + TOL).sum() * step_h)
-        self.caption.setText(f"Above 80 %: {above80:,.0f} h · above 100 %: {above100:,.0f} h · peak {lp[0]:.0f} %")
+        self.caption.setText(f"Above 80 %: {above80:,.0f} h · above 100 %: {above100:,.0f} h · peak {lp[0]:.1f} %")
 
 
 class YearTimeline(QWidget):
@@ -231,6 +269,7 @@ class YearTimeline(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         self.plot = pg.PlotWidget(axisItems={"bottom": _date_axis()})
         self.plot.setLabel("left", "loading", units="%")
+        self.plot.setLabel("bottom", "Swedish time (CET / CEST)")
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         self.legend = LegendStrip(TIMELINE_LEGEND)
         self.load = self.plot.plot([], [], pen=pg.mkPen(LOAD_COLOR, width=1))
@@ -284,7 +323,10 @@ class YearTimeline(QWidget):
                                         else without_transformer_temperatures(TIMELINE_LEGEND)))
         if ambient is not None:
             self.amb.setData(self._x, ambient.to_numpy())
-        self.plot.setXRange(self._x[0], self._x[-1])
+        self._step = pd.Timedelta(seconds=_step_seconds(hourly.index))
+        # exactly the data: from the first interval's start to the last one's end — the default padding (about
+        # 12 days each side) put a "2024" tick under a 2023 file (numbers audit of 23 Oct 2026)
+        self.plot.setXRange(self._x[0], self._x[-1] + self._step.total_seconds(), padding=0)
         self.plot.setYRange(0, max(110, float(hourly["loading_pct"].max()) * 1.05))
         lo = min(float(ambient.min()) if ambient is not None else 0, 0)
         hi = max(float(thermal["theta_h_max"].max()) if thermal is not None else 100, 100)
@@ -293,11 +335,15 @@ class YearTimeline(QWidget):
         self.go_to(int(np.argmax(hourly["loading_pct"].to_numpy())))
 
     def _moved(self):
+        """The scrubber was dragged: snap to the nearest row."""
         if len(self._x) == 0:
             return
-        self._i = i = _nearest(self._x, self.scrubber.value())
+        self._show(_nearest(self._x, self.scrubber.value()))
+
+    def _show(self, i: int):
+        self._i = i
         h = self._hourly.iloc[i]
-        txt = f"{self.label_at(i)} — loading {h['loading_pct']:.0f} % ({h['s_kva']:.0f} kVA)"
+        txt = f"{self.label_at(i)} — loading {h['loading_pct']:.1f} % ({h['s_kva']:.0f} kVA)"
         if self._thermal is not None:
             txt += f" · hot-spot {self._thermal['theta_h_max'].iloc[i]:.0f} °C · top-oil {self._thermal['theta_o'].iloc[i]:.0f} °C"
         if self._ambient is not None:
@@ -308,15 +354,19 @@ class YearTimeline(QWidget):
         self.hour_changed.emit(i)
 
     def go_to(self, i: int):
+        """Show row i — exactly that row, also where two rows share a wall-clock time (the ← → keys)."""
         if len(self._x):
-            self.scrubber.setPos(self._x[int(np.clip(i, 0, len(self._x) - 1))])
-            self._moved()
+            i = int(np.clip(i, 0, len(self._x) - 1))
+            self.scrubber.blockSignals(True)
+            self.scrubber.setPos(self._x[i])
+            self.scrubber.blockSignals(False)
+            self._show(i)
 
     def label_at(self, i: int) -> str:
         if self._hourly is None:
             return ""
-        t = self._hourly.index[int(np.clip(i, 0, len(self._hourly) - 1))].tz_convert(LOCAL)
-        return f"{t:%a %d %b %Y %H:%M} local"
+        t = self._hourly.index[int(np.clip(i, 0, len(self._hourly) - 1))]
+        return interval_text(t, getattr(self, "_step", pd.Timedelta(hours=1)))
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Left:
@@ -334,6 +384,7 @@ class WorstWeek(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         self.plot = pg.PlotWidget(axisItems={"bottom": _date_axis()})
         self.plot.setLabel("left", "temperature", units="°C")
+        self.plot.setLabel("bottom", "Swedish time (CET / CEST)")
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         self.legend = LegendStrip(WORST_WEEK_LEGEND)
         self.hot = self.plot.plot([], [], pen=pg.mkPen(HOTSPOT_COLOR, width=2))
@@ -386,7 +437,7 @@ class WorstWeek(QWidget):
         self.amb.setData(x, ambient.loc[week.index].to_numpy())
         lp = hourly.loc[week.index, "loading_pct"].to_numpy()
         self.load.setData(x, lp)
-        self.plot.setXRange(x[0], x[-1])
+        self.plot.setXRange(x[0], x[-1] + _step_seconds(hourly.index), padding=0)
         lo = min(float(ambient.loc[week.index].min()), 0) - 5
         hi = max(float(week["theta_h_max"].max()) if thermal_valid else 0, 125) + 5
         self.plot.setYRange(lo, hi)
@@ -394,12 +445,13 @@ class WorstWeek(QWidget):
         self.right.setYRange(0, max(110, float(lp.max()) * 1.05) * 3)
         self._sync()
         start = week.index[0].tz_convert(LOCAL)
-        outdoor = f"outdoor {ambient.loc[week.index].min():.0f} … {ambient.loc[week.index].max():.0f} °C"
+        outdoor = f"outdoor {ambient.loc[week.index].min():.1f} … {ambient.loc[week.index].max():.1f} °C"
+        starts = f"{start:%a %d %b %Y %H:%M} {start.tzname()}"
         if not thermal_valid:
-            self.caption.setText(f"Heaviest week by loading, starting {start:%d %b %Y}: life used and transformer "
+            self.caption.setText(f"Heaviest week by loading, starting {starts}: life used and transformer "
                                  f"temperatures not computed — the loading went above {THERMAL_RANGE_K:g} × rated, the "
                                  f"IEC short-time emergency limit; {outdoor}")
             return
         life = float(week["V_mean"].sum() * step_h / 24)
-        self.caption.setText(f"Worst week starts {start:%d %b %Y}: {fmt_quantity(life, 'days')} days of insulation life "
+        self.caption.setText(f"Worst week starts {starts}: {fmt_quantity(life, 'days')} days of insulation life "
                              f"used, max hot-spot {week['theta_h_max'].max():.1f} °C, {outdoor}")

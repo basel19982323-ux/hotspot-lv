@@ -169,7 +169,7 @@ def test_rendered_charts_are_the_print_size_and_not_blank(station, charts):
     v = res.verdict
     assert f"Above 80 %: {v.on_paper['hours above 80 % of nameplate']:,.0f} h" in charts["duration"]["caption"]
     assert charts["period"]["caption"].startswith("At the time of peak loading (black line)")
-    assert "hot-spot" in charts["period"]["caption"] and "peaks a little later" in charts["period"]["caption"]
+    assert "hot-spot" in charts["period"]["caption"] and "The highest hot-spot" in charts["period"]["caption"]
     assert f"{res.thermal.worst_week()['V_mean'].sum() / 24:.3f} days" in charts["worst_week"]["caption"]
     assert "loading" in charts["period"]["legend"] and "time of peak loading" in charts["period"]["legend"]
     assert "drag" not in charts["period"]["legend"] and "drag" not in charts["period"]["caption"]      # paper cannot be dragged

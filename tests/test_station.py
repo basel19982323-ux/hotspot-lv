@@ -52,7 +52,7 @@ def test_local_timestamps_and_kw(tmp_path, ref):
     assert np.allclose(st.p_kw.to_numpy(), ref.to_numpy())
     assert st.gaps_filled == 0
     assert any("Q estimated" in n for n in st.notes) and any("interval START" in n for n in st.notes)
-    assert st.period().startswith("2023-01-01") and st.period().endswith("(local)")
+    assert st.period().startswith("2023-01-01") and st.period().endswith("(Swedish time, whole days)")
 
 
 def test_datum_tid_semicolon_decimal_comma_kwh(tmp_path, ref):

@@ -50,7 +50,13 @@ MAX_GAP_HOURS = 6               # longer gaps than this are an error, not silent
 
 
 def _year_index(year: int) -> pd.DatetimeIndex:
-    return pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h", tz="UTC")
+    """The hours of one Swedish calendar year as UTC stamps — 2023: 2022-12-31 23:00 … 2023-12-31 22:00 UTC, i.e.
+    1 Jan 00:00 – 31 Dec 23:00 Swedish time; 8 760 hours (8 784 in a leap year; summer time does not change the
+    count). The year a Swedish planner means (numbers audit of 23 Oct 2026: the UTC year showed as 1 Jan 01:00 –
+    1 Jan 00:00 of the next year)."""
+    start = pd.Timestamp(f"{year}-01-01", tz="Europe/Stockholm").tz_convert("UTC")
+    end = pd.Timestamp(f"{year + 1}-01-01", tz="Europe/Stockholm").tz_convert("UTC")
+    return pd.date_range(start, end, freq="h", inclusive="left")
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +313,7 @@ def load_smhi_temperature(year: int, station: int = SMHI_STATION) -> pd.Series:
 
 def _year_from_archive(path, year: int) -> pd.Series:
     """One calendar year of an SMHI file, raw (with its gaps) — how the shipped weather file was made."""
-    return _read_smhi(Path(path)).loc[str(year):str(year)].reindex(_year_index(year))
+    return _read_smhi(Path(path)).reindex(_year_index(year))
 
 
 # ---------------------------------------------------------------------------
@@ -344,13 +350,17 @@ def load_pvgis_pv(year: int, lat: float = VASTERAS_LAT, lon: float = VASTERAS_LO
 # Combined, cached
 # ---------------------------------------------------------------------------
 def get_weather(year: int = 2023, refresh: bool = False) -> pd.DataFrame:
-    """DataFrame[temp_c, pv_kw_per_kwp], hourly for the whole year, UTC.
+    """DataFrame[temp_c, pv_kw_per_kwp], hourly for the Swedish calendar year (UTC stamps, see _year_index).
 
-    Looks for a shipped file (package data), then the user cache, else builds it."""
+    Looks for a shipped file (package data), then the user cache, else builds it. The shipped 2023 file holds one
+    hour more (to 2023-12-31 23:00 UTC) so a file stamped in UTC is covered too; this returns the 8 760 hours."""
     name = f"weather_vasteras_{year}.csv"
     for cache in (package_data() / name, cache_dir(create=False) / name):     # no folder made just to look
         if cache.exists() and not refresh:
-            return pd.read_csv(cache, index_col=0, parse_dates=True)
+            wx = pd.read_csv(cache, index_col=0, parse_dates=True).reindex(_year_index(year))
+            if wx.isna().any().any():                     # a cache built on the UTC year by an older version
+                continue
+            return wx
     wx = pd.concat([load_smhi_temperature(year), load_pvgis_pv(year)], axis=1)
     wx.to_csv(cache_dir() / name, float_format="%.3f")
     return wx

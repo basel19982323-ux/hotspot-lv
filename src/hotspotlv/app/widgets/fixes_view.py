@@ -30,6 +30,7 @@ from hotspotlv.app.theme import HOTSPOT_COLOR, INK, LOAD_COLOR, VERDICT_COLORS
 from hotspotlv.app.widgets.describe import describe_case
 from hotspotlv.app.widgets.station_panel import show_error
 from hotspotlv.app.widgets.tables import DataFrameModel
+from hotspotlv.app.widgets.verdict_card import fmt_card_value
 from hotspotlv.app.workers import Worker
 from hotspotlv.catalogue import TRANSFORMERS
 from hotspotlv.costs import REINFORCEMENT_SEK_PER_KW_YR, REINFORCEMENT_YEARS, CostAssumptions, cost_table
@@ -408,6 +409,7 @@ class FixesView(QWidget):
                 t.setToolTip("Life used is not computed: the loading goes above 2 × rated (IEC short-time emergency limit).")
                 t.setPos(i, 0.08 * top)
             else:
-                t = pg.TextItem(f"{v:,.0f}" if whole or v >= 10 else f"{v:.2f}", color="#333333", anchor=(0.5, 1))
+                text = f"{v:,.0f}" if whole else fmt_card_value("days", float(v))   # as on the card: 0.077, not 0.08
+                t = pg.TextItem(text, color="#333333", anchor=(0.5, 1))
                 t.setPos(i, v)
             plot.addItem(t)

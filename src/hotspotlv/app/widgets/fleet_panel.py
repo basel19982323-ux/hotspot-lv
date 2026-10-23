@@ -166,11 +166,9 @@ class FleetPanel(QWidget):
                 err = str(self.model.df.iloc[src].get("error", ""))
                 self.card.set_verdict(None)
                 self.card._headline.setText(f"{sid}: could not be assessed — {err}")
-                for w in (self.timeline, self.duration, self.week):
-                    w.setVisible(False)
-                return
-            for w in (self.timeline, self.duration, self.week):
-                w.setVisible(True)
+                self.tabs.setVisible(False)           # the tab widget, never its pages: a page made visible by
+                return                                # hand draws on top of the current one (numbers audit, 23 Oct)
+            self.tabs.setVisible(True)
             self.card.set_verdict(res.verdict, sid)
             if sid not in self._ambient_cache:
                 self._ambient_cache[sid] = ambient_for(res.station.index, res.smhi_station)

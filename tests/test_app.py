@@ -55,7 +55,7 @@ def test_readout_numbers_are_the_engines_numbers_for_that_hour(panel):
         _scrub_to(panel, i)
         txt = panel.timeline.readout.text()
         h, t = res.year.hourly.iloc[i], res.thermal.hourly.iloc[i]
-        assert f"loading {h['loading_pct']:.0f} % ({h['s_kva']:.0f} kVA)" in txt
+        assert f"loading {h['loading_pct']:.1f} % ({h['s_kva']:.0f} kVA)" in txt
         assert f"hot-spot {t['theta_h_max']:.0f} °C" in txt and f"top-oil {t['theta_o']:.0f} °C" in txt
         assert f"outdoor {panel.weather['temp_c'].iloc[i]:.1f} °C" in txt
         assert f"{res.year.hourly.index[i].tz_convert('Europe/Stockholm'):%a %d %b %Y %H:%M}" in txt
@@ -117,7 +117,7 @@ def test_captions_and_card_use_the_verdicts_hours_and_days(panel):
     v = res.verdict
     assert f"Above 80 %: {v.on_paper['hours above 80 % of nameplate']:,.0f} h" in panel.duration.caption.text()
     assert f"above 100 %: {v.on_paper['hours above 100 % of nameplate']:,.0f} h" in panel.duration.caption.text()
-    assert f"peak {v.on_paper['peak load (% of nameplate)']:.0f} %" in panel.duration.caption.text()
+    assert f"peak {v.on_paper['peak load (% of nameplate)']:.1f} %" in panel.duration.caption.text()
     ww = res.thermal.worst_week()
     assert f"{ww['V_mean'].sum() / 24:.3f} days" in panel.week.caption.text()
     assert v.level.upper() in panel.card._level.text()
@@ -430,7 +430,7 @@ def test_scenario_views_count_withdrawn_cases_never_hide_them(panel):
     vals = pd.Series([nan, 0.51, nan], index=["baseline", "800 kVA", "night timer 22–01"])
     FixesView._draw_bars(panel.fixes.bars_real, vals, pd.Series(["At risk", "OK", "At risk"]), whole=False)
     texts = [it.toPlainText() for it in panel.fixes.bars_real[0].getPlotItem().items if isinstance(it, pg.TextItem)]
-    assert texts.count("–") == 2 and "0.51" in texts and not any("nan" in t for t in texts)
+    assert texts.count("–") == 2 and "0.510" in texts and not any("nan" in t for t in texts)
     assert "– = not computed (loading above 2 × rated)" in texts                 # explained once, not per slot
     FixesView._draw_bars(panel.fixes.bars_real, pd.Series([nan, nan], index=["a", "b"]), pd.Series(["At risk"] * 2), whole=False)
     texts = [it.toPlainText() for it in panel.fixes.bars_real[0].getPlotItem().items if isinstance(it, pg.TextItem)]

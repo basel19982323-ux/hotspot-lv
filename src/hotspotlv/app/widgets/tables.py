@@ -20,7 +20,7 @@ FRIENDLY = {
     "smhi_station": "SMHI station", "notes": "notes", "error": "error", "rank": "rank",
     "house": "house", "heating": "heating", "ua_kw_per_k": "heat loss (kW/K)", "q_nom_kw": "pump size (kW)",
     "has_ev": "EV", "charger_kw": "charger (kW)", "has_pv": "PV", "pv_kwp": "PV (kWp)", "base_kwh": "base (kWh/yr)",
-    "heat_kwh": "heating (kWh/yr)", "ev_kwh": "EV (kWh/yr)", "pv_kwh": "PV (kWh/yr)", "fuse_limited_hours": "fuse-limited h",
+    "heat_kwh": "heating electricity (kWh/yr)", "ev_kwh": "EV (kWh/yr)", "pv_kwh": "PV (kWh/yr)", "fuse_limited_hours": "fuse-limited h",
     "voltage_bad_hours": "voltage outside ±10 % (h)", "voltage_plan_hours": "outside planning band (h)",
     "max_cable_pct": "max cable (%)", "exact_hours": "exact power-flow hours", "battery_hours_above_cap": "battery h above cap",
     "hours_hot_spot_above_98": "hot-spot > 98 °C (h)", "max_load_pu": "max load (× rated)",
@@ -90,8 +90,10 @@ class DataFrameModel(QAbstractTableModel):
                 return f"{v:.0f}"
             if isinstance(value, (int, np.integer)) or any(w in header for w in WHOLE):
                 return f"{v:,.0f}"
-            if "days" in header:
-                return f"{v:.3f}" if v < 1 else f"{v:.2f}"
+            if "days" in header:                       # the card's rule: 0.077, 1.25, 102
+                return f"{v:.3f}" if v < 1 else (f"{v:.2f}" if v < 100 else f"{v:,.0f}")
+            if "kW/K" in header:                       # 0.150 / 0.230: one decimal hid the spread
+                return f"{v:.3f}"
             if "× rated" in header:
                 return f"{v:.2f}"
             if any(w in header for w in ONE_DECIMAL):

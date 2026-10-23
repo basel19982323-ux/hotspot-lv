@@ -39,7 +39,7 @@ def test_ranked_table(example_run):
     assert table.loc[pos[big], "peak_loading_pct"] > 80
     assert table["why"].str.contains("not checked").all()               # the caveat survives into the table
     assert table["notes"].str.contains("SMHI station 96190").all() and (table["smhi_station"] == 96190).all()
-    assert table["period"].str.endswith("(local)").all()
+    assert table["period"].str.contains("(Swedish time", regex=False).all()
 
 
 def test_export(example_run, tmp_path):

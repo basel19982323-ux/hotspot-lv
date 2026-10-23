@@ -52,9 +52,9 @@ CLOSE_LIMIT_S = 20                  # the window must be gone this long after it
 # so both change together). A frozen build that bundles other data, reads time differently or computes differently
 # fails here instead of passing with the same headline (round-3 review: +15 °C at every hour passed unchanged).
 REFERENCE = {
-    "station": {"peak_loading_pct": 102.0551, "life_days_per_year": 0.145863, "max_hot_spot_c": 61.7719,
-                "energy_mwh": 1091.918},        # ns-102.csv, 500 kVA, sum of meters, Swedish time, start-stamped
-    "ambient_mean_c": 7.2085,                   # its outdoor temperature: SMHI 96190, 2023
+    "station": {"peak_loading_pct": 102.0554, "life_days_per_year": 0.145858, "max_hot_spot_c": 61.7722,
+                "energy_mwh": 1091.862},        # ns-102.csv, 500 kVA, sum of meters, Swedish time, start-stamped
+    "ambient_mean_c": 7.20923,                   # its outdoor temperature: SMHI 96190, 2023
     "fleet": ["NS-102 Björkbacken (synthetic)", "NS-103 Tallhöjden (synthetic)", "NS-101 Lövängen (synthetic)"],
     "powerflow": {"trafo_loading_percent": 29.0355, "vmin_pu": 0.981684},   # build_feeder(), 3 kW per house
 }

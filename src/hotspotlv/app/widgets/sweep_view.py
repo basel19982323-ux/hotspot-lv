@@ -30,6 +30,7 @@ from hotspotlv.app.theme import HOTSPOT_COLOR, INK, LOAD_COLOR, RULE_100, VERDIC
 from hotspotlv.app.widgets.describe import describe_case
 from hotspotlv.app.widgets.station_panel import show_error
 from hotspotlv.app.widgets.tables import DataFrameModel
+from hotspotlv.app.widgets.verdict_card import fmt_card_value
 from hotspotlv.app.workers import Worker
 from hotspotlv.study import Case, sweep
 
@@ -381,9 +382,9 @@ class SweepView(QWidget):
         elif life.notna().any():
             computed = life.dropna()
             parts.append(f"where it is computed, the insulation stays below its IEC design rate of 365 days/yr "
-                         f"(max {computed.max():.2f} days/yr at {fmt(computed.idxmax())})" if len(withdrawn) else
+                         f"(max {fmt_card_value('days', float(computed.max()))} days/yr at {fmt(computed.idxmax())})" if len(withdrawn) else
                          f"the insulation stays below its IEC design rate of 365 days/yr "
-                         f"(max {computed.max():.2f} days/yr at {fmt(computed.idxmax())})")
+                         f"(max {fmt_card_value('days', float(computed.max()))} days/yr at {fmt(computed.idxmax())})")
         if len(withdrawn):
             parts.append(f"life used is not computed from {fmt(withdrawn[0])} (loading above 2 × rated, marked ◆)")
         risk = t.index[t["verdict"] == "At risk"]

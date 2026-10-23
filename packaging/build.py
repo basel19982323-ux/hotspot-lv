@@ -167,7 +167,8 @@ DATA_NOTE = """\
 DATA (in _internal\\hotspotlv\\data — NOT under the MIT licence of the program)
   - SMHI open data, station 96190 Eskilstuna A, air temperature 2023 (weather_vasteras_2023.csv, column temp_c):
     Source: SMHI. Creative Commons Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/). Processed by
-    Basel Haijar: re-indexed to whole UTC hours, gaps of up to 6 h linearly interpolated.
+    Basel Haijar: the hours 2022-12-31 23:00 – 2023-12-31 23:00 UTC (the Swedish calendar year 2023 and the
+    last UTC hour), gaps of up to 6 h linearly interpolated.
   - PVGIS 5.3 hourly PV output 2023 (same file, column pv_kw_per_kwp): PVGIS © European Communities, 2001–2026;
     European Commission Joint Research Centre, free use with citation. Processed: stamps floored to the hour.
   - Norwegian household electricity demand (base_load_norway_2021.*): Hofmann, M., Bjarghov, S., Nessa, S. (2023),

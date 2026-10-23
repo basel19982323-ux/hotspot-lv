@@ -111,7 +111,10 @@ def cost_table(cmp: FixComparison, assumptions: CostAssumptions = CostAssumption
     and the reinforcement-equivalent value of the peak kW it avoids (Energiforsk 2024:1043)."""
     baseline = cmp.results["baseline"]
     base = baseline.metrics()
-    base_peak_kw = float(baseline.year.hourly["s_kva"].max())
+    bh = baseline.year.hourly
+    base_peak_kva = float(bh["s_kva"].max())
+    at_peak = bh["s_kva"].idxmax()                      # kVA × the peak hour's power factor = the kW the
+    pf_peak = float(min(1.0, max(0.0, abs(bh.loc[at_peak, "p_kw"]) / max(base_peak_kva, 1e-9))))   # SEK/kW applies to
     rows = []
     for name, r in cmp.results.items():
         if name == "baseline":
@@ -119,9 +122,10 @@ def cost_table(cmp: FixComparison, assumptions: CostAssumptions = CostAssumption
         m = r.metrics()
         kind = _kind(name, r, baseline)
         lo, hi = _capex_ksek(kind, r, assumptions)
-        peak_avoided_kw = max(0.0, base_peak_kw - float(r.year.hourly["s_kva"].max()))
+        peak_avoided_kva = max(0.0, base_peak_kva - float(r.year.hourly["s_kva"].max()))
         if kind == "transformer":
-            peak_avoided_kw = 0.0            # the swap IS the reinforcement; it avoids no peak on the station
+            peak_avoided_kva = 0.0           # the swap IS the reinforcement; it avoids no peak on the station
+        peak_avoided_kw = peak_avoided_kva * pf_peak       # numbers audit, 23 Oct: kVA was priced as kW
         rows.append({
             "fix": name,
             "capex low (kSEK)": round(lo, 0),
@@ -130,7 +134,7 @@ def cost_table(cmp: FixComparison, assumptions: CostAssumptions = CostAssumption
             "hours > 80 % avoided": base["hours_above_80"] - m["hours_above_80"],
             "hours > 100 % avoided": base["hours_above_100"] - m["hours_above_100"],
             "life saved (days/yr)": round(base["life_days_per_year"] - m["life_days_per_year"], 3),
-            "peak kVA avoided": round(peak_avoided_kw, 0),
+            "peak kVA avoided": round(peak_avoided_kva, 0),
             "reinforcement-equivalent value (kSEK)": round(peak_avoided_kw * REINFORCEMENT_SEK_PER_KW_YR * REINFORCEMENT_YEARS / 1000, 0),
             "verdict before → after": f"{base['verdict']} → {m['verdict']}",
             "clears the verdict": m["verdict"] == "OK",

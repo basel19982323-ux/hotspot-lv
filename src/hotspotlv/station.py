@@ -107,8 +107,13 @@ class StationSeries:
         return sorted(set(self.index.tz_convert(LOCAL_TZ).year))
 
     def period(self) -> str:
-        loc = self.index.tz_convert(LOCAL_TZ)
-        return f"{loc[0]:%Y-%m-%d} – {loc[-1]:%Y-%m-%d} (local)"
+        """From the start of the first interval to the end of the last, in Swedish time (numbers audit of 23 Oct
+        2026: the dates of the first and last stamps made a full year read '2023-01-01 – 2024-01-01')."""
+        start = self.index[0].tz_convert(LOCAL_TZ)
+        end = (self.index[-1] + pd.Timedelta(minutes=self.step_min)).tz_convert(LOCAL_TZ)
+        if start == start.normalize() and end == end.normalize():            # whole Swedish days
+            return f"{start:%Y-%m-%d} – {end - pd.Timedelta(days=1):%Y-%m-%d} (Swedish time, whole days)"
+        return f"{start:%Y-%m-%d %H:%M} – {end:%Y-%m-%d %H:%M} (Swedish time)"
 
 
 def _norm(name: str) -> tuple[str, str]:
@@ -494,9 +499,9 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
         raise ValueError("ambient must be on the station's index (use ambient_for)")
     filled = int(ambient.attrs.get("missing_hours_filled") or 0)
     if filled:                                          # round-3 review: computed, but never shown
-        notes.append(f"outdoor temperature: {filled} hour{'s' if filled != 1 else ''} without an SMHI value, filled "
-                     "from the neighbouring hours (gaps of at most 6 h; at the start or end of the data, held at the "
-                     "nearest value)")
+        notes.append(f"outdoor temperature: {filled} hour{'s' if filled != 1 else ''} with no value in the temperature "
+                     "data used (an SMHI gap, or an hour just outside the data), filled from the neighbouring hours "
+                     "(gaps of at most 6 h; at the start or end, held at the nearest value)")
     latest = ambient.attrs.get("smhi_latest_from")
     if latest is not None:
         notes.append(f"outdoor temperature from {latest:%Y-%m-%d %H:%M} UTC on: SMHI's latest-months data, not yet in "

@@ -2,7 +2,7 @@
 
 The profiles are synthetic: the sum of the scenario model's houses for three
 imaginary Västerås stations, written in the simplest accepted CSV shape
-(local timestamps, kW). They exist so the app's "Load example" button and the
+(Swedish local timestamps 2023-01-01 00:00 … 2023-12-31 23:00, kW). They exist so the app's "Load example" button and the
 tests have something to open — they are not measurements.
 """
 
@@ -37,11 +37,7 @@ def main():
         rows.append({"station_id": sid, "rated_kva": kva, "file": fname, "smhi_station": 96190, "enclosure": "kiosk"})
         print(f"{sid}: {len(p)} rows, peak {p.max():.0f} kW, {p.clip(lower=0).sum() / 1000:.0f} MWh → {fname}")
     pd.DataFrame(rows).to_csv(OUT / "fleet_index.csv", index=False)
-    (OUT / "README.md").write_text(
-        "# Example station files\n\nSynthetic profiles (sum of the scenario model's houses, Västerås 2023 weather) "
-        "in the simplest accepted CSV shape: `timestamp` (local time, Europe/Stockholm) and `p_kw`. "
-        "`fleet_index.csv` lists them for fleet mode. They are examples, not measurements. "
-        "Rebuild with `python validation/make_examples.py`.\n", encoding="utf-8")
+    # README.md (with the data credits) is kept by hand and not rewritten here
     print("written to", OUT)
 
 

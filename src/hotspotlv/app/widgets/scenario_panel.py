@@ -71,8 +71,10 @@ class ScenarioPanel(QWidget):
         f1.addRow("Feeders", self.feeders)
         f1.addRow("House main fuse", self.fuse)
         f1.addRow("Enclosure", self.enclosure)
-        wx = QLabel("Västerås 2023 — SMHI Eskilstuna A + PVGIS (v0.1: fixed)"); wx.setWordWrap(True)
-        wx.setToolTip("Other places and years come later; mode B already takes any SMHI station.")
+        wx = QLabel("2023, the Swedish calendar year (1 Jan – 31 Dec, Swedish time): SMHI 96190 Eskilstuna A "
+                    "temperatures + PVGIS solar for Västerås"); wx.setWordWrap(True)
+        wx.setToolTip("Measured hourly air temperature from SMHI's checked archive and PVGIS hourly PV output. Other "
+                      "places and years come later; mode B (own station data) already takes any SMHI station.")
         f1.addRow("Weather", wx)
 
         g2 = QGroupBox("Electrification (share of houses)")

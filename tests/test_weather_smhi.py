@@ -68,18 +68,33 @@ def utc_hours(start, end):
 
 def test_a_2023_file_in_swedish_time_needs_no_download(cache, monkeypatch):
     """Round 2, build HIGH: 00:00 Swedish time on 1 Jan 2023 is 23:00 UTC on 31 Dec 2022 — the whole-year rule asked
-    for 2022 and downloaded 7 MB (offline: failed). Now that hour is held like any short gap, offline, nothing written."""
+    for 2022 and downloaded 7 MB (offline: failed). The shipped file now holds the Swedish calendar year (numbers
+    audit of 23 Oct 2026), so that hour is SMHI's own 2.4 °C — offline, nothing written, nothing filled."""
     monkeypatch.setenv("HOTSPOTLV_OFFLINE", "1")
     loc = utc_hours("2022-12-31 23:00", "2023-12-31 22:00").tz_convert("Europe/Stockholm")
     text = "time;kW\n" + "\n".join(f"{t:%Y-%m-%d %H:%M};150" for t in loc)
     st = read_station_csv(io.StringIO(text))
     assert st.index[0] == pd.Timestamp("2022-12-31 23:00", tz="UTC")
+    assert st.period() == "2023-01-01 – 2023-12-31 (Swedish time, whole days)"
     amb = ambient_for(st.index)
-    assert amb.attrs["missing_hours_filled"] == 1 and amb.attrs["smhi_latest_from"] is None
-    assert amb.iloc[0] == amb.iloc[1]                                     # the one 2022 hour held from 00:00 UTC
+    assert amb.attrs["missing_hours_filled"] == 0 and amb.attrs["smhi_latest_from"] is None
+    assert amb.iloc[0] == 2.4                                             # SMHI 96190, 2022-12-31 23:00 UTC
     verdict = assess_station(st, 500, amb).verdict
     assert verdict.level in ("OK", "Watch", "At risk")
-    assert any(n.startswith("outdoor temperature: 1 hour without an SMHI value") for n in verdict.notes)  # round 3
+    assert not any(n.startswith("outdoor temperature:") for n in verdict.notes)
+    assert not cache.exists()
+
+
+def test_a_few_hours_past_the_shipped_year_are_held_and_noted(cache, monkeypatch):
+    """The short-gap rule still covers the edge: a file running 3 h into 2024 (UTC) needs no download offline."""
+    monkeypatch.setenv("HOTSPOTLV_OFFLINE", "1")
+    hours = utc_hours("2023-01-01 00:00", "2024-01-01 02:00")
+    text = "time;kW\n" + "\n".join(f"{t:%Y-%m-%dT%H:%M}Z;150" for t in hours)
+    st = read_station_csv(io.StringIO(text))
+    amb = ambient_for(st.index)
+    assert amb.attrs["missing_hours_filled"] == 3 and amb.iloc[-1] == amb.iloc[-4]   # held at 2023-12-31 23:00 UTC
+    notes = assess_station(st, 500, amb).verdict.notes
+    assert any(n.startswith("outdoor temperature: 3 hours with no value in the temperature data used") for n in notes)
     assert not cache.exists()
 
 

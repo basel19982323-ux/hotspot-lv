@@ -64,6 +64,7 @@ class VerdictCard(QFrame):
 
         self._level = QLabel("—")
         self._level.setStyleSheet("font-size: 20pt; font-weight: 700; border: none;")
+        self._level.setWordWrap(True)          # a long station name wraps instead of being cut (numbers audit)
         self._headline = QLabel(empty_text)
         self._headline.setWordWrap(True)
         self._headline.setStyleSheet("font-size: 11pt; border: none;")

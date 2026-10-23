@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView
 
 from hotspotlv.app.theme import ACCENT, BORDER, EXPORT_COLOR, INK, MUTED, VERDICT_COLORS
 
@@ -55,6 +55,13 @@ def house_color(kw: float, cap_kw: float) -> QColor:
 def houses_per_feeder(n_houses: int, n_feeders: int) -> list[int]:
     """Same split as feeder.build_feeder: the remainder goes to the first feeders."""
     return [n_houses // n_feeders + (1 if i < n_houses % n_feeders else 0) for i in range(n_feeders)]
+
+
+def _readable(item):
+    """A label drawn at its own size whatever the zoom: fitting 90 houses into the view shrank every label to a few
+    pixels (numbers audit, 23 Oct 2026). The houses' badges stay scaled with their houses."""
+    item.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+    return item
 
 
 class FeederDiagram(QGraphicsView):
@@ -106,25 +113,25 @@ class FeederDiagram(QGraphicsView):
         show_badges = n <= BADGES_MAX_HOUSES
         # MV source
         sc.addEllipse(20, FEEDER_Y0 + FEEDER_DY - 18, 36, 36, pen)
-        t = sc.addText("MV\n10 kV", font); t.setPos(14, FEEDER_Y0 + FEEDER_DY + 20)
+        t = _readable(sc.addText("MV\n10 kV", font)); t.setPos(14, FEEDER_Y0 + FEEDER_DY + 20)
         sc.addLine(56, FEEDER_Y0 + FEEDER_DY, 95, FEEDER_Y0 + FEEDER_DY, pen)
         # transformer: two overlapping circles, filled by loading
         self._items["trafo1"] = sc.addEllipse(95, FEEDER_Y0 + FEEDER_DY - 22, 44, 44, pen, QBrush(QColor("#dddddd")))
         self._items["trafo2"] = sc.addEllipse(121, FEEDER_Y0 + FEEDER_DY - 22, 44, 44, pen, QBrush(QColor("#dddddd")))
-        self._items["trafo_label"] = sc.addText(f"{rated_kva:.0f} kVA", font)
+        self._items["trafo_label"] = _readable(sc.addText(f"{rated_kva:.0f} kVA", font))
         self._items["trafo_label"].setPos(92, FEEDER_Y0 + FEEDER_DY + 24)
         sc.addLine(165, FEEDER_Y0 + FEEDER_DY, 200, FEEDER_Y0 + FEEDER_DY, pen)
         # busbar
         y_top, y_bot = FEEDER_Y0 - 10, FEEDER_Y0 + (n_feeders - 1) * FEEDER_DY + 10
         sc.addLine(200, y_top, 200, y_bot, QPen(QColor(INK), 6))
-        t = sc.addText("0.4 kV busbar", small); t.setPos(170, y_top - 22)
+        t = _readable(sc.addText("0.4 kV busbar", small)); t.setPos(170, y_top - 22)
         # feeders and houses, in build_feeder's order
         j = 0
         self._items["houses"] = []
         for f, count in enumerate(houses_per_feeder(n, n_feeders)):
             y = FEEDER_Y0 + f * FEEDER_DY
             sc.addLine(200, y, X0 + count * GAP, y, pen)
-            t = sc.addText(f"F{f + 1}", small); t.setPos(206, y - 20)
+            t = _readable(sc.addText(f"F{f + 1}", small)); t.setPos(206, y - 20)
             for k in range(count):
                 x = X0 + k * GAP
                 sc.addLine(x, y, x, y + 14, QPen(QColor(INK), 1))
@@ -136,11 +143,11 @@ class FeederDiagram(QGraphicsView):
                     b.setPos(x - 14, y + 30)
                 self._items["houses"].append(rect)
                 j += 1
-        self._items["hour_label"] = sc.addText("", font)
+        self._items["hour_label"] = _readable(sc.addText("", font))
         self._items["hour_label"].setDefaultTextColor(QColor(ACCENT))
         self._items["hour_label"].setPos(20, 20)
         if not show_badges:
-            note = sc.addText("badges hidden above 60 houses — hover a house", small)
+            note = _readable(sc.addText("badges hidden above 60 houses — hover a house", small))
             note.setDefaultTextColor(QColor(MUTED))
             note.setPos(X0, y_bot + 36)
         sc.setSceneRect(sc.itemsBoundingRect().adjusted(-10, -10, 30, 30))
