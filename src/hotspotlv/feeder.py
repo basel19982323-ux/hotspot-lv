@@ -74,6 +74,7 @@ def build_feeder(
     trafo_kva: int = 500,
     house_p_kw: float = 1.0,
     main_cable_max_i_ka: float | None = None,
+    main_segment_km: float = MAIN_SEGMENT_KM,
 ) -> pp.pandapowerNet:
     """Create the pandapower network.
 
@@ -82,7 +83,11 @@ def build_feeder(
     `main_cable_max_i_ka` overrides the main-cable rating (default 0.286 kA, Prysmian
     AXQJ in ground at 20 °C soil; Chalmers' LV-grid generator uses 0.230 kA for a PVC
     cable — the cable-loading result depends on this choice, so it is a parameter).
+    `main_segment_km`: main cable between two house connection points — 30 m in a villa suburb; the study's
+    rural and dense street types use other lengths.
     """
+    if not 0.001 <= main_segment_km <= 1.0:
+        raise ValueError("main_segment_km must be in km, e.g. 0.030 for 30 m")
     tr = transformer(trafo_kva)               # clear error for sizes not in the catalogue
     if n_houses < 1 or n_feeders < 1 or n_feeders > n_houses:
         raise ValueError(f"need 1 <= n_feeders <= n_houses, got {n_feeders=}, {n_houses=}")
@@ -131,7 +136,7 @@ def build_feeder(
             node = pp.create_bus(net, vn_kv=0.4, name=f"F{f} node {k}")
             pp.create_line(
                 net, from_bus=upstream, to_bus=node,
-                length_km=MAIN_SEGMENT_KM, std_type=MAIN_CABLE_STD,
+                length_km=main_segment_km, std_type=MAIN_CABLE_STD,
                 name=f"F{f} main {k}",
             )
             house = pp.create_bus(net, vn_kv=0.4, name=f"House {house_no} (F{f})")

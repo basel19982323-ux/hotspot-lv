@@ -97,7 +97,7 @@ class FixesView(QWidget):
         self.cap = _range_spin(50, 100, 80, 5, " % of nameplate")
         self.cap.setToolTip("The battery tries to keep the transformer under this share of its rating (kVA).")
         self.bigger = QComboBox()
-        [self.bigger.addItem(f"{k} kVA", k) for k in sorted(TRANSFORMERS)[1:]]    # re-filtered against the station at run time
+        [self.bigger.addItem(f"{k} kVA", k) for k in sorted(TRANSFORMERS) if k > 500]   # re-filtered against the station at run time
         self.bigger.setToolTip("Filled at run time with the catalogue sizes above the current transformer "
                                f"(v0.1 catalogue: {', '.join(str(k) for k in sorted(TRANSFORMERS))} kVA). "
                                "The bigger unit is simulated with its own loss figures and kiosk rise.")

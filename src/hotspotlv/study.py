@@ -30,7 +30,7 @@ from dataclasses import dataclass, field, replace
 import pandas as pd
 
 from hotspotlv.battery import BatteryParams, BatterySizing, apply_battery, size_by_simulation
-from hotspotlv.feeder import build_feeder
+from hotspotlv.feeder import MAIN_SEGMENT_KM, build_feeder
 from hotspotlv.neighbourhood import Neighbourhood, Scenario, build_neighbourhood
 from hotspotlv.proxy import fit_proxy, refine_mask, refine_near_limits
 from hotspotlv.thermal import KIOSK_AIR_RISE_K, ThermalParams, ThermalResult, simulate
@@ -51,6 +51,7 @@ class Case:
     battery: BatteryParams | None = None
     enclosure: str = "kiosk"                      # Swedish nätstation norm; "outdoor" for a pole/pad unit
     thermal: ThermalParams | None = None          # explicit constants override size + enclosure
+    main_segment_km: float = MAIN_SEGMENT_KM      # cable between house connection points (street type)
 
 
 @dataclass
@@ -113,7 +114,8 @@ def run_case(case: Case, weather: pd.DataFrame, fast: bool = True,
     nb = neighbourhood or build_neighbourhood(case.scenario, weather)
     if checkpoint is not None:
         checkpoint()                                  # the neighbourhood build takes a second or two
-    net = build_feeder(n_houses=case.scenario.n_houses, n_feeders=case.n_feeders, trafo_kva=case.trafo_kva)
+    net = build_feeder(n_houses=case.scenario.n_houses, n_feeders=case.n_feeders, trafo_kva=case.trafo_kva,
+                       main_segment_km=case.main_segment_km)
     fit_error, exact_hours = {}, 0
     if fast:
         proxy = fit_proxy(net, nb.cons_kw, nb.gen_kw, checkpoint=checkpoint)

@@ -106,3 +106,26 @@ def test_bad_feeder_arguments_rejected():
         build_feeder(n_houses=2, n_feeders=3)
     net = build_feeder(n_houses=46, n_feeders=3, trafo_kva=800)
     assert len(net.load) == 46 and net.trafo.sn_mva.iloc[0] == pytest.approx(0.8)
+
+
+def test_the_315_kva_unit_has_its_tier2_losses_and_4_percent_impedance():
+    """Added for the study's rural street (23 Oct 2026): Ecodesign Tier-2 Ak 2 800 W / A0 324 W, uk 4 %."""
+    net = build_feeder(n_houses=20, n_feeders=3, trafo_kva=315)
+    tr = net.trafo.iloc[0]
+    assert TRANSFORMERS[315] == dict(p_load_w=2800, p_noload_w=324, uk_percent=4.0)
+    assert tr.vkr_percent == pytest.approx(100 * 2800 / 315_000, abs=1e-6) and tr.vk_percent == pytest.approx(4.0)
+    assert tr.pfe_kw == pytest.approx(0.324)
+
+
+def test_longer_cables_between_houses_lower_the_far_voltage():
+    """The study's street types differ in the cable between house connections; the default stays 30 m."""
+    volts = {}
+    for seg in (0.015, 0.030, 0.060):
+        net = build_feeder(n_houses=30, n_feeders=3, main_segment_km=seg)
+        set_house_loads(net, 4.0)
+        volts[seg] = run_snapshot(net)["vmin_pu"]
+        assert net.line.length_km[net.line.name.str.contains("main")].eq(seg).all()
+    assert volts[0.015] > volts[0.030] > volts[0.060]
+    assert build_feeder().line.length_km[build_feeder().line.name.str.contains("main")].eq(0.030).all()
+    with pytest.raises(ValueError):
+        build_feeder(main_segment_km=30)                       # metres, not km

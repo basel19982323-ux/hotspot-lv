@@ -57,7 +57,9 @@ class ScenarioPanel(QWidget):
         f1 = QFormLayout(g1)
         f1.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow); f1.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.kva = QComboBox(); [self.kva.addItem(f"{k} kVA", k) for k in sorted(TRANSFORMERS)]
-        self.kva.setToolTip("Sizes with verified Ecodesign Tier-2 loss figures (v0.1: 500 and 800 kVA).")
+        self.kva.setCurrentIndex(self.kva.findData(500))          # the villa-suburb default, not the smallest
+        self.kva.setToolTip("Sizes with Ecodesign Tier-2 loss figures in the catalogue: "
+                            + ", ".join(f"{k}" for k in sorted(TRANSFORMERS)) + " kVA.")
         self.houses = QSpinBox(); self.houses.setRange(3, 200); self.houses.setValue(45)
         self.houses.setToolTip("Single-family houses behind the station. Swedish practice: ~40–50 per 500 kVA.")
         self.feeders = QSpinBox(); self.feeders.setRange(1, 6); self.feeders.setValue(3)
