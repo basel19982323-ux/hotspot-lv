@@ -20,6 +20,33 @@ next to the thermal view, so the two can be compared.
 **The study:** [STUDY.md](STUDY.md) is a thermal ageing & dynamic loading study made with this tool. It covers three
 street types and 13 weather years of measured SMHI temperature. [Summary below](#the-study-in-short).
 
+## About, in plain words
+
+A nätstation is the small kiosk in the street with a transformer inside. One documented way to screen it is a rule of
+thumb (Energiforsk 2018:552). If the houses' summed meter readings pass 80 % of the transformer's rating, the station
+is "overloaded on paper".
+
+But a transformer does not fail at 100 %. What wears it out is heat. The hottest point in the winding, the
+*hot-spot*, slowly cooks the paper insulation. The loading guide IEC 60076-7 gives the chain:
+
+    load + outdoor temperature → oil temperature → hot-spot → days of insulation life used
+
+- **Ageing:** at 98 °C the paper ages at its design rate, and every 6 °C hotter doubles the ageing.
+- **Short-peak limits:** the guide also limits the current and the temperatures during short peaks.
+
+**The question.** On a Swedish street adding heat pumps, EV chargers and rooftop solar, how far apart are
+"overloaded on paper" and "really at the limit"?
+
+**The answer, in this simulation:**
+- **The gap:** the transformer reaches its IEC normal cyclic limit at about 1.6–1.85 times the houses at which the
+  80 % rule first flags the station.
+- **Most of that gap is the standard itself:** it allows 1.5 × rated current in normal cyclic loading.
+- **What bites first** is a short peak on a cold winter evening, not slow ageing.
+- **The weather year:** the coldest year in the data (2010) brings the limit at 18–19 % fewer houses than the median
+  of 13 years.
+- **Not advice to load real transformers harder.** The rule's margin also covers phase imbalance and peaks inside
+  the hour, which this study does not model.
+
 ## Engineering highlights
 
 - **IEC 60076-7 thermal model**:
