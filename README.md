@@ -224,6 +224,39 @@ The streets are a village road at 315 kVA, a villa suburb at 500 kVA and a dense
 It is a simulation with illustrative streets, synthetic houses and generic constants, and it has not been checked
 against a measured station. [Limitations](STUDY.md#7-limitations-ranked).
 
+## What would make it better
+
+Hotspot LV is a screening tool and a simulation study. These are the steps, in order of value, that would make it
+more useful to a grid company:
+
+1. **One real station.** The single most valuable check: a station's summed customer meters against a measurement at
+   the station itself, and a top-oil temperature log through a cold week. That would show how far the synthetic houses
+   are from a real transformer's current, and how far the generic IEC 60076-7 constants are from a real unit's
+   temperatures. Until then every verdict is indicative.
+2. **Per-phase and finer data.** Swedish meters register energy every 15 minutes and can measure each phase. The tool
+   already reads quarter-hour station data, but as one balanced total. Reading each phase separately would show the
+   most-loaded phase. Values finer than a quarter-hour would catch more of the peaks inside the hour. Both matter
+   because the hot-spot responds in minutes and EIFS 2023:3 is written for 10-minute values.
+3. **More transformer sizes.** The catalogue has 315, 500 and 800 kVA, and the station and fleet modes accept only
+   these. Adding the other common sizes, for example 50, 100, 200, 1 000 and 1 250 kVA, with their Ecodesign losses,
+   would let the fleet mode screen a whole DSO fleet.
+4. **The unit's own data.** Fields for the manufacturer's heat-run results (top-oil rise, hot-spot gradient, time
+   constants), the unit's age and moisture, and thermally upgraded paper (the engine has it, the app does not offer
+   it yet), so a known unit replaces the generic one.
+5. **The rest of the station.** Fuses, LV switchgear, bushings and cable terminations can limit before the windings
+   above 1.5 × rated current. A simple rating check per station would close that gap.
+6. **Long rural lines.** The three streets are short and grow by adding cables. A long rural feeder with thinner
+   cables would show the voltage-first case the national model finds in rural grids.
+7. **Harmonics and cold oil.**
+   - Inverter loads add winding losses (IEEE C57.110), which would move the limits to fewer houses.
+   - Very cold oil is more viscous than the model assumes. That matters mainly in lightly loaded cold hours, because
+     at the deciding peaks the oil is already 90–98 °C.
+8. **Several draws, several places.** The study used one random draw of the houses and one SMHI station. Many draws
+   (the app's Spread tab already does this for a single street) and more stations would turn the study's ranges into
+   proper distributions.
+
+Contributions and real-station data are welcome. Open an issue or contact me on LinkedIn.
+
 ## Run from source
 
 Python 3.11 or newer, on Windows (PowerShell):
