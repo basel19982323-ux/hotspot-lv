@@ -59,3 +59,14 @@ def test_the_texts_name_the_real_download_host_and_the_lag(path):
     text = (ROOT / path).read_text(encoding="utf-8")
     assert SMHI_HOST in text and "three months" in text and "latest-months" in text
     assert "downloads that station's hourly archive once" not in text and "archive once from" not in text
+
+
+def test_the_version_is_one_number_everywhere_and_in_the_changelog():
+    """Catches: pyproject and the program disagreeing on the version, or a version with no changelog entry."""
+    import re
+    import tomllib
+    from hotspotlv import __version__
+    root = Path(__file__).resolve().parents[1]
+    assert tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"] == __version__
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert re.search(rf"^## {re.escape(__version__)} — ", changelog, re.M)

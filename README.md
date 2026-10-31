@@ -71,18 +71,28 @@ But a transformer does not fail at 100 %. What wears it out is heat. The hottest
 - **Real weather:** SMHI hourly air temperature for the station's own years, from the SMHI station you choose,
   downloaded once and cached, with the gap rules stated in the result. Charts show Swedish local time
   (CET/CEST).
-- **A grid company's own data:** reads station CSV files in the shapes Swedish meter exports take. It accepts kW or kWh,
-  hourly or 15-minute values, and timestamps in Swedish local time, normaltid or UTC (when they carry their
-  offset). It also accepts Swedish or English headers, decimal commas and gaps, and states every assumption it
-  makes. It is tested on constructed files of those shapes, not yet on a real DSO export.
-- **Station card (PDF):** an A4 report of one station's verdict, charts, inputs, method and rules, for a planning
-  file.
+- **A grid company's own data:** reads a meter export the way a Swedish DSO delivers it.
+  - **The file:** UTF-8, UTF-16 or Windows-1252; `;`, tab or `,`; lines above the header and a sum line below the
+    table.
+  - **The values:** Swedish or English headers; kW, kWh or Wh per interval, hourly or 15-minute; decimal commas,
+    thousands dots and gaps.
+  - **The time:** day-first or month-first dates; Swedish local time or normaltid, detected from the
+    daylight-saving days.
+  - **Several stations:** a file with a `Nätstation` column is screened as a fleet.
+  - It says what it found in the file and what the file could not tell.
+  - It is tested on eleven constructed files of those shapes (`tests/fixtures/dso_exports`), not yet on a real DSO
+    export.
+- **Transformer sizes:** 50 to 1 000 kVA with their Ecodesign Tier-2 losses, or a custom unit with the losses from
+  its test report.
+- **Station card and report:**
+  - an A4 card of one station's verdict, charts, inputs, method and rules, for a planning file;
+  - the same as a report from one command (`hotspot-lv report`), as PDF or HTML.
 - **Planning views for a synthetic street:**
   - *Fixes*: a bigger transformer, two smart-charging schemes (a night timer, spread charging) or a battery, on
     the same houses, with indicative costs.
   - *Sweep*: where the verdict flips as houses, EVs or PV are added.
   - *Spread*: the same street with different random draws of the houses.
-- **Tested:** 257 automated tests (pytest). The Windows build checks itself with a `--self-test` that runs every mode
+- **Tested:** 362 automated tests (pytest). The Windows build checks itself with a `--self-test` that runs every mode
   without a window.
 
 **Tech:** Python · PySide6 (Qt) · pyqtgraph · pandapower · pandas / NumPy · pvlib · matplotlib · pytest ·
@@ -146,6 +156,9 @@ the inputs, the method and every rule with its source.
 
 ## Download for Windows
 
+The download is version 0.1.0. Version 0.2.0 is this source code (see [CHANGELOG.md](CHANGELOG.md)). It is not
+built or released yet, so its new features need the Python install ([Run from source](#run-from-source)).
+
 1. Download `HotspotLV-0.1.0-win64.zip` and `HotspotLV-0.1.0-win64.zip.sha256` from the
    [latest release](https://github.com/basel19982323-ux/hotspot-lv/releases/latest).
 2. Check the download. In PowerShell, in the download folder, this must print `True`:
@@ -179,8 +192,8 @@ The window has four tabs.
 
 | Tab | What you give it | What you get |
 |---|---|---|
-| **Own station data** | One station's CSV (the sum of its customers' meters, or a station meter), its kVA, enclosure and nearest SMHI station | The verdict for the data's own years, with ON PAPER (nameplate) and REALLY (thermal model + limits) side by side; the period timeline, duration curve and worst week; a station card as PDF |
-| **Fleet screening** | An index CSV with one row per station: its id, kVA and the file of its meter values | A ranked table: At risk first, with the rule that decided each verdict; CSV export |
+| **Own station data** | One station's export (the sum of its customers' meters, or a station meter), its kVA (50–1 000 kVA, or a custom unit with its own losses), enclosure and nearest SMHI station | The verdict for the data's own years, with ON PAPER (nameplate) and REALLY (thermal model + limits) side by side; the period timeline, duration curve and worst week; a *File* tab with what was read from the file; a station card as PDF |
+| **Fleet screening** | An index CSV with one row per station (its id, kVA and the file of its meter values), or one export with every station in a `Station` / `Nätstation` column | A ranked table: At risk first, with the rule that decided each verdict; CSV export |
 | **Scenario (synthetic street)** | A synthetic street: houses, heating mix, EV and PV shares, transformer size, number of feeders (cables) | The verdict for a full year; *Fixes*, *Sweep* and *Spread* to explore it |
 | **Assumptions & sources** | — | Every constant, rule and data source, with its licence |
 
@@ -196,6 +209,45 @@ Energiforsk 2018:552) uses the summed meter values, which read 7–16 % lower at
 **What it cannot see.** In *Own station data* the meters give the transformer's load but not the street's
 voltages or cable currents, so those rules show as "not checked". Phase imbalance and peaks inside the hour are not
 modelled in any mode. These limits are stated on every result.
+
+**What the file cannot tell.** Some things no export shows:
+- **The interval convention:** whether a stamp starts or ends its interval. You set it.
+- **The clock,** when the file has no daylight-saving day.
+- **The unit** of a bare `Värde` column.
+- **The day and month order,** when no date has a day above 12 and both orders give a regular series (one day
+  of data, for example).
+
+The *File* tab and the report list what was assumed for each of these. A quarter-hour column without a unit is
+refused until you choose the unit, because kW and kWh per 15 minutes differ by four times.
+
+## A report from one command
+
+With the Python install ([Run from source](#run-from-source)), one command writes one station's report without
+opening a window:
+
+```powershell
+hotspot-lv report station.csv --kva 500 --out station-report.pdf
+```
+
+`python -m hotspotlv report …` is the same command.
+
+- **The file:** `--out` ends in `.pdf` (A4, like the station card) or `.html` (one file, with the charts inside).
+- **What the report has:**
+  - what was read from the file;
+  - peak load against the rating;
+  - the hot-spot and top-oil temperature duration curve;
+  - the hours above the IEC 60076-7 normal cyclic limits;
+  - the relative ageing rate;
+  - the verdict.
+- **The note it carries:** *Indicative result, generic transformer constants, not validated on a real station.*
+- **Options:**
+  - `--station`: one station of a multi-station file;
+  - `--smhi`: the SMHI station nearest the place;
+  - `--p0`, `--pk`, `--uk`: a custom unit, its no-load and load losses in W and its uk;
+  - `--unit`, `--tz`, `--stamp`, `--measured-at`, `--dayfirst` / `--monthfirst`: what the file cannot say.
+  - `hotspot-lv report --help` lists them all.
+- **Exit code:** 0 when the report is written, 1 with the reason when the file cannot be assessed.
+- **The Windows zip** is a windowed program without a console. The command has not been tried in the zip.
 
 ## The study in short
 
@@ -264,9 +316,10 @@ more useful to a grid company:
    already reads quarter-hour station data, but as one balanced total. Reading each phase separately would show the
    most-loaded phase. Values finer than a quarter-hour would catch more of the peaks inside the hour. Both matter
    because the hot-spot responds in minutes and EIFS 2023:3 is written for 10-minute values.
-3. **More transformer sizes.** The catalogue has 315, 500 and 800 kVA, and the station and fleet modes accept only
-   these. Adding the other common sizes, for example 50, 100, 200, 1 000 and 1 250 kVA, with their Ecodesign losses,
-   would let the fleet mode screen a whole DSO fleet.
+3. **Older and bigger units.** The catalogue covers 50–1 000 kVA at the Ecodesign Tier-2 maximum losses, and a
+   custom unit takes any unit's own losses. Units bought before the Ecodesign rules (from 2015) can have higher
+   losses than that. Typical values by age, and 1 250 kVA and up, would bring a fleet screening without test
+   reports closer to the real units.
 4. **The unit's own data.** Fields for the manufacturer's heat-run results (top-oil rise, hot-spot gradient, time
    constants), the unit's age and moisture, and thermally upgraded paper (the engine has it, the app does not offer
    it yet), so a known unit replaces the generic one.
@@ -295,6 +348,7 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -e ".[dev,app]"
 python -m hotspotlv.app        # the app
+hotspot-lv report station.csv --kva 500 --out report.pdf   # one station's report, no window
 pytest                         # the tests
 ```
 
@@ -315,7 +369,7 @@ study/                  the study's scripts, weather years and results
 docs/figures/           the study's charts
 validation/             code cross-checks (not measurement validation): Alliander thermal library; screenshots; example data
 packaging/              the Windows build
-tests/                  pytest suite
+tests/                  pytest suite; tests/fixtures/dso_exports: files shaped like DSO meter exports
 ```
 
 ## Data and licences

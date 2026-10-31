@@ -47,6 +47,7 @@ The data keep their own licences (below), not MIT.
 
 def _assumptions_markdown() -> str:
     import hotspotlv.catalogue as catalogue
+    import hotspotlv.meterfile as meterfile
     import hotspotlv.thermal as thermal
     import hotspotlv.verdict as verdict
     sources = (package_data() / "SOURCES.md").read_text(encoding="utf-8")
@@ -59,10 +60,23 @@ def _assumptions_markdown() -> str:
               "stays the generic IEC 60076-7 distribution value. Values that cannot be right are refused: a "
               "no-load loss outside 0.01–1 % or a load loss outside 0.1–5 % of the rating (kW typed for W), a "
               "load loss not above the no-load loss (swapped), a uk outside 2–10 %.\n")
+    reading = ("\n**Numbers.** A cell with both '.' and ',' takes the last one as the decimal sign; a comma alone is a "
+               "decimal comma; a dot alone is a decimal point unless every dot-only value of the column has groups of "
+               "three digits after it (then thousands, said in the notes). Spaces and no-break spaces are thousands "
+               "separators; a unit after the number (kW, kWh) is ignored.\n\n"
+               "**Units.** The header (Effekt (kW), Energi (kWh), Wh, MWh …), an Enhet column or the cells give the "
+               "unit; energy per interval is divided by the interval length to mean kW. A header without a unit "
+               "takes kW for a power name and kWh for an energy name, and says so; a bare Värde column with "
+               "quarter-hour values is refused until the unit is chosen (kW and kWh per 15 min differ by ×4).\n\n"
+               "**What a file cannot tell** — whether a stamp starts or ends its interval, the clock of a file with no "
+               "daylight-saving day, a missing unit, a day/month order no date shows — is assumed as stated on the "
+               "File tab and in the report, never silently.\n")
     return (ABOUT + "\n## Verdict rules (from the engine's own documentation)\n" + code(verdict.__doc__)
             + "\n## Thermal model (from the engine's own documentation)\n" + code(thermal.__doc__)
             + "\n## Transformer catalogue (from the engine's own documentation)\n" + code(catalogue.__doc__)
             + "\n" + catalogue.catalogue_markdown() + custom
+            + "\n## Reading a meter export (from the engine's own documentation)\n" + code(meterfile.__doc__)
+            + reading
             + "\n## Data sources and licences\n" + sources.replace("# Data sources and licences", ""))
 
 

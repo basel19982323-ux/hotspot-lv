@@ -273,3 +273,12 @@ def test_the_fleet_panel_screens_one_multi_station_export(app, monkeypatch):
     panel = FleetPanel()
     assert panel.default_kva.itemData(0) is None and 500 in [panel.default_kva.itemData(i)
                                                              for i in range(panel.default_kva.count())]
+
+
+def test_the_assumptions_page_explains_how_an_export_is_read():
+    pytest.importorskip("PySide6")
+    import hotspotlv.meterfile as meterfile
+    from hotspotlv.app.main_window import _assumptions_markdown
+    page = _assumptions_markdown()
+    assert "## Reading a meter export" in page and meterfile.__doc__.strip().splitlines()[0] in page
+    assert "What a file cannot tell" in page and "×4" in page
