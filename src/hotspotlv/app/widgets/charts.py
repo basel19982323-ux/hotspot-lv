@@ -58,6 +58,7 @@ class ElidedLabel(QLabel):
         self._elide()
 
 from hotspotlv.app.theme import AMBIENT_COLOR, HOTSPOT_COLOR, LOAD_COLOR, OIL_COLOR, RULE_80, RULE_100
+from hotspotlv.thermal import IEC_LIMITS_C, REF_HOT_SPOT_C
 from hotspotlv.timeseries import NAMEPLATE_RULE_PCT
 from hotspotlv.verdict import THERMAL_RANGE_K, TOL, fmt_quantity
 
@@ -311,6 +312,55 @@ class DurationCurve(QWidget):
         above80 = float((hourly["loading_pct"] > NAMEPLATE_RULE_PCT + TOL).sum() * step_h)     # the verdict's own count
         above100 = float((hourly["loading_pct"] > 100 + TOL).sum() * step_h)
         self.caption.setText(f"Above 80 %: {above80:,.0f} h · above 100 %: {above100:,.0f} h · peak {lp[0]:.1f} %")
+
+
+TEMPERATURE_DURATION_LEGEND = ((HOTSPOT_COLOR, "&#9644;", "hot-spot °C sorted high → low"),
+                               (OIL_COLOR, "&#9644;", "top-oil °C sorted high → low"),
+                               (RULE_100, "&#9476;", "dashed: 98 °C = ageing rate 1 · 105 °C top-oil and 120 °C hot-spot "
+                                                     "IEC 60076-7 normal cyclic limits"))
+
+
+class TemperatureDuration(QWidget):
+    """Hot-spot and top-oil sorted high → low: read it as 'above x °C for y hours' (the report's fourth chart)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.plot = pg.PlotWidget()
+        self.plot.setLabel("left", "temperature", units="°C")
+        self.plot.setLabel("bottom", "hours in the period above this temperature")
+        for side in ("left", "bottom"):
+            self.plot.getAxis(side).enableAutoSIPrefix(False)
+        self.plot.showGrid(x=True, y=True, alpha=0.2)
+        self.legend = LegendStrip(TEMPERATURE_DURATION_LEGEND)
+        self.hot = self.plot.plot([], [], pen=pg.mkPen(HOTSPOT_COLOR, width=2))
+        self.oil = self.plot.plot([], [], pen=pg.mkPen(OIL_COLOR, width=2))
+        self.hot_limit, self.oil_limit = IEC_LIMITS_C["normal_cyclic_hot_spot"], IEC_LIMITS_C["normal_cyclic_top_oil"]
+        for y, c, txt, prio in ((REF_HOT_SPOT_C, RULE_80, f"{REF_HOT_SPOT_C:g} °C", 0),
+                                (self.oil_limit, OIL_COLOR, f"top-oil {self.oil_limit:g} °C", 1),
+                                (self.hot_limit, HOTSPOT_COLOR, f"hot-spot {self.hot_limit:g} °C", 2)):
+            rule_line(self.plot, y, c, txt, LABEL_RIGHT, priority=prio)
+        self.caption = QLabel("")
+        self.caption.setProperty("muted", True)
+        lay.addWidget(self.legend)
+        lay.addWidget(self.plot, 1)
+        lay.addWidget(self.caption)
+
+    def set_thermal(self, thermal_hourly: pd.DataFrame, step_h: float = 1.0):
+        """thermal_hourly: ThermalResult.hourly — the step's maximum hot-spot (theta_h_max) and its top-oil."""
+        hot = np.sort(thermal_hourly["theta_h_max"].to_numpy())[::-1]
+        oil = np.sort(thermal_hourly["theta_o"].to_numpy())[::-1]
+        hours = np.arange(1, len(hot) + 1) * step_h
+        self.hot.setData(hours, hot)
+        self.oil.setData(hours, oil)
+        self.plot.setXRange(0, max(hours[-1], 1))
+        self.plot.setYRange(min(0.0, float(oil[-1]) - 5), max(self.hot_limit + 5, float(hot[0]) * 1.05))
+        above = float(thermal_hourly[f"h_above_{self.hot_limit:g}"].sum())    # the verdict's own count (sub-steps)
+        oil_h = float((thermal_hourly["theta_o"] > self.oil_limit + TOL).sum() * step_h)
+        self.caption.setText(f"Hot-spot above {self.hot_limit:g} °C: {above:,.1f} h · top-oil above {self.oil_limit:g} °C: "
+                             f"{oil_h:,.0f} h (step-end values) · peak hot-spot {hot[0]:.1f} °C, peak top-oil "
+                             f"{oil[0]:.1f} °C")
 
 
 class YearTimeline(QWidget):

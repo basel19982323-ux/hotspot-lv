@@ -1,7 +1,8 @@
 """`python -m hotspotlv.app` (or the `hotspot-lv` command, or HotspotLV.exe) — start the desktop application.
 
 `--self-test <folder>` runs the end-to-end check of app/selftest.py instead of waiting for a user: for a frozen or
-installed build, which the source-tree tests cannot see. Exit code 0 = every step passed; the log is in the folder."""
+installed build, which the source-tree tests cannot see. Exit code 0 = every step passed; the log is in the folder.
+`report <csv> --kva …` writes one station's report without a window (cli.py; `hotspot-lv report --help`)."""
 
 from __future__ import annotations
 
@@ -44,6 +45,9 @@ def _fail_start(self_test: Path, text: str) -> int:
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "report":       # the report command: no window, no splash
+        from hotspotlv.cli import main as report
+        return report(sys.argv[2:])
     self_test, argv = _self_test_folder(sys.argv)
     deep = _too_deep()
     if deep is not None:

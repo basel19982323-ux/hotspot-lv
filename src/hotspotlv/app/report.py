@@ -1,9 +1,15 @@
 """The station card as a PDF — what a planner attaches to a planning memo (mode B).
 
-    StationResult ──► render_charts()        the three chart widgets drawn off-screen at their printed size
+    StationResult ──► render_charts()        the chart widgets drawn off-screen at their printed size
                  ──► station_card_html()    verdict · inputs · charts · notes │ how the numbers were made
                  ──► build_card_document()  QTextDocument on A4, headings kept with their section
                  ──► write_station_card()   printed to a temporary file, then moved over the target
+                 ──► write_report_html()    the same page as one HTML file, charts embedded as PNG
+
+report=True (the `hotspot-lv report` command, cli.py) makes the card a report: the note "indicative result,
+generic transformer constants, not validated on a real station" under the title, a key-figures table (peak
+load vs rating, hours above the IEC normal cyclic limits, the relative ageing rate, the verdict) and a fourth
+chart, the hot-spot and top-oil duration curve.
 
 The card repeats what the screen shows — every number goes through the same
 formatter as the verdict card, the charts are the app's own chart classes, the
@@ -26,29 +32,31 @@ The reviews of 22 Oct 2026 (usability, physics) shaped three choices:
 
 from __future__ import annotations
 
+import base64
 import html
 import math
 import re
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
-from PySide6.QtCore import (QCoreApplication, QDir, QEvent, QEventLoop, QIODevice, QMarginsF, QRectF, QSaveFile, QSize,
-                            QSizeF, Qt, QUrl)
+from PySide6.QtCore import (QBuffer, QByteArray, QCoreApplication, QDir, QEvent, QEventLoop, QIODevice, QMarginsF,
+                            QRectF, QSaveFile, QSize, QSizeF, Qt, QUrl)
 from PySide6.QtGui import (QColor, QFont, QImage, QPageLayout, QPageSize, QPainter, QPdfWriter, QTextBlock,
                            QTextDocument, QTextFormat, QTextFrame)
 from PySide6.QtWidgets import QApplication
 
 from hotspotlv import __version__
 from hotspotlv.app.theme import ACCENT, MUTED, PANEL, VERDICT_COLORS
-from hotspotlv.app.widgets.charts import (TIMELINE_LEGEND, DurationCurve, WorstWeek, YearTimeline, interval_text,
-                                         legend_html, without_transformer_temperatures)
+from hotspotlv.app.widgets.charts import (TIMELINE_LEGEND, DurationCurve, TemperatureDuration, WorstWeek, YearTimeline,
+                                         interval_text, legend_html, without_transformer_temperatures)
 from hotspotlv.app.widgets.verdict_card import fmt_card_value
 from hotspotlv.station import CABLE_LOSS_SHARE_AT_RATED, NOT_CHECKED_KEYS, StationResult, scale_text
 from hotspotlv.thermal import IEC_LIMITS_C, IEC_LIMITS_K, KIOSK_AIR_RISE_K, REF_HOT_SPOT_C, ThermalParams
 from hotspotlv.timeseries import NAMEPLATE_RULE_PCT, VMAX_LIMIT_PU, VMIN_LIMIT_PU
 from hotspotlv.verdict import (CABLE_SOURCE, DESIGN_LIFE_DAYS_PER_YEAR, HOURS_PER_YEAR, IEC_TABLE_4, OUT_OF_RANGE_RULE,
-                               THERMAL_RANGE_K, thermal_ok,
+                               THERMAL_RANGE_K, TOL, thermal_ok,
                                VMAX_PLAN_PU, VMIN_PLAN_PU, WATCH_LIFE_DAYS_PER_YEAR)
 from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME
 
@@ -57,6 +65,8 @@ PAGE_W = 680                         # A4 text width at 96 dpi with 15 mm margin
 CHART_W, CHART_H = PAGE_W, 257       # logical px = printed size, so the app's 9-pt chart fonts print at 9 pt
 RENDER_DPR = 2.0                     # pixels per logical px in the image: 192 dpi on paper, whatever the screen
 CHARTS = ("period", "duration", "worst_week")
+REPORT_CHARTS = ("period", "duration", "temperature", "worst_week")
+INDICATIVE = "Indicative result, generic transformer constants, not validated on a real station."
 NUMBER_WORDS = {1: "One", 2: "Two", 3: "Three", 4: "Four"}
 
 
@@ -97,16 +107,22 @@ def _render(plot) -> QImage:
     return image
 
 
-def render_charts(res: StationResult, ambient: pd.Series, width: int = CHART_W, height: int = CHART_H) -> dict:
-    """Draw the three charts of the Own-station tab off-screen and paint them into images.
+def render_charts(res: StationResult, ambient: pd.Series, width: int = CHART_W, height: int = CHART_H,
+                  names: tuple = CHARTS) -> dict:
+    """Draw the charts of the Own-station tab off-screen and paint them into images (`names`: CHARTS, or
+    REPORT_CHARTS with the temperature duration curve, which is left out when the thermal figures are withdrawn).
     Returns {name: {"image": QImage, "legend": rich text, "caption": str}}. GUI thread only (needs a QApplication)."""
     app = QApplication.instance()
     if not isinstance(app, QApplication):
         raise RuntimeError("render_charts needs a QApplication (widgets), on the GUI thread")
     step_h = res.station.step_min / 60
     out = {}
-    for name, cls in (("period", YearTimeline), ("duration", DurationCurve), ("worst_week", WorstWeek)):
-        w = cls()
+    classes = {"period": YearTimeline, "duration": DurationCurve, "temperature": TemperatureDuration,
+               "worst_week": WorstWeek}
+    for name in names:
+        if name == "temperature" and not thermal_ok(res.verdict):
+            continue                                      # no temperatures to sort above 2 × rated
+        w = classes[name]()
         try:
             w.setAttribute(Qt.WA_DontShowOnScreen, True)          # laid out and painted, never on the screen
             w.plot.setFixedSize(width, height)
@@ -129,6 +145,9 @@ def render_charts(res: StationResult, ambient: pd.Series, width: int = CHART_W, 
                                    "ranked by insulation life used, not by temperature)."))
             elif name == "duration":
                 w.set_year(res.year.hourly, step_h)
+                caption, legend = w.caption.text(), w.legend.text()
+            elif name == "temperature":
+                w.set_thermal(res.thermal.hourly, step_h)
                 caption, legend = w.caption.text(), w.legend.text()
             else:
                 w.set_week(res.thermal.worst_week(), res.year.hourly, ambient, step_h, thermal_valid=ok)
@@ -199,6 +218,43 @@ def rule_rows(checked: bool = False) -> list[tuple[str, str, str, str, str]]:
     ]
 
 
+def _rate_text(x: float) -> str:
+    """An ageing rate to two significant digits, never '0.00' for a lightly loaded unit, never '4e-04'."""
+    return f"{x:.2f}" if x >= 0.1 else np.format_float_positional(x, precision=2, unique=False, fractional=False)
+
+
+def key_figures(res: StationResult) -> list[tuple[str, str]]:
+    """The report's summary table: the verdict's own numbers, through the card's own formatter, and for the top-oil
+    hours and the ageing rate the thermal result's — '–' where the thermal figures are withdrawn above 2 × rated."""
+    v, th = res.verdict, res.thermal
+    step_h = res.station.step_min / 60
+    k = res.year.hourly["loading_pct"] / 100
+    ok = thermal_ok(v)
+    dash = "– (withdrawn: loading above 2 × rated)"
+    hot, oil = IEC_LIMITS_C["normal_cyclic_hot_spot"], IEC_LIMITS_C["normal_cyclic_top_oil"]
+    limit_k = IEC_LIMITS_K["normal_cyclic"]
+    f = fmt_card_value
+    hot_key = f"hours hot-spot above {hot:g} °C"
+    rows = [
+        ("verdict", v.headline()),
+        ("rating", f"{res.rated_kva:g} kVA" + (" (custom unit)" if res.losses else "")),
+        ("peak load vs rating", f"{f('peak load (% of nameplate)', v.on_paper['peak load (% of nameplate)'])} % of "
+                                f"nameplate ({f('max load (× rated)', v.really['max load (× rated)'])} × rated)"),
+        ("hours above the IEC normal cyclic limits (IEC 60076-7 Table 4)",
+         f"load above {limit_k:g} × rated: {f('hours', float((k > limit_k + TOL).sum() * step_h))} h · "
+         + (f"hot-spot above {hot:g} °C: {f('hours', v.really[hot_key])} h · top-oil above {oil:g} °C: "
+            f"{f('hours', float((th.hourly['theta_o'] > oil + TOL).sum() * step_h))} h (step-end values)" if ok else
+            f"hot-spot and top-oil {dash}")),
+        ("relative ageing rate", (f"{_rate_text(th.equivalent_ageing_factor)} on average over the period (1.00 = the "
+                                  f"design rate, at {REF_HOT_SPOT_C:g} °C hot-spot); "
+                                  f"{f('days', v.really['days of life used per year'])} days of life used per year")
+         if ok else dash),
+        ("max hot-spot · top-oil", f"{f('°C', v.really['max hot-spot (°C)'])} °C · "
+                                   f"{f('°C', v.really['max top-oil (°C)'])} °C" if ok else dash),
+    ]
+    return rows
+
+
 def s_estimate_text(res: StationResult) -> str:
     st = res.station
     q_loss = "Q_loss = uk·K²·S_rated is the transformer's reactive consumption"
@@ -262,7 +318,7 @@ def is_shipped_example(source) -> bool:
 
 
 def station_card_html(res: StationResult, charts: dict | None = None, source_name: str | None = None,
-                      generated: datetime | None = None) -> str:
+                      generated: datetime | None = None, report: bool = False) -> str:
     """The whole card as HTML for QTextDocument (a subset of HTML 4 / CSS 2: tables, colours, images).
     `charts` as from render_charts(); images are referenced as chart://<name> (resources added by the caller).
     Every string that comes from data (file name, notes, captions) is escaped; the legends are the app's own markup."""
@@ -324,8 +380,9 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
     if charts:
         titles = {"period": "The whole period — loading and temperatures",
                   "duration": "Loading duration curve — for how many hours is the station above x %",
+                  "temperature": "Temperature duration curve — for how many hours are the hot-spot and top-oil above x °C",
                   "worst_week": "The worst week — the seven days that used the most insulation life"}
-        for name in CHARTS:
+        for name in [n for n in (REPORT_CHARTS if report else CHARTS) if n in charts]:
             c = charts[name]
             title = titles[name]
             if clipped and name == "worst_week":
@@ -351,6 +408,12 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
         not_checked_html = (f"{NUMBER_WORDS.get(len(not_checked), str(len(not_checked)))} "
                             f"{'rule reads' if len(not_checked) == 1 else 'rules read'} <i>not checked</i>: "
                             f"{_esc(', '.join(not_checked))}.")
+    kind = "station report" if report else "station card"
+    banner = (f"<p style='font-size:11pt; color:{VERDICT_COLORS['Watch']}'><b>{_esc(INDICATIVE)}</b></p>"
+              if report else "")
+    key_html = ("<h2>Key figures</h2><table width='100%' cellpadding='3'>"
+                + "".join(f"<tr><td style='color:{MUTED}' width='28%'>{_esc(k)}</td><td><b>{_esc(val)}</b></td></tr>"
+                          for k, val in key_figures(res)) + "</table>") if report else ""
     clip_method = (f" Above {THERMAL_RANGE_K:g} × rated (the IEC short-time emergency current limit) the thermal model "
                    "is not used: life and temperatures were not computed." if clipped else "")
 
@@ -363,9 +426,10 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
   td {{ padding: 3px 6px; vertical-align: top; }}
   th {{ padding: 3px 6px; text-align: left; background: {PANEL}; }}
 </style></head><body>
-<h1>Hotspot LV — station card</h1>
+<h1>Hotspot LV — {kind}</h1>
 <p style='color:{MUTED}'>{_esc(source_name)} · generated {generated:%d %b %Y %H:%M} · Hotspot LV v{__version__} ·
 simulation (IEC 60076-7 model with generic constants) — results are indicative</p>
+{banner}
 {example_html}
 
 <table width='100%' cellpadding='8' bgcolor='{PANEL}'><tr><td width='10' bgcolor='{color}'></td><td>
@@ -386,6 +450,7 @@ simulation (IEC 60076-7 model with generic constants) — results are indicative
 </td></tr></table>
 <p style='color:{MUTED}; font-size:9pt'>The verdict is decided by the right-hand column only; the nameplate counters are
 shown for contrast. {not_checked_html}</p>
+{key_html}
 
 <h2>Inputs</h2>
 <table width='100%' cellpadding='3'>{inputs_html}</table>
@@ -529,16 +594,18 @@ def _page_layout() -> QPageLayout:
 
 
 def build_card_document(res: StationResult, ambient: pd.Series | None, source_name: str | None = None,
-                        generated: datetime | None = None, charts: dict | None = None) -> QTextDocument:
-    """The paginated card. Charts are rendered here unless given (ambient=None and charts=None → no charts)."""
+                        generated: datetime | None = None, charts: dict | None = None,
+                        report: bool = False) -> QTextDocument:
+    """The paginated card (report=True: the report form). Charts are rendered here unless given (ambient=None and
+    charts=None → no charts)."""
     if charts is None and ambient is not None:
-        charts = render_charts(res, ambient)
-    page_html = station_card_html(res, charts, source_name, generated)
+        charts = render_charts(res, ambient, names=REPORT_CHARTS if report else CHARTS)
+    page_html = station_card_html(res, charts, source_name, generated, report=report)
     breaks: set[int] = set()
     for _ in range(20):                       # QTextDocument has no 'keep with next': measure, break, rebuild
         doc = QTextDocument()                 # a fresh document each pass — a block format changed after layout
         doc.setDefaultFont(QFont("Segoe UI", 10))   # left a stale layout and the printer dropped whole sections
-        for name in CHARTS if charts else ():
+        for name in charts or ():
             doc.addResource(QTextDocument.ImageResource, QUrl(f"chart://{name}"), charts[name]["image"])
         doc.setHtml(_with_breaks(page_html, breaks))
         doc.setPageSize(QSizeF(_page_layout().paintRectPixels(DPI).size()))
@@ -581,7 +648,7 @@ def _print(doc: QTextDocument, device, title: str, footer: str) -> int:
 
 
 def write_station_card(res: StationResult, ambient: pd.Series, path, source_name: str | None = None,
-                       generated: datetime | None = None) -> Path:
+                       generated: datetime | None = None, report: bool = False) -> Path:
     """Render the charts, build the card and print it to `path` through a QSaveFile: the PDF goes to a temporary
     file that replaces the target only on commit, so the target is either the new card or untouched — and an
     error says which, with Windows' own reason. Qt's file engine also handles paths longer than 260 characters,
@@ -590,13 +657,14 @@ def write_station_card(res: StationResult, ambient: pd.Series, path, source_name
     if not QDir(str(path.parent)).exists():
         raise OSError(f"The folder {path.parent} does not exist — choose another place.")
     name = source_name or Path(res.station.source).name or "station"
-    doc = build_card_document(res, ambient, name, generated)
+    doc = build_card_document(res, ambient, name, generated, report=report)
+    kind = "station report" if report else "station card"
     f = QSaveFile(str(path))
     if not f.open(QIODevice.WriteOnly):
         raise OSError(f"{path.name} cannot be written ({f.errorString()}) — it may be read-only; choose another name "
                       "or place. The file on disk was not changed.")
     try:
-        _print(doc, f, f"Hotspot LV station card — {name}", f"Hotspot LV station card · {name}")
+        _print(doc, f, f"Hotspot LV {kind} — {name}", f"Hotspot LV {kind} · {name}")
         if f.size() == 0:
             raise OSError(f"Nothing was written to {path.name}.")
     except BaseException:
@@ -606,4 +674,33 @@ def write_station_card(res: StationResult, ambient: pd.Series, path, source_name
     if not f.commit():
         raise OSError(f"{path.name} could not be replaced ({f.errorString()}) — it is probably open in another program "
                       "or read-only; close it or choose another name. The file on disk was not changed.")
+    return path
+
+
+def _png_data_uri(image: QImage) -> str:
+    data = QByteArray()
+    buf = QBuffer(data)
+    buf.open(QIODevice.WriteOnly)
+    image.save(buf, "PNG")
+    buf.close()
+    return "data:image/png;base64," + base64.b64encode(bytes(data)).decode("ascii")
+
+
+def write_report_html(res: StationResult, ambient: pd.Series, path, source_name: str | None = None,
+                      generated: datetime | None = None) -> Path:
+    """The report as one self-contained HTML file (charts embedded as PNG), written next to a temporary name and
+    renamed over the target, so a failed write never leaves half a file. GUI thread only (the charts)."""
+    path = Path(path)
+    if not path.parent.is_dir():
+        raise OSError(f"The folder {path.parent} does not exist — choose another place.")
+    name = source_name or Path(res.station.source).name or "station"
+    charts = render_charts(res, ambient, names=REPORT_CHARTS)
+    page = station_card_html(res, charts, name, generated, report=True)
+    for chart, c in charts.items():
+        page = page.replace(f"src='chart://{chart}'", f"src='{_png_data_uri(c['image'])}'")
+    page = page.replace("<html><head>", "<html><head><meta charset='utf-8'><title>"
+                        + html.escape(f"Hotspot LV station report — {name}") + "</title>", 1)
+    tmp = path.with_name(path.name + ".part")
+    tmp.write_text(page, encoding="utf-8")
+    tmp.replace(path)
     return path
