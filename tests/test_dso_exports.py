@@ -264,7 +264,7 @@ def test_the_file_tab_shows_what_was_read_and_what_could_not_be_told(app):
     assert "encoding" in text and "resolution" in text and "period" in text
     unsure = read_report_html(read("hourly_kw_slash_dates_dayfirst.csv"))
     assert "What the file could not tell" in unsure and "normaltid cannot be told apart" in unsure
-    assert "Nothing had to be assumed" in read_report_html(read("quarter_hour_kwh_iso_offsets.csv"))
+    assert "Nothing else had to be assumed" in read_report_html(read("quarter_hour_kwh_iso_offsets.csv"))
 
 
 def test_the_fleet_panel_screens_one_multi_station_export(app, monkeypatch):

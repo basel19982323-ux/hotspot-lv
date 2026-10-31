@@ -288,10 +288,13 @@ def read_report_html(st) -> str:
                    for k, v in st.found)
     out = f"<table width='100%' cellpadding='3'>{rows}</table>"
     if st.unsure:
-        out += ("<p><b>What the file could not tell</b> — assumed as below; change the input if it is wrong:</p><ul>"
+        out += ("<p><b>What the file could not tell</b> — assumed as below. If an assumption is wrong, change it: in "
+                "the app with the inputs on the left (Unit, Timestamps, the interval convention); in the report "
+                "command with --unit, --tz, --stamp, --decimal, --dayfirst / --monthfirst.</p><ul>"
                 + "".join(f"<li>{_esc(u)}</li>" for u in st.unsure) + "</ul>")
     else:
-        out += "<p style='color:" + MUTED + "'>Nothing had to be assumed about the file.</p>"
+        out += ("<p style='color:" + MUTED + "'>Nothing else had to be assumed about the file (the interval "
+                "convention is your setting, above).</p>")
     return out
 
 
@@ -482,7 +485,7 @@ year: a winter-only file therefore overstates the yearly figure and a summer-onl
 <p style='color:{MUTED}; font-size:9pt'>Table and equation numbers and all limit values are those of IEC 60076-7:2005. The
 2018 edition renumbers the tables and reviewed the temperature limits; it was not consulted for the values.</p>
 
-<h3>What this card is not</h3>
+<h3>What this {'report' if report else 'card'} is not</h3>
 <p>A screening with a simulation model and generic constants: the thermal constants are IEC 60076-7 defaults for a
 distribution ONAN unit, not this transformer's test-report values; the simplified model has no cold-oil viscosity
 correction, which makes it optimistic in a Swedish winter (the Watch margin on life is there for that); the load is held

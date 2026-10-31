@@ -71,28 +71,30 @@ But a transformer does not fail at 100 %. What wears it out is heat. The hottest
 - **Real weather:** SMHI hourly air temperature for the station's own years, from the SMHI station you choose,
   downloaded once and cached, with the gap rules stated in the result. Charts show Swedish local time
   (CET/CEST).
-- **A grid company's own data:** reads a meter export the way a Swedish DSO delivers it.
-  - **The file:** UTF-8, UTF-16 or Windows-1252; `;`, tab or `,`; lines above the header and a sum line below the
-    table.
+- **A grid company's own data:** reads meter exports in the shapes Swedish DSO exports take.
+  - **The file:** UTF-8, UTF-16 or Windows-1252; `;`, tab, `,` or `|`; lines above the header and a sum line below
+    the table.
   - **The values:** Swedish or English headers; kW, kWh or Wh per interval, hourly or 15-minute; decimal commas,
     thousands dots and gaps.
-  - **The time:** day-first or month-first dates; Swedish local time or normaltid, detected from the
-    daylight-saving days.
+  - **The time:** day-first or month-first dates, hour numbers, written-out intervals; Swedish local time or
+    normaltid, detected from the daylight-saving days.
   - **Several stations:** a file with a `Nätstation` column is screened as a fleet.
-  - It says what it found in the file and what the file could not tell.
-  - It is tested on eleven constructed files of those shapes (`tests/fixtures/dso_exports`), not yet on a real DSO
-    export.
-- **Transformer sizes:** 50 to 1 000 kVA with their Ecodesign Tier-2 losses, or a custom unit with the losses from
-  its test report.
+  - It says what it found in the file and what the file could not tell. What it cannot read safely, such as two
+    columns that could both be the load, it refuses with the reason.
+  - It is tested on eleven constructed files of those shapes (`tests/fixtures/dso_exports`) and on smaller files
+    the tests write, not yet on a real DSO export.
+- **Transformer sizes:** 50 to 1 000 kVA at the Ecodesign Tier-2 maximum losses, or a custom unit with the losses
+  from its test report.
 - **Station card and report:**
   - an A4 card of one station's verdict, charts, inputs, method and rules, for a planning file;
-  - the same as a report from one command (`hotspot-lv report`), as PDF or HTML.
+  - a report from one command (`hotspot-lv report`), as PDF or HTML: the card's content plus key figures, a
+    temperature duration curve and the note that the result is indicative.
 - **Planning views for a synthetic street:**
   - *Fixes*: a bigger transformer, two smart-charging schemes (a night timer, spread charging) or a battery, on
     the same houses, with indicative costs.
   - *Sweep*: where the verdict flips as houses, EVs or PV are added.
   - *Spread*: the same street with different random draws of the houses.
-- **Tested:** 362 automated tests (pytest). The Windows build checks itself with a `--self-test` that runs every mode
+- **Tested:** 408 automated tests (pytest). The Windows build checks itself with a `--self-test` that runs every mode
   without a window.
 
 **Tech:** Python · PySide6 (Qt) · pyqtgraph · pandapower · pandas / NumPy · pvlib · matplotlib · pytest ·
@@ -212,13 +214,16 @@ modelled in any mode. These limits are stated on every result.
 
 **What the file cannot tell.** Some things no export shows:
 - **The interval convention:** whether a stamp starts or ends its interval. You set it.
-- **The clock,** when the file has no daylight-saving day.
+- **The clock,** when the file has no daylight-saving day. Registered meter values are kept in normaltid (EIFS
+  2025:1), while values made available to customers carry the current time, so an export can be either.
 - **The unit** of a bare `Värde` column.
+- **The decimal sign,** when every value has three digits after a `.` or `,` (`1.226` is 1 226 or 1.226).
 - **The day and month order,** when no date has a day above 12 and both orders give a regular series (one day
   of data, for example).
 
-The *File* tab and the report list what was assumed for each of these. A quarter-hour column without a unit is
-refused until you choose the unit, because kW and kWh per 15 minutes differ by four times.
+The *File* tab and the report list what was assumed for each of these. A quarter-hour `Värde` column without a unit
+is refused until you choose the unit, because kW and kWh per 15 minutes differ by four times. A peak below 1 % or
+above 300 % of the rating asks you to check the decimal sign, the unit and the rating.
 
 ## A report from one command
 
@@ -244,10 +249,14 @@ hotspot-lv report station.csv --kva 500 --out station-report.pdf
   - `--station`: one station of a multi-station file;
   - `--smhi`: the SMHI station nearest the place;
   - `--p0`, `--pk`, `--uk`: a custom unit, its no-load and load losses in W and its uk;
-  - `--unit`, `--tz`, `--stamp`, `--measured-at`, `--dayfirst` / `--monthfirst`: what the file cannot say.
+  - `--unit`, `--tz`, `--stamp`, `--decimal`, `--measured-at`, `--dayfirst` / `--monthfirst`: what the file
+    cannot say;
+  - `--max-gap`: the longest run of missing values to fill (default 6 steps).
   - `hotspot-lv report --help` lists them all.
-- **Exit code:** 0 when the report is written, 1 with the reason when the file cannot be assessed.
-- **The Windows zip** is a windowed program without a console. The command has not been tried in the zip.
+- **Exit code:** 0 when the report is written, 1 with the reason when the file cannot be assessed, 2 for wrong
+  arguments.
+- **The Windows zip:** the 0.1.0 zip does not have the command. A future windowed build would run it but print
+  nothing, so the command is for the Python install.
 
 ## The study in short
 
@@ -317,21 +326,23 @@ more useful to a grid company:
    most-loaded phase. Values finer than a quarter-hour would catch more of the peaks inside the hour. Both matter
    because the hot-spot responds in minutes and EIFS 2023:3 is written for 10-minute values.
 3. **Older and bigger units.** The catalogue covers 50–1 000 kVA at the Ecodesign Tier-2 maximum losses, and a
-   custom unit takes any unit's own losses. Units bought before the Ecodesign rules (from 2015) can have higher
-   losses than that. Typical values by age, and 1 250 kVA and up, would bring a fleet screening without test
-   reports closer to the real units.
-4. **The unit's own data.** Fields for the manufacturer's heat-run results (top-oil rise, hot-spot gradient, time
+   custom unit takes any unit's own losses up to 2 500 kVA. Units bought before Tier 2 (July 2021), under Tier 1
+   from 2015 or older, can have higher losses than that. Typical values by age, and 1 250 kVA and up in the
+   catalogue, would bring a fleet screening without test reports closer to the real units.
+4. **Meters one by one.** A DSO may export each customer's meter rather than the station's sum. The reader refuses
+   such a file today; adding the meters up per timestamp, with each meter's gaps handled, would take it as it is.
+5. **The unit's own data.** Fields for the manufacturer's heat-run results (top-oil rise, hot-spot gradient, time
    constants), the unit's age and moisture, and thermally upgraded paper (the engine has it, the app does not offer
    it yet), so a known unit replaces the generic one.
-5. **The rest of the station.** Fuses, LV switchgear, bushings and cable terminations can limit before the windings
+6. **The rest of the station.** Fuses, LV switchgear, bushings and cable terminations can limit before the windings
    above 1.5 × rated current. A simple rating check per station would close that gap.
-6. **Long rural lines.** The three streets are short and grow by adding cables. A long rural feeder with thinner
+7. **Long rural lines.** The three streets are short and grow by adding cables. A long rural feeder with thinner
    cables would show the voltage-first case the national model finds in rural grids.
-7. **Harmonics and cold oil.**
+8. **Harmonics and cold oil.**
    - Inverter loads add winding losses (IEEE C57.110), which would move the limits to fewer houses.
    - Very cold oil is more viscous than the model assumes. That matters mainly in lightly loaded cold hours, because
      at the deciding peaks the oil is already 90–98 °C.
-8. **Several draws, several places.** The study used one random draw of the houses and one SMHI station. Many draws
+9. **Several draws, several places.** The study used one random draw of the houses and one SMHI station. Many draws
    (the app's Spread tab already does this for a single street) and more stations would turn the study's ranges into
    proper distributions.
 

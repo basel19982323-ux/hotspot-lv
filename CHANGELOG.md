@@ -5,9 +5,11 @@ transformer constants, and not validated on a real station.
 
 ## 0.2.0 — not yet released
 
-For grid companies' own meter exports: the *Own station data* and *Fleet screening* modes read real export
-shapes, take every common transformer size, and a report can be written with one command. The thermal model and
-every study result are unchanged: a test re-runs a 315 kVA study case and checks it against its committed row.
+For grid companies' own meter exports: the *Own station data* and *Fleet screening* modes read the shapes Swedish
+DSO exports take — tested on constructed files only, not yet on a real export —, take every common transformer
+size, and a report can be written with one command. The thermal model and every study result are unchanged: a test
+re-runs a 315 kVA study case and checks it against its committed row. An independent review of this version (six
+reviewers: physics, data, code, tests, honesty, the planner's view) led to the fixes listed under each heading.
 
 ### Fixed
 
@@ -23,12 +25,16 @@ every study result are unchanged: a test re-runs a 315 kVA study case and checks
 - **More transformer sizes:** 50, 100, 160, 200, 250, 400, 630 and 1000 kVA, with the Ecodesign Tier-2 maximum
   losses (EU 548/2014 as amended by 2019/1783, Table I.1). 200 kVA is interpolated between 160 and 250 kVA, as
   the regulation prescribes.
-  - uk is Ellevio's specified value where it lists the size.
-  - Where it does not (160, 250, 400 and 630 kVA), the nearest Ellevio band is used, and this is stated as an
-    assumption.
+  - uk: Ellevio's bands up to 315 kVA (3.5 % for 50–200, 4 % for 250), the v0.1 rule of 6 % from 500 kVA (630 and
+    1000 kVA too), and 5 % at 400 kVA between them. A bigger unit thus never gives a larger voltage drop at the
+    same load (the review found that 4 % at 400 and 630 kVA did); a test checks it. 160, 250, 400 and 630 kVA are
+    stated as assumptions; 315, 500 and 800 kVA keep their v0.1 uk.
   - The *Assumptions & sources* page lists every size with its sources.
+  - The *Scenario (synthetic street)* tab offers every size too. Its *Fixes* comparison keeps the bigger units it
+    offered before (500 and 800 kVA), because its unit price is the 800 kVA unit's.
 - **Custom transformer** in *Own station data* and *Fleet screening* (index columns `p_noload_w`, `p_load_w`,
-  `uk_percent`): any rating from 25 to 3 150 kVA, with the losses from the unit's test report.
+  `uk_percent`): any rating from 25 to 2 500 kVA (the distribution range: the thermal constants and limits used are a
+  distribution transformer's), with the losses from the unit's test report.
   - The losses set the loss ratio R and the transformer's own losses; every other thermal constant stays the IEC
     default.
   - Entries that cannot be right are refused: kW typed where watts are asked, swapped losses, a uk outside 2–10 %.
@@ -39,21 +45,44 @@ every study result are unchanged: a test re-runs a 315 kVA study case and checks
   - dates `2025-01-01 00:00`, `2025-01-01T00:00:00+01:00`, `01/01/2025` and `01.01.2025`. The order of day and
     month is decided from the dates; when they cannot show it, day first is assumed and said so;
   - a `Värde` column with its unit in an `Enhet` column or in the cells;
-  - one station of a file with a `Station` / `Nätstation` column.
+  - one station of a file with a `Station` / `Nätstation` column; a rating column is shown, and a different
+    rating chosen for the assessment is questioned;
+  - hour numbers (`Timme` 1–24 or 0–23), intervals written out (`00:00 - 01:00`), Excel's day numbers, a units
+    row under the names, metering-point ids and from/to dates above the header, a `;` at the end of every line,
+    reactive energy in kvarh, a clock written in the header (`(UTC)`, `(normaltid)`, `(lokal tid)`).
+- **Numbers decided per column.** The decimal sign of a column is decided by the cells that show it, so a lone
+  `1.300` among `950,5` is 1 300, not 1.3 (review finding). When no cell shows it, the rules above apply, and a
+  thousands reading is stated as something the file could not tell.
+- **Refused with the reason, never guessed** (review findings):
+  - two columns that could both be the load, such as `P L1`, `P L2`, `P L3`, or two meters' columns;
+  - one row per meter;
+  - a column name used twice;
+  - a value column with a unit the reader does not know, and a unit chosen against the one the file states;
+  - a cell that is not a number (it was filled like a gap before);
+  - a spring hour with values but no 03:00 (stamps written as start + 1 hour);
+  - a clock name that does not exist.
+- **A peak no station has** — below 1 % or above 300 % of the rating — asks to check the decimal sign, the unit
+  and the rating.
 - **Daylight-saving days:**
   - Swedish local time or normaltid is detected from the days of the change.
   - A placeholder row in the spring hour that does not exist (0, blank or a copy of a neighbour) is dropped.
   - The October hour that happens twice is told apart by file order.
-  - When that hour is written only once, it is taken as summer time, and the other hour is filled as a gap.
+  - When that hour is written only once, it is taken as summer time, and the other hour is filled as a gap; when
+    that row is about twice its neighbours, the notes say both hours are probably added into it.
+  - Normaltid read from the spring hour always comes with a note: a file in UTC without offsets looks the same.
 - **What was read, and what the file could not tell:**
-  - shown on the new *File* tab, in the station card and in the report;
+  - shown on the new *File* tab, in the station card and in the report; the interval convention is always listed,
+    as your setting;
   - in code: `StationSeries.found` and `.unsure`;
   - every point the file could not settle is also in the notes.
 - **Fleet screening of one export with every station:**
   - a station column, and a rating column (`rated_kva`, `Märkeffekt`) or one rating for the whole file;
+  - one decimal sign for the whole file;
+  - a station without a rating, or with two, is its own error row: the other stations are still screened;
   - `read_fleet()` tells such a file from an index.
 - **`hotspot-lv report <csv> --kva 500 --out report.pdf`** (or `.html`) writes one station's report without a
-  window. It has:
+  window (options for the station, the custom unit, the clock, the unit, the decimal sign and the longest gap to
+  fill; the default file name carries the station). It has:
   - what was read from the file;
   - peak load against the rating;
   - a hot-spot and top-oil temperature duration curve;
@@ -67,9 +96,11 @@ every study result are unchanged: a test re-runs a 315 kVA study case and checks
 
 - **Clock detection.** Timestamps are read with `tz="auto"` by default. A file in normaltid that holds a measured
   value in the spring hour was refused in 0.1 with a hint; it is now read as normaltid, and the notes say so.
-  `tz="Europe/Stockholm"` keeps the strict behaviour.
-- **Bigger-transformer fix.** The default of the *Fixes* comparison stays 800 kVA, although 630 kVA now exists.
-- **Station card.** It has a section "What was read from the file".
+  `tz="Europe/Stockholm"` still refuses a measured spring hour, but now drops a placeholder spring row and takes an
+  October hour written once as summer time, both stated. The app offers UTC as a clock too.
+- **Station card.** It has a section "What was read from the file". The temperature chart of the report sorts
+  step-end values (the review found the step maximum overstated the hours above a limit).
+- **Cells that are not numbers** are refused with their row; before, they became gaps and were filled.
 
 ## 0.1.0 — 23 October 2026
 

@@ -67,10 +67,21 @@ def _assumptions_markdown() -> str:
                "**Units.** The header (Effekt (kW), Energi (kWh), Wh, MWh …), an Enhet column or the cells give the "
                "unit; energy per interval is divided by the interval length to mean kW. A header without a unit "
                "takes kW for a power name and kWh for an energy name, and says so; a bare Värde column with "
-               "quarter-hour values is refused until the unit is chosen (kW and kWh per 15 min differ by ×4).\n\n"
+               "quarter-hour values is refused until the unit is chosen (kW and kWh per 15 min differ by ×4). A "
+               "unit chosen against one the file states is refused.\n\n"
+               "**Refused, never guessed:** two columns that could both be the load (phases, meters), one row per "
+               "meter, a column name twice, a value column with a unit the reader does not know, a cell that is "
+               "not a number.\n\n"
+               "**The clock.** Registered meter values are kept in normaltid (EIFS 2025:1, 1 kap. 2 §, which "
+               "replaced EIFS 2023:1 on 1 June 2025); values made available to customers carry the current time, "
+               "with summer time (12 kap. 5 §). So an export can be either, and the reader decides from the "
+               "daylight-saving days it contains — or from the header, when it says (UTC), (normaltid) or (lokal "
+               "tid).\n\n"
                "**What a file cannot tell** — whether a stamp starts or ends its interval, the clock of a file with no "
-               "daylight-saving day, a missing unit, a day/month order no date shows — is assumed as stated on the "
-               "File tab and in the report, never silently.\n")
+               "daylight-saving day, a missing unit, a day/month order no date shows, whether '1.226' has a thousands "
+               "dot or three decimals — is assumed as stated on the File tab and in the report, never silently. A "
+               "peak below 1 % or above 300 % of the rating asks to check the decimal sign, the unit and the "
+               "rating.\n")
     return (ABOUT + "\n## Verdict rules (from the engine's own documentation)\n" + code(verdict.__doc__)
             + "\n## Thermal model (from the engine's own documentation)\n" + code(thermal.__doc__)
             + "\n## Transformer catalogue (from the engine's own documentation)\n" + code(catalogue.__doc__)

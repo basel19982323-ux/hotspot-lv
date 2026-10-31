@@ -5,6 +5,8 @@ It is enabled only while the card on screen belongs to the inputs on the left (r
 
 from __future__ import annotations
 
+import html
+import re
 import time
 from pathlib import Path
 
@@ -58,6 +60,11 @@ def _assess(path, rated_kva, measured_at, tz, stamp, smhi_station, smhi_is_defau
     return res, amb
 
 
+def _slug(text: str) -> str:
+    """A station id as part of a file name: 'NS 101 Åkervägen' → 'NS-101-Åkervägen'."""
+    return "-".join(re.sub(r'[\\/:*?"<>|]+', " ", str(text)).split()) or "station"
+
+
 def show_error(parent, title: str, msg: str):
     """First line for the planner, the traceback behind 'Show details'."""
     from hotspotlv.errors import plain
@@ -104,17 +111,19 @@ class StationPanel(QWidget):
                             "test report — other sizes are not guessed.")
         self.custom_box = QWidget(); fc = QFormLayout(self.custom_box); fc.setContentsMargins(0, 0, 0, 0)
         fc.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow); fc.setRowWrapPolicy(QFormLayout.WrapLongRows)
-        self.custom_kva = QDoubleSpinBox(); self.custom_kva.setRange(*CUSTOM_KVA_RANGE); self.custom_kva.setDecimals(0)
-        self.custom_kva.setValue(500); self.custom_kva.setSuffix(" kVA")
-        self.custom_p0 = QDoubleSpinBox(); self.custom_p0.setRange(1, 50_000); self.custom_p0.setDecimals(0)
-        self.custom_p0.setValue(459); self.custom_p0.setSuffix(" W")
+        # empty until entered (v0.2 review: values pre-filled for 500 kVA passed the checks for any rating and were
+        # then reported as "entered by the user")
+        self.custom_kva = QDoubleSpinBox(); self.custom_kva.setRange(0, CUSTOM_KVA_RANGE[1]); self.custom_kva.setDecimals(0)
+        self.custom_kva.setSpecialValueText("enter the rating"); self.custom_kva.setSuffix(" kVA")
+        self.custom_p0 = QDoubleSpinBox(); self.custom_p0.setRange(0, 50_000); self.custom_p0.setDecimals(0)
+        self.custom_p0.setSpecialValueText("enter, in W"); self.custom_p0.setSuffix(" W")
         self.custom_p0.setToolTip("No-load (iron) loss from the unit's test report, in watts.")
-        self.custom_pk = QDoubleSpinBox(); self.custom_pk.setRange(1, 200_000); self.custom_pk.setDecimals(0)
-        self.custom_pk.setValue(3900); self.custom_pk.setSuffix(" W")
+        self.custom_pk = QDoubleSpinBox(); self.custom_pk.setRange(0, 200_000); self.custom_pk.setDecimals(0)
+        self.custom_pk.setSpecialValueText("enter, in W"); self.custom_pk.setSuffix(" W")
         self.custom_pk.setToolTip("Load (copper) loss at rated current from the unit's test report, in watts.")
-        self.custom_uk = QDoubleSpinBox(); self.custom_uk.setRange(1.9, 10); self.custom_uk.setDecimals(1)
-        self.custom_uk.setSingleStep(0.5); self.custom_uk.setSuffix(" %")
-        self.custom_uk.setSpecialValueText(f"not known ({CUSTOM_UK_PERCENT:g} % assumed)"); self.custom_uk.setValue(1.9)
+        self.custom_uk = QDoubleSpinBox(); self.custom_uk.setRange(1.5, 10); self.custom_uk.setDecimals(1)
+        self.custom_uk.setSingleStep(0.5); self.custom_uk.setSuffix(" %")           # 1.5 = not known; then 2.0, 2.5 …
+        self.custom_uk.setSpecialValueText(f"not known ({CUSTOM_UK_PERCENT:g} % assumed)"); self.custom_uk.setValue(1.5)
         self.custom_uk.setToolTip("Short-circuit impedance from the rating plate. It only sets the transformer's own "
                                   "reactive power here (a small part of S).")
         fc.addRow("Rating", self.custom_kva); fc.addRow("No-load loss", self.custom_p0)
@@ -128,16 +137,25 @@ class StationPanel(QWidget):
         self.tz = QComboBox()
         self.tz.addItem("detect from the file", "auto")
         self.tz.addItem("Swedish local time (with summer time)", "Europe/Stockholm"); self.tz.addItem("normaltid (CET all year)", "normaltid")
-        self.tz.setToolTip("How tz-naive timestamps are meant. 'detect': Swedish local time, unless the file's daylight-saving "
-                           "days show normaltid (CET all year, as registered meter values often are, EIFS 2023:1) — the "
-                           "File tab says what was found and when it could not be told. A file that does not fit a "
-                           "chosen rule is refused with a hint, never guessed.")
+        self.tz.addItem("UTC (no summer time)", "UTC")
+        self.tz.setToolTip("How timestamps without a UTC offset are meant. 'detect': Swedish local time, unless the file's "
+                           "daylight-saving days show normaltid (CET all year: registered meter values are kept in "
+                           "normaltid, EIFS 2025:1 1 kap. 2 §; values for customers carry the current time) — the File "
+                           "tab says what was found, and when it could not be told. A clock chosen here is used as it "
+                           "is: a file that does not fit it is refused with a hint, or read with the assumption stated.")
         self.unit = QComboBox()
         self.unit.addItem("from the file", None); self.unit.addItem("kW (mean power)", "kW")
         self.unit.addItem("kWh per interval", "kWh")
         self.unit.setToolTip("Only needed when the file does not say it (a bare 'Värde' column with quarter-hour values: "
                              "kW and kWh per 15 min differ by ×4). Otherwise the header or an Enhet column decides.")
         self._station = None                                # the station chosen from a multi-station file
+        self.station_row = QWidget(); sr = QHBoxLayout(self.station_row); sr.setContentsMargins(0, 0, 0, 0)
+        self.station_label = QLabel(""); self.station_label.setProperty("muted", True)
+        self.other_station = QPushButton("Other station…"); self.other_station.setProperty("secondary", True)
+        self.other_station.setToolTip("Assess another station of this file.")
+        self.other_station.clicked.connect(self._other_station)
+        sr.addWidget(self.station_label, 1); sr.addWidget(self.other_station)
+        self.station_row.setVisible(False)
         self.stamp = QComboBox()
         self.stamp.addItem("timestamp = start of the interval", "start"); self.stamp.addItem("timestamp = end of the interval", "end")
         self.stamp.setToolTip("A row stamped 17:00: is it the hour 17–18 (start) or 16–17 (end)? Files using 24:00 are end-stamped.")
@@ -151,6 +169,7 @@ class StationPanel(QWidget):
         self.enclosure.setToolTip("Kiosk (the Swedish norm) adds half the IEC 60076-7:2005 Table 6 kiosk air rise to the top-oil rise (+7.5 K at 500 kVA, ageing ≈ ×2.4).")
         f1.addRow("Transformer rating", self.kva)
         f1.addRow(self.custom_box)
+        f1.addRow(self.station_row)
         f1.addRow("Values are", self.measured)
         f1.addRow("Unit", self.unit)
         f1.addRow("Timestamps", self.tz)
@@ -220,7 +239,8 @@ class StationPanel(QWidget):
         self._pending_inputs = None
         for w in (self.kva, self.measured, self.unit, self.tz, self.stamp, self.enclosure):
             w.currentIndexChanged.connect(self._update_export)
-        self.path.textChanged.connect(self._forget_station)
+        self.path.textChanged.connect(self._forget_station)              # another file: the station and the unit
+                                                                          # chosen for the last one do not carry over
         for w in (self.smhi, self.n_ev, self.n_hp, self.seed, self.custom_kva, self.custom_p0, self.custom_pk, self.custom_uk):
             w.valueChanged.connect(self._update_export)
         self.path.textChanged.connect(self._update_export)
@@ -235,7 +255,13 @@ class StationPanel(QWidget):
                 self._station)
 
     def _forget_station(self, *_):
-        self._station = None                                # another file: its stations are not this one's
+        self._station = None                                # another file: its stations are not this one's …
+        self.station_row.setVisible(False)
+        self.unit.setCurrentIndex(0)                        # … nor is a unit chosen for a file that did not say it
+
+    def _other_station(self):
+        self._station = None
+        self.run()
 
     def _custom_values(self) -> tuple:
         uk = self.custom_uk.value()
@@ -247,6 +273,8 @@ class StationPanel(QWidget):
         if self.kva.currentData() != "custom":
             return float(self.kva.currentData()), None
         kva, p0, pk, uk = self._custom_values()
+        if not (kva and p0 and pk):
+            raise ValueError("custom transformer: enter its rating and both losses (in watts, from the test report)")
         return kva, custom_transformer(kva, p0, pk, uk)
 
     def _update_export(self, *_):
@@ -293,6 +321,7 @@ class StationPanel(QWidget):
         self.cancel_btn.setVisible(True); self.progress.setVisible(True)
         self._t0 = time.perf_counter(); self._timer.start(500)
         self.status.setText("Reading the file …")
+        self.file_info.setHtml("<p>Reading the file …</p>")         # never the last file's read under this one
         self._worker = Worker(_assess, p, kva, self.measured.currentData(), self.tz.currentData(),
                               self.stamp.currentData(), self.smhi.value(), self.smhi.value() == SMHI_STATION,
                               self.enclosure.currentText(), self.n_ev.value(), self.n_hp.value(), self.seed.value(),
@@ -323,6 +352,10 @@ class StationPanel(QWidget):
         if not self._current():
             return
         self._finish_ui(); self.status.setText("")
+        from hotspotlv.errors import plain
+        self.file_info.setHtml(f"<p><b>The file could not be read or assessed.</b></p><p>{html.escape(plain(msg))}</p>"
+                               "<p>The reason above says what was found and what to change: the file, or an input on "
+                               "the left (Unit, Timestamps, the rating).</p>")
         show_error(self, "Could not assess the station", msg)
 
     def _done(self, payload):
@@ -334,8 +367,12 @@ class StationPanel(QWidget):
             return
         try:
             res, amb = payload
-            self.card.set_verdict(res.verdict, f"{res.rated_kva:.0f} kVA" + (" (custom)" if res.losses else ""))
+            station = self._pending_inputs[-1] if self._pending_inputs else None
+            self.card.set_verdict(res.verdict, (f"{station} · " if station else "") + f"{res.rated_kva:.0f} kVA"
+                                  + (" (custom)" if res.losses else ""))
             self.file_info.setHtml(read_report_html(res.station))
+            self.station_label.setText(f"station: {station}" if station else "")
+            self.station_row.setVisible(bool(station))
             step_h = res.station.step_min / 60
             ok = thermal_ok(res.verdict)
             self.timeline.set_data(res.year.hourly, res.thermal.hourly if ok else None, amb)
@@ -345,9 +382,12 @@ class StationPanel(QWidget):
             self._shown_inputs = self._pending_inputs
             self._update_export()
             took = f"{time.perf_counter() - self._t0:.0f} s" if self._t0 else "a moment"
+            n_unsure = len(res.station.unsure)
+            told = (f" {n_unsure} thing{'s' if n_unsure != 1 else ''} the file could not tell — see the File tab."
+                    if n_unsure else "")
             self.status.setText(f"Done in {took}. {res.station.period()}, "
-                                f"{res.station.step_min:g}-min steps, {res.station.gaps_filled} missing steps filled. "
-                                "Notes are under the verdict; voltage and cable are not checked in this mode.")
+                                f"{res.station.step_min:g}-min steps, {res.station.gaps_filled} missing steps filled."
+                                f"{told} Notes are under the verdict; voltage and cable are not checked in this mode.")
         except Exception as e:  # never leave a half-drawn screen saying "Done" — nor exportable
             self.result, self._amb, self._shown_inputs = None, None, None
             self._update_export()
@@ -372,11 +412,13 @@ class StationPanel(QWidget):
         if self.result is None or self._busy or self._inputs() != self._shown_inputs:
             return
         source = Path(self.result.station.source or self._shown_inputs[0])
-        name = source.name or "station"
+        station = self._shown_inputs[-1]
+        name = (source.name or "station") + (f" [{station}]" if station else "")
         folder = source.parent
         if not source.is_absolute() or folder.resolve() == EXAMPLE.parent.resolve():   # the shipped example lives
             folder = Path(QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation))   # inside the program
-        suggested = folder / f"station-card-{source.stem or 'station'}.pdf"                # next to the station's CSV
+        stem = (source.stem or "station") + (f"-{_slug(station)}" if station else "")
+        suggested = folder / f"station-card-{stem}.pdf"                                     # next to the station's CSV
         fn, _ = QFileDialog.getSaveFileName(self, "Save the station card", str(suggested), "PDF (*.pdf)")
         if not fn:
             return
