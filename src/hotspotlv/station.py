@@ -40,6 +40,7 @@ counted; every assumption made is written to `notes`.
 from __future__ import annotations
 
 import csv
+import io
 import math
 import re
 from dataclasses import dataclass, field, replace
@@ -148,26 +149,81 @@ def _pick(cols: dict[str, tuple[str, str]], names, unit_hints=()) -> str | None:
     return None
 
 
-def _read_table(path, sep) -> pd.DataFrame:
-    last = None
-    for enc in ("utf-8-sig", "cp1252"):
+def _read_table(path, sep) -> tuple[pd.DataFrame, str]:
+    """The table as strings, and the column separator it was read with."""
+    raw = path.read() if hasattr(path, "read") else Path(path).read_bytes()      # a path, or an open file / StringIO
+    if isinstance(raw, bytes):
         try:
-            return pd.read_csv(path, sep=sep, engine="python", encoding=enc, dtype=str, skipinitialspace=True)
-        except UnicodeDecodeError as e:
-            last = e
-    raise ValueError(f"cannot decode {path}: {last}")
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            try:
+                text = raw.decode("cp1252")
+            except UnicodeDecodeError as e:
+                raise ValueError(f"cannot decode {path}: {e}") from e
+    else:
+        text = raw.lstrip("﻿")
+    df = pd.read_csv(io.StringIO(text), sep=sep, engine="python", dtype=str, skipinitialspace=True)
+    if sep is None:
+        head = text.split("\n", 1)[0]
+        sep = ";" if ";" in head else ("\t" if "\t" in head else ",")
+    return df, sep
 
 
-def _to_number(col: pd.Series, name: str) -> pd.Series:
-    """Numbers from strings, cell by cell: '12,3' → 12.3 (decimal comma), '1,226.0' → 1226.0 (thousands comma),
-    '12 345,6' → 12345.6, trailing unit words ignored, blanks → NaN."""
-    s = col.astype(str).str.strip().str.replace(r"\s", "", regex=True)
-    s = s.str.replace(r"(?i)(kwh|kw|kvar|kva|mwh|mw|wh|w)$", "", regex=True)
-    both = s.str.contains(",", regex=False) & s.str.contains(".", regex=False)
-    s = s.where(~both, s.str.replace(",", "", regex=False))                       # 1,226.0 → 1226.0
-    only_comma = s.str.contains(",", regex=False)
-    s = s.where(~only_comma, s.str.replace(",", ".", regex=False))                # 12,3 → 12.3
-    x = pd.to_numeric(s.replace({"": np.nan, "nan": np.nan, "None": np.nan, "-": np.nan, "null": np.nan}), errors="coerce")
+UNIT_SUFFIX_RE = re.compile(r"(?i)\s*(?:kvarh|kwh|mwh|wh|kvar|mvar|kva|mva|kw|mw|w)\s*$")
+THOUSANDS_SPACE_RE = re.compile(r"[\s  ]")          # space, no-break space, narrow no-break space
+DOT_GROUPED_RE = re.compile(r"^[-+]?[1-9]\d{0,2}(?:\.\d{3})+$")   # 1.226 / 12.345.678: groups of three, no leading 0
+BLANKS = {"", "nan", "none", "-", "null", "n/a", "na"}
+
+
+def _to_number(col: pd.Series, name: str, decimal: str | None = None, sep: str | None = None,
+               notes: list | None = None) -> pd.Series:
+    """Numbers from strings. Spaces (also no-break) are thousands separators and trailing units (kW, kWh …) are
+    ignored. The decimal sign is decided per cell where the cell itself shows it, and per COLUMN where it does not:
+      * both '.' and ',' in a cell: the last one is the decimal sign — '1.226,5' → 1226.5, '1,226.5' → 1226.5
+      * only ',': a decimal comma — '12,5' → 12.5 (two or more commas, '1,226,500', are thousands)
+      * only '.': a decimal point — unless EVERY dot-only value in the column has groups of exactly three digits
+        after its dots (at least two such values, none starting with '0.'), or any value has two or more dots; then
+        the dots are thousands separators — '1.226', '2.450' → 1226, 2450. In a comma-separated file a dot is
+        always the decimal sign. A column read with thousands dots gets a note, because '12.345' with three decimals
+        looks the same: pass decimal='.' (or ',') to decide it instead.
+    Blanks, '-', 'null' → NaN."""
+    if decimal not in (None, ".", ","):
+        raise ValueError("decimal must be '.' or ','")
+    s = col.astype(str).str.strip().str.replace(UNIT_SUFFIX_RE, "", regex=True)
+    s = s.str.replace(THOUSANDS_SPACE_RE, "", regex=True).str.lstrip("+")
+    blank = s.str.lower().isin(BLANKS)
+    s = s.mask(blank, "")
+    dots, commas = s.str.count(r"\."), s.str.count(",")
+    both = (dots > 0) & (commas > 0)
+    comma_last = s.str.rfind(",") > s.str.rfind(".")
+    only_comma = (commas > 0) & (dots == 0)
+    only_dot = (dots > 0) & (commas == 0)
+
+    out = s.copy()
+    eu = both & comma_last                                                      # 1.226,5
+    out[eu] = s[eu].str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
+    us = both & ~comma_last                                                     # 1,226.5
+    out[us] = s[us].str.replace(",", "", regex=False)
+    comma_thousands = only_comma & ((commas > 1) | (decimal == "."))            # 1,226,500 or decimal='.' given
+    out[comma_thousands] = s[comma_thousands].str.replace(",", "", regex=False)
+    comma_decimal = only_comma & ~comma_thousands                               # 12,5
+    out[comma_decimal] = s[comma_decimal].str.replace(",", ".", regex=False)
+
+    if decimal is not None:
+        dot_thousands = decimal == ","
+    else:
+        d = s[only_dot]
+        many_dots = bool((d.str.count(r"\.") > 1).any())
+        grouped = bool(len(d) >= 2 and d.str.match(DOT_GROUPED_RE).all())
+        dot_thousands = sep != "," and (many_dots or grouped)
+        if dot_thousands and notes is not None:
+            example = d.iloc[0]
+            notes.append(f"{name}: values like {example!r} read with '.' as a thousands separator "
+                         f"({example!r} → {example.replace('.', '')}): every dot-only value has groups of three digits"
+                         " — if they are decimals, read the file with decimal='.'")
+    if dot_thousands:
+        out[only_dot] = s[only_dot].str.replace(".", "", regex=False)
+    x = pd.to_numeric(out.replace({"": np.nan}), errors="coerce")
     return x.rename(name)
 
 
@@ -250,8 +306,9 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
                      e_col: str | None = None, q_col: str | None = None, s_col: str | None = None,
                      export_col: str | None = None, pf: float = POWER_FACTOR, measured_at: str = "meters",
                      tz: str = LOCAL_TZ, stamp: str = "start", max_gap_steps: int = MAX_GAP_STEPS_DEFAULT,
-                     sep: str | None = None) -> StationSeries:
-    """Read one station's CSV into a StationSeries (see the module docstring for the shapes)."""
+                     sep: str | None = None, decimal: str | None = None) -> StationSeries:
+    """Read one station's CSV into a StationSeries (see the module docstring for the shapes). `decimal` ('.' or
+    ',') fixes the decimal sign when the numbers alone cannot tell (see _to_number)."""
     if measured_at not in ("meters", "transformer"):
         raise ValueError("measured_at must be 'meters' or 'transformer'")
     if stamp not in ("start", "end"):
@@ -261,7 +318,7 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
     if max_gap_steps < 0:
         raise ValueError("max_gap_steps must be >= 0")
     try:
-        df = _read_table(path, sep)
+        df, sep = _read_table(path, sep)
     except (pd.errors.EmptyDataError, pd.errors.ParserError, csv.Error) as e:
         raise ValueError(f"cannot read {path} as a CSV: {e}") from e
     if df.shape[1] < 2 or len(df) == 0:
@@ -313,7 +370,7 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
     df.index = index
 
     def clean(col, name):
-        s = _to_number(df[col], name).reindex(full)
+        s = _to_number(df[col], name, decimal, sep, notes).reindex(full)
         missing = int(s.isna().sum())
         if missing:
             isna = s.isna().to_numpy()
@@ -350,7 +407,7 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
         x = as_kw(x, cols[xcol][1] or ("kwh" if ecol is not None else "kw"), "energy" if ecol is not None else "power", "export")
         p = p - x.abs()
         notes.append(f"export column {xcol!r} subtracted → net P (negative = export)")
-    if qcol is not None and _to_number(df[qcol], "q").notna().mean() > 0.5:
+    if qcol is not None and _to_number(df[qcol], "q", decimal, sep).notna().mean() > 0.5:
         q, _ = clean(qcol, "Q")
         q = q * UNIT_SCALE.get(cols[qcol][1], ("reactive", 1.0))[1]
     else:
