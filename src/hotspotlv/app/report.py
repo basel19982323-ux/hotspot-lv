@@ -225,6 +225,19 @@ def _esc(x) -> str:
     return html.escape(str(x))
 
 
+def read_report_html(st) -> str:
+    """What was read from the file and what it could not tell — the station panel's File tab and the card."""
+    rows = "".join(f"<tr><td style='color:{MUTED}' width='26%'>{_esc(k)}</td><td>{_esc(v)}</td></tr>"
+                   for k, v in st.found)
+    out = f"<table width='100%' cellpadding='3'>{rows}</table>"
+    if st.unsure:
+        out += ("<p><b>What the file could not tell</b> — assumed as below; change the input if it is wrong:</p><ul>"
+                + "".join(f"<li>{_esc(u)}</li>" for u in st.unsure) + "</ul>")
+    else:
+        out += "<p style='color:" + MUTED + "'>Nothing had to be assumed about the file.</p>"
+    return out
+
+
 def _kv_rows(items: dict) -> str:
     rows = []
     for k, v in items.items():
@@ -376,6 +389,9 @@ shown for contrast. {not_checked_html}</p>
 
 <h2>Inputs</h2>
 <table width='100%' cellpadding='3'>{inputs_html}</table>
+
+<h3>What was read from the file</h3>
+{read_report_html(st)}
 
 {charts_html}
 

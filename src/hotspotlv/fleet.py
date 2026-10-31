@@ -12,9 +12,11 @@ Two input shapes:
     where `file` is that station's profile CSV (relative to the index file). A row with p_noload_w and p_load_w
     is a custom unit (its own losses, catalogue.custom_transformer); without them rated_kva must be a catalogue
     size
-  * a LONG CSV with all stations in one file:
-        station_id, timestamp, p_kw[, q_kvar][, s_kva]
-    plus a dict of ratings {station_id: rated_kva}
+  * a LONG CSV with all stations in one file — a DSO export as the station mode reads it (meterfile.py), plus a
+    station column (station_id, Station, Nätstation …):
+        Nätstation;Tidpunkt;Energi (kWh)[;Märkeffekt (kVA)][;p_noload_w;p_load_w[;uk_percent]]
+    with each station's rating from a rating column (rated_kva, Märkeffekt …), a dict {station_id: rated_kva},
+    or one default for all; read_fleet() tells the two shapes apart
 
 Ranking: At risk before Watch before OK, errors last; within a level by days
 of life used, then by peak loading. A `progress(done, total, station_id)`
@@ -27,7 +29,6 @@ the file) and the "voltage and cable not checked" caveat in `why`.
 from __future__ import annotations
 
 import re
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -35,10 +36,10 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
-from hotspotlv import errors
+from hotspotlv import errors, meterfile
 from hotspotlv.catalogue import custom_transformer
-from hotspotlv.station import (CABLE_LOSS_SHARE_AT_RATED, LOCAL_TZ, StationResult, StationSeries, _to_number,
-                               ambient_for, assess_station, read_station_csv)
+from hotspotlv.station import (CABLE_LOSS_SHARE_AT_RATED, StationResult, StationSeries, _norm, _to_number,
+                               ambient_for, assess_station, read_station_csv, station_columns, station_from_frame)
 from hotspotlv.weather import SMHI_STATION
 
 LEVEL_RANK = {"At risk": 0, "Watch": 1, "OK": 2, "error": 3}
@@ -57,7 +58,7 @@ class FleetStation:
     smhi_station: int | None = None         # None → module default, noted as such in the result
     enclosure: str = "kiosk"
     measured_at: str = "meters"
-    tz: str = LOCAL_TZ
+    tz: str = "auto"                        # see meterfile.to_utc
     stamp: str = "start"
     losses: dict | None = None              # a custom unit's losses (catalogue.custom_transformer); None → catalogue
 
@@ -129,7 +130,7 @@ def read_fleet_index(path) -> list[FleetStation]:
             smhi_station=int(float(smhi)) if smhi is not None else None,
             enclosure=str(_opt(r, cols, "enclosure", "kiosk")),
             measured_at=str(_opt(r, cols, "measured_at", "meters")),
-            tz=str(_opt(r, cols, "tz", LOCAL_TZ)),
+            tz=str(_opt(r, cols, "tz", "auto")),
             stamp=str(_opt(r, cols, "stamp", "start")),
         ))
     if not out:
@@ -149,39 +150,69 @@ def _read_index(path: Path) -> pd.DataFrame:
     raise ValueError(f"cannot decode {path}: {last}")
 
 
-def read_fleet_long(path, ratings: dict, smhi_station: int | None = None, losses: dict | None = None,
-                    **read_kwargs) -> list[FleetStation]:
-    """Long CSV (station_id, timestamp, p_kw, …) → list of stations, one series each. A station whose
-    rows cannot be read becomes an error entry (its error row appears in the table) instead of
-    aborting the whole import. losses: {station_id: catalogue.custom_transformer(…)} for custom units."""
+def read_fleet_long(path, ratings: dict | None = None, smhi_station: int | None = None, losses: dict | None = None,
+                    default_kva: float | None = None, **read_kwargs) -> list[FleetStation]:
+    """One file with every station (a station column) → list of stations, one series each. The file is read once
+    as a DSO export (encoding, separator, header, dates: meterfile.py) and split by station; each station's rows go
+    through the station mode's own reader. A station's rating: `ratings` {station_id: kVA}, else the file's rating
+    column (one value per station), else `default_kva`. losses: {station_id: catalogue.custom_transformer(…)}, or
+    p_noload_w / p_load_w [/ uk_percent] columns in the file. A station whose rows cannot be read becomes an error
+    entry (its error row appears in the table) instead of aborting the whole import."""
     path = Path(path)
-    df = _read_index(path)
-    cols = {c.lower().strip(): c for c in df.columns}
-    if "station_id" not in cols:
-        raise ValueError("long CSV needs a station_id column")
-    ids = df[cols["station_id"]].astype(str).str.strip()
-    if (ids == "") .any() or ids.str.lower().eq("nan").any():
-        raise ValueError("long CSV has rows without station_id")
-    ratings = {str(k).strip(): v for k, v in ratings.items()}
+    try:
+        table = meterfile.read_table(path)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError) as e:
+        raise ValueError(f"cannot read {path} as a CSV: {e}") from e
+    df = table.df
+    scol, rcol = station_columns(df)
+    if scol is None:
+        raise ValueError(f"a fleet file needs a station column (station_id, Station, Nätstation …); got {list(df.columns)}")
+    ids = df[scol].astype(str).str.strip()
+    if (ids == "").any() or ids.str.lower().eq("nan").any():
+        raise ValueError(f"the fleet file has rows without a station id (column {scol!r})")
+    loss_cols = {c.lower().strip(): c for c in df.columns if c.lower().strip() in ("p_noload_w", "p_load_w", "uk_percent")}
+    ratings = {str(k).strip(): v for k, v in (ratings or {}).items()}
     losses = {str(k).strip(): v for k, v in (losses or {}).items()}
+    found = list(table.found) + [("stations", f"{ids.nunique()} in column {scol!r}")]
     out = []
     for sid, part in df.groupby(ids, sort=True):
-        if sid not in ratings:
-            raise ValueError(f"no rated_kva given for station {sid!r}")
-        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8",
-                                         dir=tempfile.gettempdir()) as tmp:
-            part.drop(columns=[cols["station_id"]]).to_csv(tmp, index=False)
-            tmp_path = Path(tmp.name)
+        if sid in ratings:
+            kva = _rated_kva(ratings[sid])
+        elif rcol is not None and part[rcol].astype(str).str.strip().replace("", np.nan).dropna().nunique() == 1:
+            kva = _rated_kva(part[rcol].dropna().iloc[0])
+        elif rcol is not None and part[rcol].astype(str).str.strip().replace("", np.nan).dropna().nunique() > 1:
+            raise ValueError(f"station {sid!r} has more than one rating in column {rcol!r}")
+        elif default_kva is not None:
+            kva = float(default_kva)
+        else:
+            raise ValueError(f"no rated_kva for station {sid!r}: add a rating column (rated_kva / Märkeffekt), "
+                             "give ratings, or a default rating for the whole file")
+        error, unit = None, losses.get(sid)
         try:
-            series = read_station_csv(tmp_path, **read_kwargs)
-            out.append(FleetStation(sid, _rated_kva(ratings[sid]), series=series, smhi_station=smhi_station,
-                                    losses=losses.get(sid)))
+            if unit is None and loss_cols:
+                unit = _custom_losses(part.iloc[0], loss_cols, kva)
+            frame = part.drop(columns=[c for c in [scol, rcol, *loss_cols.values()] if c is not None])
+            series = station_from_frame(frame.reset_index(drop=True), table.sep, source=f"{path} [{sid}]",
+                                        found=found + [("station", f"{sid!r} (column {scol!r})")],
+                                        unsure=list(table.unsure), **read_kwargs)
         except ValueError as e:
-            out.append(FleetStation(sid, _rated_kva(ratings[sid]), smhi_station=smhi_station, error=f"ValueError: {e}",
-                                    losses=losses.get(sid)))
-        finally:
-            tmp_path.unlink(missing_ok=True)
+            series, error = None, f"ValueError: {e}"
+        out.append(FleetStation(sid, kva, series=series, smhi_station=smhi_station, error=error, losses=unit))
     return out
+
+
+def read_fleet(path, default_kva: float | None = None, **read_kwargs) -> list[FleetStation]:
+    """Either shape: an index (a `file` column, one profile file per station) or one long file with a station
+    column. default_kva: the rating of a long file's stations when it has no rating column."""
+    path = Path(path)
+    head = meterfile.read_table(path).df
+    names = {_norm(c)[0] for c in head.columns}
+    if "file" in {c.lower().strip() for c in head.columns}:
+        return read_fleet_index(path)
+    if station_columns(head)[0] is not None:
+        return read_fleet_long(path, default_kva=default_kva, **read_kwargs)
+    raise ValueError(f"not a fleet file: it needs either a 'file' column (an index of station files) or a station "
+                     f"column (station_id, Station, Nätstation …) with the stations' values; got {sorted(names)}")
 
 
 def screen_fleet(stations: list[FleetStation], progress: Callable[[int, int, str], None] | None = None,

@@ -12,17 +12,18 @@ import pandas as pd
 from PySide6.QtCore import QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
-                               QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter,
-                               QTabWidget, QVBoxLayout, QWidget)
+                               QInputDialog, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea,
+                               QSpinBox, QSplitter, QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
 
-from hotspotlv.app.report import write_station_card
+from hotspotlv.app.report import read_report_html, write_station_card
 from hotspotlv.app.widgets.charts import DurationCurve, WorstWeek, YearTimeline
 from hotspotlv.app.widgets.verdict_card import VerdictCard
 from hotspotlv.app.workers import Worker
 from hotspotlv.catalogue import CUSTOM_KVA_RANGE, CUSTOM_UK_PERCENT, TRANSFORMERS, custom_transformer
 from hotspotlv.loads.ev import EVParams
 from hotspotlv.paths import package_data
-from hotspotlv.station import StationResult, ambient_for, assess_station, read_station_csv, to_hourly, with_overlay
+from hotspotlv.station import (ManyStations, StationResult, ambient_for, assess_station, read_station_csv, to_hourly,
+                               with_overlay)
 from hotspotlv.verdict import thermal_ok
 from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME, SMHI_STATIONS_URL
 
@@ -36,9 +37,14 @@ def _energy_mwh(st) -> float:
 
 
 def _assess(path, rated_kva, measured_at, tz, stamp, smhi_station, smhi_is_default, enclosure, n_ev, n_hp, seed,
-            losses=None):
-    """The whole mode-B pipeline, run in the worker thread. losses: a custom unit (catalogue.custom_transformer)."""
-    st = read_station_csv(path, measured_at=measured_at, tz=tz, stamp=stamp)
+            losses=None, unit=None, station=None):
+    """The whole mode-B pipeline, run in the worker thread. losses: a custom unit (catalogue.custom_transformer);
+    unit: the value column's unit when the file does not state it; station: one station of a multi-station file.
+    A file of several stations with none chosen returns its ManyStations (the panel then asks which one)."""
+    try:
+        st = read_station_csv(path, measured_at=measured_at, tz=tz, stamp=stamp, unit=unit, station=station)
+    except ManyStations as e:
+        return e
     overlay = {}
     if n_ev or n_hp:
         measured = _energy_mwh(st)                               # from the file's own steps, before hourly means
@@ -120,9 +126,18 @@ class StationPanel(QWidget):
         self.measured.setToolTip("Sum of meters: cable and transformer losses are added to reach the transformer.\n"
                                  "Measured at the transformer: only the transformer's own losses are added; a kVA column is used as is.")
         self.tz = QComboBox()
+        self.tz.addItem("detect from the file", "auto")
         self.tz.addItem("Swedish local time (with summer time)", "Europe/Stockholm"); self.tz.addItem("normaltid (CET all year)", "normaltid")
-        self.tz.setToolTip("How tz-naive timestamps are meant. Registered meter values are often in normaltid (EIFS 2023:1); "
-                           "a file that does not fit the chosen rule is refused with a hint, never guessed.")
+        self.tz.setToolTip("How tz-naive timestamps are meant. 'detect': Swedish local time, unless the file's daylight-saving "
+                           "days show normaltid (CET all year, as registered meter values often are, EIFS 2023:1) — the "
+                           "File tab says what was found and when it could not be told. A file that does not fit a "
+                           "chosen rule is refused with a hint, never guessed.")
+        self.unit = QComboBox()
+        self.unit.addItem("from the file", None); self.unit.addItem("kW (mean power)", "kW")
+        self.unit.addItem("kWh per interval", "kWh")
+        self.unit.setToolTip("Only needed when the file does not say it (a bare 'Värde' column with quarter-hour values: "
+                             "kW and kWh per 15 min differ by ×4). Otherwise the header or an Enhet column decides.")
+        self._station = None                                # the station chosen from a multi-station file
         self.stamp = QComboBox()
         self.stamp.addItem("timestamp = start of the interval", "start"); self.stamp.addItem("timestamp = end of the interval", "end")
         self.stamp.setToolTip("A row stamped 17:00: is it the hour 17–18 (start) or 16–17 (end)? Files using 24:00 are end-stamped.")
@@ -137,13 +152,15 @@ class StationPanel(QWidget):
         f1.addRow("Transformer rating", self.kva)
         f1.addRow(self.custom_box)
         f1.addRow("Values are", self.measured)
+        f1.addRow("Unit", self.unit)
         f1.addRow("Timestamps", self.tz)
         f1.addRow("", self.stamp)
         f1.addRow("SMHI station", self.smhi)
         f1.addRow("", self.smhi_name)
         f1.addRow("Enclosure", self.enclosure)
-        note = QLabel("The rating, the SMHI station and the timestamp convention are yours to set; column names, units, "
-                      "decimal signs and gaps are read from the file and every assumption is written to the notes.")
+        note = QLabel("The rating, the SMHI station and the interval convention are yours to set; encoding, separator, "
+                      "header, column names, units, decimal signs, date order, clock and gaps are read from the file — "
+                      "the File tab lists what was found and what the file could not tell.")
         note.setWordWrap(True); note.setProperty("muted", True)
         f1.addRow(note)
 
@@ -190,6 +207,9 @@ class StationPanel(QWidget):
         self.tabs = QTabWidget()
         self.timeline = YearTimeline(); self.duration = DurationCurve(); self.week = WorstWeek()
         self.tabs.addTab(self.timeline, "Period"); self.tabs.addTab(self.duration, "Duration curve"); self.tabs.addTab(self.week, "Worst week")
+        self.file_info = QTextBrowser(); self.file_info.setOpenLinks(False)
+        self.file_info.setPlaceholderText("What was read from the file appears here after Assess.")
+        self.tabs.addTab(self.file_info, "File")
         right.addWidget(self.tabs)
         self.tabs.setMinimumHeight(300)                     # a short window takes the height from the card (it scrolls),
                                                             # not from the charts: 52-px plots on a laptop before 22 Oct
@@ -198,8 +218,9 @@ class StationPanel(QWidget):
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 1); split.setSizes([440, 900])
         self._shown_inputs = None                           # the inputs that produced the card on screen
         self._pending_inputs = None
-        for w in (self.kva, self.measured, self.tz, self.stamp, self.enclosure):
+        for w in (self.kva, self.measured, self.unit, self.tz, self.stamp, self.enclosure):
             w.currentIndexChanged.connect(self._update_export)
+        self.path.textChanged.connect(self._forget_station)
         for w in (self.smhi, self.n_ev, self.n_hp, self.seed, self.custom_kva, self.custom_p0, self.custom_pk, self.custom_uk):
             w.valueChanged.connect(self._update_export)
         self.path.textChanged.connect(self._update_export)
@@ -210,7 +231,11 @@ class StationPanel(QWidget):
         custom = self._custom_values() if self.kva.currentData() == "custom" else None
         return (self.path.text().strip(), self.kva.currentData(), self.measured.currentData(), self.tz.currentData(),
                 self.stamp.currentData(), self.smhi.value(), self.enclosure.currentText(), self.n_ev.value(),
-                self.n_hp.value(), self.seed.value() if overlay else None, custom)
+                self.n_hp.value(), self.seed.value() if overlay else None, custom, self.unit.currentData(),
+                self._station)
+
+    def _forget_station(self, *_):
+        self._station = None                                # another file: its stations are not this one's
 
     def _custom_values(self) -> tuple:
         uk = self.custom_uk.value()
@@ -271,7 +296,7 @@ class StationPanel(QWidget):
         self._worker = Worker(_assess, p, kva, self.measured.currentData(), self.tz.currentData(),
                               self.stamp.currentData(), self.smhi.value(), self.smhi.value() == SMHI_STATION,
                               self.enclosure.currentText(), self.n_ev.value(), self.n_hp.value(), self.seed.value(),
-                              losses)
+                              losses, self.unit.currentData(), self._station)
         self._worker.finished_ok.connect(self._done)
         self._worker.failed.connect(self._failed)
         self._worker.start()
@@ -304,9 +329,13 @@ class StationPanel(QWidget):
         if not self._current():
             return
         self._finish_ui()
+        if isinstance(payload, ManyStations):                   # a multi-station file: which one?
+            self._choose_station(payload)
+            return
         try:
             res, amb = payload
             self.card.set_verdict(res.verdict, f"{res.rated_kva:.0f} kVA" + (" (custom)" if res.losses else ""))
+            self.file_info.setHtml(read_report_html(res.station))
             step_h = res.station.step_min / 60
             ok = thermal_ok(res.verdict)
             self.timeline.set_data(res.year.hourly, res.thermal.hourly if ok else None, amb)
@@ -324,6 +353,18 @@ class StationPanel(QWidget):
             self._update_export()
             self.status.setText("")
             show_error(self, "Could not show the result", f"{type(e).__name__}: {e}")
+
+    def _choose_station(self, many: ManyStations):
+        self.status.setText("")
+        name, ok = QInputDialog.getItem(
+            self, "Several stations in the file",
+            f"The file holds {len(many.stations)} stations in column {many.column!r}. Assess which one?\n"
+            "(To rank them all, use Fleet screening.)", many.stations, 0, False)
+        if not ok:
+            self.status.setText("Not assessed: the file holds several stations and none was chosen.")
+            return
+        self._station = name
+        self.run()
 
     def export_pdf(self):
         """The station card of the result on screen. Runs on the GUI thread (about a second): the charts are

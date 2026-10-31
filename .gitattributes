@@ -10,3 +10,5 @@ LICENSE text eol=lf
 .gitattributes text eol=lf
 packaging/qt-attributions/** text eol=lf
 .gitignore text eol=lf
+tests/fixtures/dso_exports/*.csv -text
+tests/fixtures/dso_exports/*.txt -text

@@ -98,9 +98,11 @@ def test_normaltid_file(tmp_path, ref):
     cet = ref.index.tz_convert("Etc/GMT-1").tz_localize(None).strftime("%Y-%m-%d %H:%M")   # CET all year
     df = pd.DataFrame({"timestamp": cet, "kW": ref.to_numpy()})
     with pytest.raises(ValueError, match="normaltid"):                       # read as local time it cannot fit
-        read_station_csv(_write(tmp_path / "n.csv", df))
-    st = read_station_csv(tmp_path / "n.csv", tz="normaltid")
-    assert st.index.equals(ref.index) and np.allclose(st.p_kw.to_numpy(), ref.to_numpy())
+        read_station_csv(_write(tmp_path / "n.csv", df), tz="Europe/Stockholm")
+    for tz in ("normaltid", "auto"):          # v0.2: 'auto' sees the spring hour with values and no repeated October hour
+        st = read_station_csv(tmp_path / "n.csv", tz=tz)
+        assert st.index.equals(ref.index) and np.allclose(st.p_kw.to_numpy(), ref.to_numpy())
+    assert "normaltid (CET all year) — detected" in dict(st.found)["clock"]
 
 
 def test_interval_end_stamps_and_24h(tmp_path, ref):

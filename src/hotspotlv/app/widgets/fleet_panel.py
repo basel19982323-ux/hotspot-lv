@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 from PySide6.QtCore import QSortFilterProxyModel, Qt
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton,
-                               QSplitter, QTableView, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar,
+                               QPushButton, QSplitter, QTableView, QTabWidget, QVBoxLayout, QWidget)
 
 from hotspotlv.app.widgets.charts import DurationCurve, WorstWeek, YearTimeline
 from hotspotlv.app.widgets.station_panel import show_error
@@ -15,7 +15,8 @@ from hotspotlv.app.widgets.tables import DataFrameModel
 from hotspotlv.app.widgets.verdict_card import VerdictCard
 from hotspotlv.app.workers import Worker
 from hotspotlv.verdict import thermal_ok
-from hotspotlv.fleet import RESULT_COLUMNS, export_fleet_table, read_fleet_index, screen_fleet
+from hotspotlv.catalogue import TRANSFORMERS
+from hotspotlv.fleet import RESULT_COLUMNS, export_fleet_table, read_fleet, screen_fleet
 from hotspotlv.paths import package_data
 from hotspotlv.station import ambient_for
 
@@ -27,8 +28,8 @@ RANKING = ("Ranked At risk → Watch → OK (errors last), then by days of life 
            "Click a column header to sort; the rank column keeps the original order.")
 
 
-def _screen(path, progress):
-    return screen_fleet(read_fleet_index(path), progress=progress)
+def _screen(path, progress, default_kva=None):
+    return screen_fleet(read_fleet(path, default_kva=default_kva), progress=progress)
 
 
 class FleetPanel(QWidget):
@@ -42,9 +43,16 @@ class FleetPanel(QWidget):
 
         row = QHBoxLayout()
         self.path = QLineEdit()
-        self.path.setPlaceholderText("fleet index CSV: station_id, rated_kva, file [, smhi_station, enclosure, measured_at, tz, stamp]")
-        self.path.setToolTip("One row per station; 'file' is that station's profile CSV, relative to the index file. "
-                             "Optional columns override the defaults per station.")
+        self.path.setPlaceholderText("fleet index CSV (station_id, rated_kva, file …) or one export with a Station / Nätstation column")
+        self.path.setToolTip("Either an index — one row per station, 'file' is that station's profile CSV relative to the "
+                             "index, optional columns override the defaults per station — or one DSO export holding every "
+                             "station's values, with a station column (station_id, Station, Nätstation) and, ideally, a "
+                             "rating column (rated_kva, Märkeffekt).")
+        self.default_kva = QComboBox()
+        self.default_kva.addItem("rating: from the file", None)
+        [self.default_kva.addItem(f"rating: {k} kVA for all", k) for k in sorted(TRANSFORMERS)]
+        self.default_kva.setToolTip("Only for one export with a station column but no rating column: the rating used for "
+                                    "every station. An index, or a rating column, always wins.")
         browse = QPushButton("Browse…"); browse.setProperty("secondary", True); browse.clicked.connect(self.browse)
         example = QPushButton("Example"); example.setProperty("secondary", True)
         example.setToolTip("Three synthetic Västerås stations (not measurements)")
@@ -54,7 +62,7 @@ class FleetPanel(QWidget):
         self.cancel_btn.clicked.connect(self.cancel); self.cancel_btn.setVisible(False)
         self.export_btn = QPushButton("Export table…"); self.export_btn.setProperty("secondary", True)
         self.export_btn.clicked.connect(self.export); self.export_btn.setEnabled(False)
-        row.addWidget(self.path, 1); row.addWidget(browse); row.addWidget(example)
+        row.addWidget(self.path, 1); row.addWidget(browse); row.addWidget(example); row.addWidget(self.default_kva)
         row.addWidget(self.run_btn); row.addWidget(self.cancel_btn); row.addWidget(self.export_btn)
         lay.addLayout(row)
         self.progress = QProgressBar(); self.progress.setVisible(False)
@@ -88,7 +96,7 @@ class FleetPanel(QWidget):
         lay.addWidget(split, 1)
 
     def browse(self):
-        fn, _ = QFileDialog.getOpenFileName(self, "Fleet index CSV", "", "CSV files (*.csv *.txt);;All files (*)")
+        fn, _ = QFileDialog.getOpenFileName(self, "Fleet index or multi-station CSV", "", "CSV files (*.csv *.txt);;All files (*)")
         if fn:
             self.path.setText(fn)
 
@@ -100,10 +108,10 @@ class FleetPanel(QWidget):
             return
         p = Path(self.path.text().strip())
         if not p.exists():
-            QMessageBox.warning(self, "File", "Choose an existing fleet index CSV."); return
+            QMessageBox.warning(self, "File", "Choose an existing fleet index or multi-station CSV."); return
         self.run_btn.setEnabled(False); self.export_btn.setEnabled(False); self.cancel_btn.setVisible(True)
         self.progress.setVisible(True); self.progress.setRange(0, 0)
-        self._worker = Worker(_screen, p, with_progress=True)
+        self._worker = Worker(_screen, p, default_kva=self.default_kva.currentData(), with_progress=True)
         self._worker.progress.connect(self._progress)
         self._worker.finished_ok.connect(self._done)
         self._worker.failed.connect(self._failed)

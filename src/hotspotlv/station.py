@@ -18,29 +18,41 @@ cable rules are reported as "not checked" rather than silently passed.
 
 What the reader accepts (headers matched after normalising case, units in
 parentheses and Swedish/English synonyms):
-  * one timestamp column, or separate date + time columns (`Datum;Tid`)
+  * the file as a DSO exports it (meterfile.py): UTF-8 with or without BOM,
+    UTF-16 or Windows-1252; separator ; tab , or |; lines above the header and a
+    sum line below the table are left out (and said so)
+  * one timestamp column, or separate date + time columns (`Datum;Tid`);
+    `2025-01-01 00:00`, `2025-01-01T00:00:00+01:00`, `01/01/2025 00:00` (day or
+    month first decided from the dates, else day first and said so), `01.01.2025`
   * active power per step (`kW`, `Effekt`, `Aktiv effekt`) or energy per step
-    (`kWh`, `Energi`, `Förbrukning`, `Uttag`, `Wh`); an export column
-    (`Produktion`, `Inmatning`, `Export`) is subtracted → net P
+    (`kWh`, `Energi`, `Förbrukning`, `Uttag`, `Wh`), or a `Värde` column with its
+    unit in an `Enhet` column or in the cells; an export column (`Produktion`,
+    `Inmatning`, `Export`) is subtracted → net P; `unit=` decides a column whose
+    unit the file does not state
   * optional reactive power (`kvar`, `Reaktiv effekt`) and, for a transformer
     measurement, apparent power (`kVA`)
-  * separators `,` `;` tab, decimal point or comma, UTF-8 or Windows-1252
-  * timestamps: tz-naive = Swedish local time with DST (`tz="Europe/Stockholm"`);
-    files in "normaltid" (CET all year, as EIFS 2023:1 prescribes for registered
-    meter values) need `tz="normaltid"`; ISO stamps with offsets or `Z` are read
-    as given; `24:00` is the next day's 00:00
+  * a station column (`Station`, `Nätstation`): one station is read (`station=`);
+    a file with several goes to the fleet mode (fleet.read_fleet_long)
+  * decimal point or comma, thousands dot, comma or space (_to_number)
+  * timestamps: tz="auto" (default) — Swedish local time with summer time, unless
+    the daylight-saving days of the file show normaltid (CET all year, as EIFS
+    2023:1 prescribes for registered meter values; meterfile.to_utc says how);
+    `tz="Europe/Stockholm"` or `"normaltid"` fix it; ISO stamps with offsets or
+    `Z` are read as given; `24:00` is the next day's 00:00. The spring hour that
+    does not exist is dropped when it holds a placeholder (0, blank, a copy of
+    its neighbour); the October hour that happens twice is told apart by file order
   * `stamp="start"` (default) means a row labels the interval that STARTS at
     the stamp; `stamp="end"` shifts interval-end stamps back one step
 Nothing is dropped or realigned silently: duplicated stamps with different
-values, rows off the meter grid, impossible DST rows and gaps longer than
-`max_gap_steps` all raise with the position. Short gaps are interpolated and
-counted; every assumption made is written to `notes`.
+values, rows off the meter grid and gaps longer than `max_gap_steps` all raise
+with the position. Short gaps are interpolated and counted; every assumption made
+is written to `notes`, what was found in the file to `found`, and what the file
+could not tell to `unsure`.
 """
 
 from __future__ import annotations
 
 import csv
-import io
 import math
 import re
 from dataclasses import dataclass, field, replace
@@ -49,6 +61,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from hotspotlv import meterfile
 from hotspotlv.catalogue import transformer
 from hotspotlv.feeder import HOUSE_FUSE_A, POWER_FACTOR, fuse_kw
 from hotspotlv.loads.ev import EVParams, ev_charging_profile
@@ -58,8 +71,8 @@ from hotspotlv.timeseries import YearResult
 from hotspotlv.verdict import HOURS_PER_YEAR, Verdict, judge
 from hotspotlv.weather import SMHI_STATION, SMHI_STATION_NAME, load_smhi_hours
 
-LOCAL_TZ = "Europe/Stockholm"
-NORMALTID_TZ = "Etc/GMT-1"               # CET all year, no DST
+LOCAL_TZ = meterfile.LOCAL_TZ          # "Europe/Stockholm"
+NORMALTID_TZ = meterfile.NORMALTID_TZ   # CET all year, no DST
 DATE_NAMES = ("datum", "date", "dag")
 TIME_NAMES = ("tid", "time", "klockslag", "timme")
 TIMESTAMP_NAMES = ("timestamp", "datetime", "tidpunkt", "datum_tid", "date_time", "datumtid", "period", "starttid")
@@ -69,13 +82,19 @@ E_NAMES = ("kwh", "energy_kwh", "energy", "energi", "e_kwh", "forbrukning", "utt
 EXPORT_NAMES = ("produktion", "inmatning", "export", "generation", "feed_in", "production", "utmatning")
 Q_NAMES = ("q_kvar", "kvar", "reaktiv_effekt", "reactive_power", "reactive_power_kvar")
 S_NAMES = ("s_kva", "kva", "skenbar_effekt", "apparent_power", "apparent_power_kva")
+VALUE_NAMES = ("varde", "value", "matvarde", "matvarden", "volym", "kvantitet", "quantity", "reading")
+UNIT_COL_NAMES = ("enhet", "unit", "matenhet", "units")
+STATION_NAMES = ("station_id", "station", "natstation", "natstation_id", "natstationsnummer", "stationsnummer",
+                 "stationsnamn", "station_name", "substation", "substation_id", "secondary_substation")
+RATING_NAMES = ("rated_kva", "markeffekt", "trafo_kva", "transformer_kva", "rating_kva", "transformatorstorlek",
+                "trafostorlek", "rating", "nameplate_kva")
 SINGLE_LETTER = {"p": "p", "q": "q", "s": "s", "e": "e"}      # accepted only when nothing else matches
 ALLOWED_STEPS_MIN = (5.0, 10.0, 15.0, 30.0, 60.0)
 MAX_GAP_STEPS_DEFAULT = 6
 CABLE_LOSS_SHARE_AT_RATED = 0.042        # LV cable losses as a share of P at rated load (I²R → share ∝ K);
                                          # fitted on the project feeder: ≈ 4.2 %·K (review of 21 Oct 2026)
 OFFSET_RE = re.compile(r"(?:Z|[+-]\d{2}:?\d{2})\s*$")
-DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{2,4}|\d{8}")
+DATE_RE = meterfile.DATE_RE
 UNIT_SCALE = {            # → kW for power columns, kWh for energy columns
     "kw": ("power", 1.0), "mw": ("power", 1000.0), "w": ("power", 0.001),
     "kwh": ("energy", 1.0), "mwh": ("energy", 1000.0), "wh": ("energy", 0.001),
@@ -98,6 +117,8 @@ class StationSeries:
     source: str = ""
     gaps_filled: int = 0
     notes: list[str] = field(default_factory=list)
+    found: list[tuple[str, str]] = field(default_factory=list)    # what was read from the file, and how
+    unsure: list[str] = field(default_factory=list)               # what the file could not tell (and what was assumed)
 
     @property
     def index(self) -> pd.DatetimeIndex:
@@ -149,28 +170,8 @@ def _pick(cols: dict[str, tuple[str, str]], names, unit_hints=()) -> str | None:
     return None
 
 
-def _read_table(path, sep) -> tuple[pd.DataFrame, str]:
-    """The table as strings, and the column separator it was read with."""
-    raw = path.read() if hasattr(path, "read") else Path(path).read_bytes()      # a path, or an open file / StringIO
-    if isinstance(raw, bytes):
-        try:
-            text = raw.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            try:
-                text = raw.decode("cp1252")
-            except UnicodeDecodeError as e:
-                raise ValueError(f"cannot decode {path}: {e}") from e
-    else:
-        text = raw.lstrip("﻿")
-    df = pd.read_csv(io.StringIO(text), sep=sep, engine="python", dtype=str, skipinitialspace=True)
-    if sep is None:
-        head = text.split("\n", 1)[0]
-        sep = ";" if ";" in head else ("\t" if "\t" in head else ",")
-    return df, sep
-
-
 UNIT_SUFFIX_RE = re.compile(r"(?i)\s*(?:kvarh|kwh|mwh|wh|kvar|mvar|kva|mva|kw|mw|w)\s*$")
-THOUSANDS_SPACE_RE = re.compile(r"[\s  ]")          # space, no-break space, narrow no-break space
+THOUSANDS_SPACE_RE = re.compile(r"[\s\u00a0\u202f]")      # space, no-break space, narrow no-break space
 DOT_GROUPED_RE = re.compile(r"^[-+]?[1-9]\d{0,2}(?:\.\d{3})+$")   # 1.226 / 12.345.678: groups of three, no leading 0
 BLANKS = {"", "nan", "none", "-", "null", "n/a", "na"}
 
@@ -227,23 +228,35 @@ def _to_number(col: pd.Series, name: str, decimal: str | None = None, sep: str |
     return x.rename(name)
 
 
-def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, tz: str) -> tuple[pd.DatetimeIndex, list[str]]:
-    notes = []
+def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, tz: str, values: np.ndarray,
+                      dayfirst: bool | None = None):
+    """→ (UTC stamps in file order, NaT where a row is dropped; notes; found; unsure; rows dropped).
+    values: the rows' numbers (rows × value columns), so a placeholder row in the spring hour can be told apart."""
+    notes, found, unsure = [], [], []
     if timestamp_col is not None:
         raw = df[timestamp_col].astype(str).str.strip()
+        where = f"column {timestamp_col!r}"
     else:
         tcol = _pick(cols, TIMESTAMP_NAMES)
         dcol, hcol = _pick(cols, DATE_NAMES), _pick(cols, TIME_NAMES)
         if tcol is None and dcol is not None and hcol is not None:
             raw = df[dcol].astype(str).str.strip() + " " + df[hcol].astype(str).str.strip()
             notes.append(f"timestamps joined from columns {dcol!r} + {hcol!r}")
+            where = f"columns {dcol!r} + {hcol!r}"
         elif tcol is None and dcol is not None:
             raw = df[dcol].astype(str).str.strip()
+            where = f"column {dcol!r}"
         elif tcol is not None:
             raw = df[tcol].astype(str).str.strip()
+            where = f"column {tcol!r}"
         else:
             raw = df[df.columns[0]].astype(str).str.strip()
             notes.append(f"first column {df.columns[0]!r} taken as the timestamp")
+            where = f"first column {df.columns[0]!r} (no timestamp name found)"
+    raw, shape, order_unsure = meterfile.stamp_text(raw, dayfirst)
+    found.append(("timestamps", f"{where}: {shape}"))
+    if order_unsure:
+        unsure.append(order_unsure)
     # 24:00 → next day 00:00
     is24 = raw.str.contains(r"\b24:00", regex=True)
     if is24.any():
@@ -263,7 +276,8 @@ def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, t
         if ts.isna().any():
             raise ValueError(f"unparseable timestamp {raw[ts.isna()].iloc[0]!r}")
         notes.append("timestamps carry a UTC offset; read as given")
-        return pd.DatetimeIndex(ts), notes
+        found.append(("clock", "UTC offsets in the stamps, read as given"))
+        return pd.DatetimeIndex(ts), notes, found, unsure, np.zeros(len(raw), bool)
     ts = pd.to_datetime(raw, errors="coerce", format="mixed")
     if ts.isna().any():
         raise ValueError(f"unparseable timestamp {raw[ts.isna()].iloc[0]!r}")
@@ -273,19 +287,13 @@ def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, t
     if len(steps) and (steps < 0).sum() > (steps > 0).sum():
         ts = ts.iloc[::-1]
         notes.append("file is newest-first; read in time order")
-    zone = NORMALTID_TZ if tz.lower() in ("normaltid", "cet", "etc/gmt-1") else tz
-    try:
-        loc = ts.dt.tz_localize(zone, ambiguous="infer", nonexistent="raise")
-    except Exception as e:  # pytz AmbiguousTimeError / NonExistentTimeError and friends
-        if not (isinstance(e, ValueError) or type(e).__name__.endswith("TimeError")):
-            raise           # e.g. a missing time-zone database: a fault of the program, not of the user's file
-        raise ValueError(f"timestamps do not fit {zone!r} daylight-saving rules ({type(e).__name__}): a file in "
-                         "'normaltid' (CET all year, no DST) must be read with tz='normaltid'; a file with a missing "
-                         "or doubled hour in March/October must be fixed, not guessed; rows must be in time order") from e
-    notes.append("tz-naive timestamps taken as " + ("normaltid (CET = UTC+1 all year, no summer time)"
-                                                      if zone == NORMALTID_TZ else f"{zone} local time"))
-    out = pd.Series(loc.dt.tz_convert("UTC").to_numpy(), index=loc.index).reindex(range(len(raw)))  # back to file order
-    return pd.DatetimeIndex(out), notes
+    labels = ts.index.to_numpy()
+    utc, drop, n2, f2, u2 = meterfile.to_utc(ts.reset_index(drop=True), values[labels], tz)
+    notes += n2; found += f2; unsure += u2
+    out = pd.Series(utc.to_numpy(), index=labels).reindex(range(len(raw)))       # back to file order
+    dropped = np.zeros(len(raw), bool)
+    dropped[labels[drop]] = True
+    return pd.DatetimeIndex(out), notes, found, unsure, dropped
 
 
 def _uniform_step_min(index: pd.DatetimeIndex) -> float:
@@ -302,13 +310,69 @@ def _uniform_step_min(index: pd.DatetimeIndex) -> float:
     return step
 
 
-def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | None = None,
-                     e_col: str | None = None, q_col: str | None = None, s_col: str | None = None,
-                     export_col: str | None = None, pf: float = POWER_FACTOR, measured_at: str = "meters",
-                     tz: str = LOCAL_TZ, stamp: str = "start", max_gap_steps: int = MAX_GAP_STEPS_DEFAULT,
-                     sep: str | None = None, decimal: str | None = None) -> StationSeries:
-    """Read one station's CSV into a StationSeries (see the module docstring for the shapes). `decimal` ('.' or
-    ',') fixes the decimal sign when the numbers alone cannot tell (see _to_number)."""
+def _names(values, most: int = 6) -> str:
+    values = list(values)
+    return ", ".join(map(str, values[:most])) + (f" … ({len(values)} in all)" if len(values) > most else "")
+
+
+class ManyStations(ValueError):
+    """A file of several stations and none chosen; .column and .stations (in file order) let the caller ask."""
+
+    def __init__(self, column: str, stations: list[str]):
+        self.column, self.stations = column, list(stations)
+        super().__init__(f"the file holds {len(self.stations)} stations in column {column!r} ({_names(self.stations)}): "
+                         "choose one (station=…, or --station in the report command), or screen them all in Fleet "
+                         "screening")
+
+
+def station_columns(df: pd.DataFrame) -> tuple[str | None, str | None]:
+    """(the station column, the rating column) of a table, each None if absent."""
+    cols = {c: _norm(c) for c in df.columns}
+    return _pick(cols, STATION_NAMES), _pick(cols, RATING_NAMES)
+
+
+def read_station_csv(path, *, station: str | None = None, sep: str | None = None, **kwargs) -> StationSeries:
+    """Read one station's CSV into a StationSeries (see the module docstring for the shapes). A file with a
+    station column holds one station, or `station=` picks one; keyword arguments as station_from_frame."""
+    try:
+        table = meterfile.read_table(path, sep)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, csv.Error) as e:
+        raise ValueError(f"cannot read {path} as a CSV: {e}") from e
+    df, found = table.df, list(table.found)
+    scol, rcol = station_columns(df)
+    if scol is not None:
+        ids = df[scol].astype(str).str.strip()
+        names = list(dict.fromkeys(ids))
+        if station is not None:
+            keep = ids == str(station).strip()
+            if not keep.any():
+                raise ValueError(f"station {station!r} is not in column {scol!r} (the file has {_names(names)})")
+            df = df[keep]
+        elif len(names) > 1:
+            raise ManyStations(scol, names)
+        found.append(("station", f"{df[scol].iloc[0].strip()!r} (column {scol!r})"))
+        df = df.drop(columns=[c for c in (scol, rcol) if c is not None]).reset_index(drop=True)
+    elif station is not None:
+        raise ValueError(f"station={station!r} was given, but the file has no station column")
+    source = str(path) if isinstance(path, (str, Path)) else str(getattr(path, "name", "") or "")
+    return station_from_frame(df, table.sep, source=source, found=found, unsure=list(table.unsure), **kwargs)
+
+
+def station_from_frame(df: pd.DataFrame, sep: str, *, source: str = "", found: list | None = None,
+                       unsure: list | None = None, timestamp_col: str | None = None, p_col: str | None = None,
+                       e_col: str | None = None, q_col: str | None = None, s_col: str | None = None,
+                       export_col: str | None = None, pf: float = POWER_FACTOR, measured_at: str = "meters",
+                       tz: str = "auto", stamp: str = "start", max_gap_steps: int = MAX_GAP_STEPS_DEFAULT,
+                       decimal: str | None = None, unit: str | None = None,
+                       dayfirst: bool | None = None) -> StationSeries:
+    """One station's table (strings, the file's own header) → StationSeries. `decimal` ('.' or ',') fixes the
+    decimal sign when the numbers alone cannot tell (see _to_number); `unit` ('kW', 'kWh', 'W', 'Wh', 'MW',
+    'MWh') the unit of the value column when the file does not state it; `dayfirst` the date order when the
+    dates cannot show it; `tz` see meterfile.to_utc."""
+    found = list(found or [])
+    unsure = list(unsure or [])
+    if unit is not None and UNIT_SCALE.get(unit.lower(), ("",))[0] not in ("power", "energy"):
+        raise ValueError("unit must be one of kW, kWh, W, Wh, MW, MWh")
     if measured_at not in ("meters", "transformer"):
         raise ValueError("measured_at must be 'meters' or 'transformer'")
     if stamp not in ("start", "end"):
@@ -317,13 +381,11 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
         raise ValueError("pf must be within (0, 1]")
     if max_gap_steps < 0:
         raise ValueError("max_gap_steps must be >= 0")
-    try:
-        df, sep = _read_table(path, sep)
-    except (pd.errors.EmptyDataError, pd.errors.ParserError, csv.Error) as e:
-        raise ValueError(f"cannot read {path} as a CSV: {e}") from e
     if df.shape[1] < 2 or len(df) == 0:
         raise ValueError("CSV needs at least a timestamp column, a value column and some rows")
     cols = {c: _norm(c) for c in df.columns}
+    for c in [c for c, (n, _) in cols.items() if n in RATING_NAMES + STATION_NAMES]:
+        del cols[c]                                   # a rating (kVA) or a station id is never a measured value
     pcol = p_col or _pick(cols, P_NAMES, unit_hints=("kw",))
     ecol = e_col or _pick(cols, E_NAMES, unit_hints=("kwh", "wh"))
     xcol = export_col or _pick(cols, EXPORT_NAMES)
@@ -332,11 +394,39 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
     if pcol is None and ecol is None and scol is None:                 # last resort: single letters
         single = {n: orig for orig, (n, _) in cols.items() if n in SINGLE_LETTER}
         pcol, ecol, qcol, scol = single.get("p"), single.get("e"), qcol or single.get("q"), scol or single.get("s")
+    stated = True                                     # does the file state the main column's unit?
+    bare = False                                      # a 'Värde' column whose unit nothing states
+    if pcol is None and ecol is None and scol is None:                 # a value column, its unit elsewhere
+        vcol = _pick(cols, VALUE_NAMES)
+        if vcol is not None:
+            u, where = _unit_of_values(df, cols, vcol)
+            cols[vcol] = (cols[vcol][0], u or "")
+            if u and UNIT_SCALE[u][0] == "power":
+                pcol = vcol
+            else:
+                ecol, bare = vcol, not u
+            if u:
+                found.append(("unit", f"{u} — {where}"))
     if pcol is None and ecol is None and scol is None:
         raise ValueError(f"no power/energy column found; columns are {list(df.columns)} "
                          f"(expected e.g. kW / Effekt / kWh / Energi / Förbrukning, or pass p_col= / e_col=)")
+    main = pcol or ecol
+    if unit is not None and main is not None:         # the user's unit decides the main column's meaning
+        u = unit.lower()
+        cols[main] = (cols[main][0], u)
+        pcol, ecol = (main, None) if UNIT_SCALE[u][0] == "power" else (None, main)
+        bare = False
+        found.append(("unit", f"{unit} — as chosen"))
+    elif main is not None and not cols[main][1]:
+        stated = False                                # 'Effekt' / 'Förbrukning' / 'Värde' without a unit
+    value_cols = [c for c in (pcol, ecol, xcol, qcol, scol) if c is not None]
+    values = np.column_stack([_to_number(df[c], c, decimal, sep).to_numpy(dtype=float) for c in value_cols])
 
-    index, notes = _parse_timestamps(df, cols, timestamp_col, tz)
+    index, notes, f_t, u_t, dropped = _parse_timestamps(df, cols, timestamp_col, tz, values, dayfirst)
+    found += f_t
+    unsure += u_t
+    if dropped.any():
+        df, index = df[~dropped].reset_index(drop=True), index[~dropped]
     if any("24:00" in n for n in notes) and stamp == "start":
         stamp = "end"
         notes.append("24:00 stamps can only label the END of an interval — stamp='end' applied")
@@ -346,7 +436,6 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
     # duplicates: identical rows collapse with a note, differing rows are an error
     dup = index.duplicated(keep=False)
     if dup.any():
-        value_cols = [c for c in (pcol, ecol, xcol, qcol, scol) if c is not None]
         rows = df[value_cols].astype(str).agg("|".join, axis=1)
         groups = pd.DataFrame({"t": index, "v": rows.to_numpy()})[dup].groupby("t")["v"].nunique()
         if (groups > 1).any():
@@ -357,6 +446,21 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
         df, index = df[keep].reset_index(drop=True), index[keep]
     step_min = _uniform_step_min(index)
     step_h = step_min / 60
+    found.append(("resolution", f"{step_min:g}-min values"))
+    if not stated:
+        what = "kW (mean power)" if pcol is not None else "kWh per step (energy)"
+        if bare and step_min != 60:
+            raise ValueError(f"the column {main!r} does not say its unit and the values are {step_min:g}-min: kW and "
+                             f"kWh per {step_min:g} min differ by ×{60 / step_min:g} — choose the unit (unit='kWh' or "
+                             "'kW'; in the app: Unit)")
+        unsure.append(f"unit: the column {main!r} does not state one — {what} assumed"
+                      + (" (for hourly values kWh per hour and mean kW are the same number)" if step_min == 60 else "")
+                      + "; choose the unit if this is wrong")
+    if stamp == "start":
+        loc_first, loc_last = index[0].tz_convert(LOCAL_TZ), index[-1].tz_convert(LOCAL_TZ)
+        if (loc_first - loc_first.normalize()) == pd.Timedelta(minutes=step_min) and loc_last == loc_last.normalize():
+            unsure.append(f"the stamps run from {loc_first:%H:%M} to {loc_last:%H:%M} — typical of stamps at the "
+                          "interval END; they are read as interval START, as chosen: choose 'end' if the export says so")
     if stamp == "end":
         index = index - pd.Timedelta(minutes=step_min)
         notes.append(f"stamps taken as interval END; shifted back {step_min:g} min")
@@ -423,7 +527,59 @@ def read_station_csv(path, *, timestamp_col: str | None = None, p_col: str | Non
         notes.append(f"measured apparent power {scol!r} used as the transformer loading")
     elif scol is not None:
         notes.append(f"column {scol!r} (kVA) ignored: measured_at='meters' — pass measured_at='transformer' to use it")
-    return StationSeries(p.rename("p_kw"), q.rename("q_kvar"), s_meas, step_min, measured_at, str(path), gaps, notes)
+    found.append(("values", _values_text(pcol, ecol, cols, step_min)))
+    found.append(("numbers", _number_style(df[main] if main is not None else df[scol])))
+    found.append(("reactive power", f"column {qcol!r}" if qcol is not None and not any(n.startswith("Q estimated")
+                                                                                         for n in notes)
+                  else f"not in the file — estimated from P at power factor {pf}"))
+    if xcol is not None:
+        found.append(("export", f"column {xcol!r}, subtracted → net P"))
+    notes += [f"not told by the file — {u}" for u in unsure]
+    out = StationSeries(p.rename("p_kw"), q.rename("q_kvar"), s_meas, step_min, measured_at, source, gaps, notes,
+                        found, unsure)
+    found.append(("period", f"{out.period()}, {len(index):,} rows read, {gaps} missing steps filled"))
+    return out
+
+
+def _unit_of_values(df: pd.DataFrame, cols: dict, vcol: str) -> tuple[str | None, str]:
+    """The unit of a bare value column: from a unit column (Enhet), else from the cells ('12,5 kWh')."""
+    ucol = _pick(cols, UNIT_COL_NAMES)
+    if ucol is not None:
+        units = set(df[ucol].dropna().astype(str).str.strip().str.lower()) - {""}
+        if len(units) > 1:
+            raise ValueError(f"column {ucol!r} mixes units {sorted(units)} — one unit per file")
+        if units and next(iter(units)) in UNIT_SCALE:
+            return next(iter(units)), f"from column {ucol!r}"
+    cells = df[vcol].dropna().astype(str).str.strip()
+    m = cells.str.extract(r"(?i)\d\s*([a-z]+)\s*$")[0].dropna().str.lower()
+    if len(m) and m.nunique() == 1 and m.iloc[0] in UNIT_SCALE:
+        return m.iloc[0], f"from the cells of {vcol!r}"
+    return None, ""
+
+
+def _values_text(pcol, ecol, cols, step_min) -> str:
+    col = pcol or ecol
+    unit = cols[col][1] or ("kw" if pcol else "kwh")
+    kind = UNIT_SCALE.get(unit, ("power", 1.0))[0]
+    name = {"kw": "kW", "mw": "MW", "w": "W", "kwh": "kWh", "mwh": "MWh", "wh": "Wh"}.get(unit, unit)
+    if kind == "energy":
+        return f"column {col!r}: {name} per {step_min:g}-min step → mean kW (÷ {step_min / 60:g} h)"
+    return f"column {col!r}: {name} (mean power per step)" + ("" if unit == "kw" else " → kW")
+
+
+def _number_style(col: pd.Series) -> str:
+    s = col.dropna().astype(str).str.strip()
+    s = s[s.str.contains(r"\d")]
+    both = s.str.contains(",", regex=False) & s.str.contains(".", regex=False)
+    if both.any():
+        last = s[both].iloc[0]
+        return (f"decimal comma, thousands dot (e.g. {last!r})" if last.rfind(",") > last.rfind(".")
+                else f"decimal point, thousands comma (e.g. {last!r})")
+    if s.str.contains(",", regex=False).any():
+        return f"decimal comma (e.g. {s[s.str.contains(',', regex=False)].iloc[0]!r})"
+    if s.str.contains(".", regex=False).any():
+        return f"dots (e.g. {s[s.str.contains('.', regex=False)].iloc[0]!r}; see the notes if read as thousands)"
+    return "whole numbers"
 
 
 def to_hourly(st: StationSeries) -> StationSeries:
