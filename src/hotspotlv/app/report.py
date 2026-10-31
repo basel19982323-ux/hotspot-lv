@@ -176,9 +176,9 @@ def thermal_rows(p: ThermalParams, kva: float | None = None, custom: bool = Fals
                  "kiosk air rise of IEC 60076-7:2005 Table 6, eq. 11; 2018: Table 5")
         sizes = sorted(KIOSK_AIR_RISE_K)
         if kva is not None and kva > sizes[-1]:
-            rise += f" — the table stops at {sizes[-1]} kVA, so that row is used"
+            rise += f" — the table stops at {sizes[-1]} kVA, so that row is used (probably optimistic: its rise grows with size)"
         elif kva is not None and kva < sizes[0]:
-            rise += f" — the table starts at {sizes[0]} kVA, so that row is used"
+            rise += f" — the table starts at {sizes[0]} kVA, so that row is used (probably conservative)"
         rise += ")"
     return [
         ("enclosure", p.enclosure, "kiosk is the Swedish norm; it raises the top-oil rise"),
@@ -240,10 +240,11 @@ def key_figures(res: StationResult) -> list[tuple[str, str]]:
         ("rating", f"{res.rated_kva:g} kVA" + (" (custom unit)" if res.losses else "")),
         ("peak load vs rating", f"{f('peak load (% of nameplate)', v.on_paper['peak load (% of nameplate)'])} % of "
                                 f"nameplate ({f('max load (× rated)', v.really['max load (× rated)'])} × rated)"),
-        ("hours above the IEC normal cyclic limits (IEC 60076-7 Table 4)",
+        (f"hours above the IEC normal cyclic limits ({IEC_TABLE_4})",
          f"load above {limit_k:g} × rated: {f('hours', float((k > limit_k + TOL).sum() * step_h))} h · "
          + (f"hot-spot above {hot:g} °C: {f('hours', v.really[hot_key])} h · top-oil above {oil:g} °C: "
-            f"{f('hours', float((th.hourly['theta_o'] > oil + TOL).sum() * step_h))} h (step-end values)" if ok else
+            f"{f('hours', float((th.hourly['theta_o'] > oil + TOL).sum() * step_h))} h (top-oil at the end of each "
+            "step)" if ok else
             f"hot-spot and top-oil {dash}")),
         ("relative ageing rate", (f"{_rate_text(th.equivalent_ageing_factor)} on average over the period (1.00 = the "
                                   f"design rate, at {REF_HOT_SPOT_C:g} °C hot-spot); "

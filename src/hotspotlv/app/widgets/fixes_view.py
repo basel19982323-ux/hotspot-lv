@@ -32,9 +32,11 @@ from hotspotlv.app.widgets.station_panel import show_error
 from hotspotlv.app.widgets.tables import DataFrameModel
 from hotspotlv.app.widgets.verdict_card import fmt_card_value
 from hotspotlv.app.workers import Worker
-from hotspotlv.catalogue import TRANSFORMERS
 from hotspotlv.costs import REINFORCEMENT_SEK_PER_KW_YR, REINFORCEMENT_YEARS, CostAssumptions, cost_table
 from hotspotlv.study import FixComparison, compare_fixes, fixes_table
+
+BIGGER_SIZES = (500, 800)      # the bigger units v0.1 offered; the unit price is a list value the planner edits (default:
+                               # Ei's 800 kVA unit). The other v0.2 catalogue sizes are not offered: no price was checked
 
 COST_COLUMNS = ["capex low (kSEK)", "capex high (kSEK)", "service life (yr)", "peak kVA avoided",
                 "reinforcement-equivalent value (kSEK)"]
@@ -97,10 +99,9 @@ class FixesView(QWidget):
         self.cap = _range_spin(50, 100, 80, 5, " % of nameplate")
         self.cap.setToolTip("The battery tries to keep the transformer under this share of its rating (kVA).")
         self.bigger = QComboBox()
-        [self.bigger.addItem(f"{k} kVA", k) for k in sorted(TRANSFORMERS) if k > 500]   # re-filtered against the station at run time
-        self.bigger.setCurrentIndex(self.bigger.findData(800))   # the v0.1 default, kept when v0.2 added 630 kVA
+        [self.bigger.addItem(f"{k} kVA", k) for k in BIGGER_SIZES if k > 500]   # re-filtered against the station at run time
         self.bigger.setToolTip("Filled at run time with the catalogue sizes above the current transformer "
-                               f"(catalogue: {', '.join(str(k) for k in sorted(TRANSFORMERS))} kVA). "
+                               f"({', '.join(str(k) for k in BIGGER_SIZES)} kVA: the sizes the unit price is for). "
                                "The bigger unit is simulated with its own loss figures and kiosk rise.")
         self.fast = QCheckBox("fast mode"); self.fast.setChecked(True)
         self.fast.setToolTip("Fits a power-flow proxy on ~300 real power flows and computes every hour near a limit exactly. "
@@ -262,9 +263,9 @@ class FixesView(QWidget):
             show_error(self, "Inputs", f"{type(e).__name__}: {e}"); return
         if case is None:
             return
-        sizes = [k for k in sorted(TRANSFORMERS) if k > case.trafo_kva]
+        sizes = [k for k in BIGGER_SIZES if k > case.trafo_kva]
         if not sizes:
-            show_error(self, "No bigger transformer", f"The catalogue has {', '.join(str(k) for k in sorted(TRANSFORMERS))} kVA; "
+            show_error(self, "No bigger transformer", f"The Fixes comparison offers {', '.join(str(k) for k in BIGGER_SIZES)} kVA; "
                        f"there is no unit bigger than the current {case.trafo_kva} kVA to compare.")
             return
         chosen = self.bigger.currentData()

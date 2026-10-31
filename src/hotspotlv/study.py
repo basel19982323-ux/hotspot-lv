@@ -157,7 +157,9 @@ def enclosure_note(params: ThermalParams, kva: float | None = None) -> str:
                 "rated load vs an outdoor unit)")
         sizes = sorted(KIOSK_AIR_RISE_K)
         if kva is not None and not sizes[0] <= kva <= sizes[-1]:
-            text += f"; the table covers {sizes[0]}–{sizes[-1]} kVA, so its {min(max(kva, sizes[0]), sizes[-1]):g} kVA value is used"
+            text += (f"; the table covers {sizes[0]}–{sizes[-1]} kVA, so its {min(max(kva, sizes[0]), sizes[-1]):g} kVA value "
+                     "is used — " + ("probably optimistic for this bigger unit (the table's rise grows with size)"
+                                     if kva > sizes[-1] else "probably conservative for this smaller unit"))
         return text
     return "transformer outdoors: no enclosure correction"
 

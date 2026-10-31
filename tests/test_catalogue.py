@@ -60,12 +60,32 @@ def test_200_kva_is_interpolated_as_the_regulation_says():
     assert TRANSFORMERS[200]["p_noload_w"] == pytest.approx(189 + f * (270 - 189), abs=1e-9)
 
 
-def test_uk_follows_ellevio_where_it_lists_the_size_and_its_nearest_band_elsewhere():
+def test_uk_follows_ellevio_up_to_315_kva_and_the_v01_rule_from_500():
     for kva in (50, 100, 200, 1000):                                      # the v0.2 sizes Ellevio lists
         assert TRANSFORMERS[kva]["uk_percent"] == ELLEVIO_UK[kva]
-    assert TRANSFORMERS[160]["uk_percent"] == 3.5                          # band 100–200 kVA
-    for kva in (250, 400, 630):
-        assert TRANSFORMERS[kva]["uk_percent"] == 4.0                      # band 315–500 kVA
+    assert TRANSFORMERS[160]["uk_percent"] == 3.5                          # inside Ellevio's 50–200 kVA band
+    assert TRANSFORMERS[250]["uk_percent"] == 4.0                          # the higher neighbour (315 kVA)
+    assert TRANSFORMERS[400]["uk_percent"] == 5.0                          # between 4 % (315) and 6 % (500)
+    assert TRANSFORMERS[630]["uk_percent"] == 6.0                          # the v0.1 rule from 500 kVA
+
+
+def test_a_bigger_unit_never_has_a_larger_transformer_voltage_drop():
+    """Catches (v0.2 review): 4 % at 400 and 630 kVA next to 6 % at 500 and 800 kVA made the bigger unit of a
+    Fixes comparison look worse in voltage. Checked on the drop formula and on the power flow itself."""
+    import math
+    from hotspotlv.feeder import build_feeder, run_snapshot
+    sizes = sorted(TRANSFORMERS)
+    drop = []
+    for kva in sizes:
+        t = TRANSFORMERS[kva]
+        vkr = 100 * t["p_load_w"] / (kva * 1000)
+        drop.append((vkr * 0.95 + math.sqrt(t["uk_percent"] ** 2 - vkr ** 2) * 0.312) / kva)   # % per kVA at pf 0.95
+    assert all(a > b for a, b in zip(drop, drop[1:])), list(zip(sizes, drop))
+    vmin = []
+    for kva in [k for k in sizes if k >= 250]:
+        net = build_feeder(n_houses=60, n_feeders=6, trafo_kva=kva, house_p_kw=4.0)
+        vmin.append(run_snapshot(net)["vmin_pu"])
+    assert all(a < b for a, b in zip(vmin, vmin[1:])), vmin
 
 
 def test_every_size_has_its_sources_written_down():
@@ -104,6 +124,8 @@ def test_a_custom_unit_keeps_the_entered_losses_and_says_when_uk_is_assumed():
     ((500, 900, 800), "swapped"),
     ((10, 50, 400), "outside"),                    # below the distribution range
     ((5000, 3000, 30000), "outside"),
+    ((3150, 2000, 20000), "outside"),              # above 2 500 kVA: not a distribution transformer's constants
+    ((500, 0.459, 3900), "no-load loss"),          # the no-load loss alone typed in kW
     ((500, 459, 3900, 25), "uk"),
     ((500, "x", 3900), "numbers"),
 ])
@@ -182,6 +204,7 @@ def test_the_assumptions_page_lists_every_size_with_its_sources():
     rows = [r for r in table.splitlines() if r.startswith("| ") and r[2].isdigit()]
     assert [int(r.split("|")[1]) for r in rows] == sorted(TRANSFORMERS)
     assert "| 200 | 2016.7 | 225 | 3.5 |" in table and "interpolated" in table
+    assert "| 400 | 3250 | 387 | 5 |" in table
 
 
 def test_a_fleet_index_row_can_be_a_custom_unit_and_a_wrong_one_is_an_error_row(tmp_path):

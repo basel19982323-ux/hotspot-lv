@@ -15,10 +15,18 @@ result stays the same). A Swedish DSO's own specification (Ellevio,
 oil-immersed distribution transformers, rev 3.0, 2022, §11, at 75 °C) uses
 3.5 % for 50, 100 and 200 kVA, 4 % for 315 and 500 kVA, 4.5 % for 800 kVA and
 6 % for 1000 kVA; 6 % at 500/800 kVA gives a larger voltage drop: conservative
-for undervoltage, optimistic for overvoltage in PV hours. The v0.2 sizes take
-Ellevio's value where it lists the size, and the nearest Ellevio band where it
-does not (an assumption: 160 kVA → 3.5 % like 100–200 kVA; 250, 400 and
-630 kVA → 4 % like 315–500 kVA).
+for undervoltage, optimistic for overvoltage in PV hours.
+The v0.2 sizes keep one rule with the v0.1 rows, so that a bigger unit never
+gives a larger transformer voltage drop at the same load (the v0.2 review found
+that 400 → 500 and 630 → 800 kVA did, with 4 % at 400 and 630 kVA; a test now
+checks the order):
+  * up to 315 kVA, Ellevio's bands: 3.5 % for 50, 100 and 200 kVA as listed;
+    160 kVA 3.5 % (inside the 50–200 kVA band, assumed); 250 kVA 4 % (between
+    Ellevio's 3.5 % at 200 and 4 % at 315 kVA, assumed: the higher one, which is
+    conservative for undervoltage);
+  * from 500 kVA, the v0.1 rule of 6 %: 630 kVA 6 % (assumed, the rule of the
+    sizes around it); 1000 kVA 6 % (Ellevio lists 6 % as well);
+  * 400 kVA 5 % (assumed: between 4 % at 315 and 6 % at 500 kVA).
 """
 
 TRANSFORMERS = {
@@ -30,15 +38,15 @@ TRANSFORMERS = {
     500: dict(p_load_w=3900, p_noload_w=459, uk_percent=6.0),
     800: dict(p_load_w=6000, p_noload_w=585, uk_percent=6.0),
     # v0.2 (31 Oct 2026): the other common distribution sizes, Tier-2 Ak / A0 −10 % from Table I.1; uk as in the
-    # module docstring (Ellevio §11, or its nearest band where Ellevio has no such size).
+    # module docstring (Ellevio §11 up to 315 kVA, the v0.1 rule of 6 % from 500 kVA, 400 kVA between).
     50: dict(p_load_w=750, p_noload_w=81, uk_percent=3.5),
     100: dict(p_load_w=1250, p_noload_w=130, uk_percent=3.5),
-    160: dict(p_load_w=1750, p_noload_w=189, uk_percent=3.5),      # uk: nearest Ellevio band (100–200 kVA)
+    160: dict(p_load_w=1750, p_noload_w=189, uk_percent=3.5),      # uk: inside Ellevio's 50–200 kVA band
     200: dict(p_load_w=2016.7, p_noload_w=225, uk_percent=3.5),    # losses interpolated 160 → 250 kVA: 1750 + 600·40/90
                                                                    # = 2016.7 W, 189 + 81·40/90 = 225 W
-    250: dict(p_load_w=2350, p_noload_w=270, uk_percent=4.0),      # uk: nearest Ellevio band (315–500 kVA)
-    400: dict(p_load_w=3250, p_noload_w=387, uk_percent=4.0),      # uk: nearest Ellevio band (315–500 kVA)
-    630: dict(p_load_w=4600, p_noload_w=540, uk_percent=4.0),      # uk: nearest Ellevio band (315–500 kVA)
+    250: dict(p_load_w=2350, p_noload_w=270, uk_percent=4.0),      # uk: Ellevio's 315 kVA value (the higher neighbour)
+    400: dict(p_load_w=3250, p_noload_w=387, uk_percent=5.0),      # uk: between 4 % (315) and 6 % (500 kVA)
+    630: dict(p_load_w=4600, p_noload_w=540, uk_percent=6.0),      # uk: the v0.1 rule of 6 % from 500 kVA
     1000: dict(p_load_w=7600, p_noload_w=693, uk_percent=6.0),
 }
 
@@ -47,16 +55,17 @@ _ELLEVIO = "Ellevio rev 3.0 §11"
 SOURCES = {          # kVA: (where the losses come from, where uk comes from) — printed on the Assumptions page
     50: (_TIER2, _ELLEVIO),
     100: (_TIER2, _ELLEVIO),
-    160: (_TIER2, "assumed: Ellevio's band for 100–200 kVA (Ellevio lists no 160 kVA)"),
+    160: (_TIER2, "assumed: inside Ellevio's 50–200 kVA band of 3.5 % (Ellevio lists no 160 kVA)"),
     200: ("Ecodesign Tier 2, Table I.1, interpolated between 160 and 250 kVA as the regulation prescribes",
           _ELLEVIO),
-    250: (_TIER2, "assumed: Ellevio's band for 315–500 kVA (Ellevio lists no 250 kVA)"),
+    250: (_TIER2, "assumed: between Ellevio's 3.5 % (200 kVA) and 4 % (315 kVA), the higher one — conservative "
+                  "for undervoltage (Ellevio lists no 250 kVA)"),
     315: (_TIER2, "Chalmers LV-grid generator (4 % up to 315 kVA); Ellevio also 4 %"),
-    400: (_TIER2, "assumed: Ellevio's band for 315–500 kVA (Ellevio lists no 400 kVA)"),
+    400: (_TIER2, "assumed: between 4 % at 315 and 6 % at 500 kVA, so the voltage drop falls with size"),
     500: (_TIER2, "Chalmers LV-grid generator (6 % from 500 kVA); Ellevio 4 %"),
-    630: (_TIER2, "assumed: Ellevio's band for 315–500 kVA (Ellevio lists no 630 kVA)"),
+    630: (_TIER2, "assumed: the v0.1 rule of 6 % from 500 kVA (Ellevio lists no 630 kVA)"),
     800: (_TIER2, "Chalmers LV-grid generator (6 % from 500 kVA); Ellevio 4.5 %"),
-    1000: (_TIER2, _ELLEVIO),
+    1000: (_TIER2, "Ellevio rev 3.0 §11; also the v0.1 rule of 6 % from 500 kVA"),
 }
 
 
@@ -72,7 +81,9 @@ def catalogue_markdown() -> str:
 
 
 # A unit the catalogue does not hold — or a known unit with its own test-report losses.
-CUSTOM_KVA_RANGE = (25.0, 3150.0)       # the range of Table I.1 (liquid-immersed, ≤ 3 150 kVA)
+CUSTOM_KVA_RANGE = (25.0, 2500.0)       # 25 kVA: Table I.1's smallest row; 2 500 kVA: the top of EN 50464-1's
+                                        # three-phase distribution range — the thermal constants and Table 4 limits
+                                        # used are IEC 60076-7's distribution-transformer ones
 CUSTOM_UK_PERCENT = 4.0                 # Ellevio's value for 315–500 kVA, used when no uk is given
 P0_SHARE_RANGE = (0.0001, 0.01)         # no-load loss 0.01–1 % of the rating (Table I.1, 25–1 250 kVA: 0.07–0.25 %)
 PK_SHARE_RANGE = (0.001, 0.05)          # load loss 0.1–5 % of the rating (Table I.1, 25–1 250 kVA: 0.76–2.4 %)
@@ -88,7 +99,8 @@ def transformer(kva: float) -> dict:
 def custom_transformer(kva: float, p_noload_w: float, p_load_w: float, uk_percent: float | None = None) -> dict:
     """Losses entered by the user, checked for the mistakes that are easy to make: kW typed where watts are asked
     (a factor of 1 000), the two losses swapped, a size outside the distribution range. uk is optional: without it
-    CUSTOM_UK_PERCENT is used, and the result says so ("uk_given": False)."""
+    CUSTOM_UK_PERCENT is used, and the result says so ("uk_given": False). The losses are in watts: the error
+    messages say so (in the report command: --p0 and --pk)."""
     try:
         kva, p0, pk = float(kva), float(p_noload_w), float(p_load_w)
         uk = None if uk_percent is None else float(uk_percent)
@@ -96,8 +108,8 @@ def custom_transformer(kva: float, p_noload_w: float, p_load_w: float, uk_percen
         raise ValueError("custom transformer: kVA, no-load loss and load loss must be numbers") from None
     lo, hi = CUSTOM_KVA_RANGE
     if not lo <= kva <= hi:
-        raise ValueError(f"custom transformer: {kva:g} kVA is outside {lo:g}–{hi:g} kVA, the distribution range of "
-                         "the Ecodesign table and of the IEC 60076-7 distribution-transformer constants used")
+        raise ValueError(f"custom transformer: {kva:g} kVA is outside {lo:g}–{hi:g} kVA — the tool uses the IEC "
+                         "60076-7 constants and limits of a distribution transformer, which do not fit outside it")
     s_w = kva * 1000
     for name, value, (a, b) in (("no-load loss", p0, P0_SHARE_RANGE), ("load loss", pk, PK_SHARE_RANGE)):
         if not a * s_w <= value <= b * s_w:

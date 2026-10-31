@@ -17,6 +17,7 @@ from hotspotlv.app.report import INDICATIVE, REPORT_CHARTS, key_figures  # noqa:
 from hotspotlv.cli import main, parser  # noqa: E402
 from hotspotlv.paths import package_data  # noqa: E402
 from hotspotlv.station import ambient_for, assess_station, read_station_csv  # noqa: E402
+from hotspotlv.verdict import IEC_TABLE_4  # noqa: E402
 
 EXAMPLE = package_data() / "examples" / "ns-102.csv"          # synthetic, 2023: SMHI temperatures ship offline
 
@@ -50,7 +51,7 @@ def test_the_key_figures_are_the_verdicts_own_numbers(app):
     assert rows["verdict"] == v.headline() and rows["verdict"].startswith(v.level)
     assert f"{v.on_paper['peak load (% of nameplate)']:.1f} % of nameplate" in rows["peak load vs rating"]
     assert f"hot-spot above 120 °C: {v.really['hours hot-spot above 120 °C']:,.0f} h" in \
-        rows["hours above the IEC normal cyclic limits (IEC 60076-7 Table 4)"]
+        rows[f"hours above the IEC normal cyclic limits ({IEC_TABLE_4})"]
     rate = res.thermal.equivalent_ageing_factor                       # a light station: far below 0.1
     assert 0 < rate < 0.1 and rows["relative ageing rate"].startswith(f"{rate:.2g} on average")   # not "0.00"
     assert f"{v.really['days of life used per year']:.3f} days of life used per year" in rows["relative ageing rate"]
@@ -120,3 +121,30 @@ def test_the_commands_pdf_carries_real_text_not_boxes(tmp_path):
                   "Temperature duration curve", "relative ageing rate"):
         assert words in text, words
     assert all(page.get_text().strip().endswith(f"page {i + 1} of {len(doc)}") for i, page in enumerate(doc))
+
+
+def test_the_key_figures_and_the_temperature_curve_count_quarter_hours_as_quarter_hours(app):
+    """Catches: a count of steps shown as hours — 4× too many on every quarter-hour export (all the reports' other
+    tests use an hourly file, whose limits are never reached)."""
+    import numpy as np
+    import pandas as pd
+    from hotspotlv.app.widgets.charts import TemperatureDuration
+    from hotspotlv.station import StationSeries
+    idx = pd.date_range("2025-01-06", periods=7 * 96, freq="15min", tz="Europe/Stockholm").tz_convert("UTC")
+    hour = idx.tz_convert("Europe/Stockholm").hour
+    p = pd.Series(np.where((hour >= 14) & (hour < 22), 760.0, 300.0), index=idx)        # ≈ 1.7 × 500 kVA, 8 h a day
+    st = StationSeries(p, p * 0.2, None, 15.0, "meters", "q.csv")
+    res = assess_station(st, 500, pd.Series(20.0, index=idx))
+    k = res.year.hourly["loading_pct"] / 100
+    hours_above = float((k > 1.5).sum() * 0.25)
+    assert res.verdict.really["max load (× rated)"] < 2 and res.verdict.really["max top-oil (°C)"] > 105
+    assert hours_above == pytest.approx(56.0, abs=0.5)                                  # 8 h × 7 days, not 224
+    row = dict(key_figures(res))[f"hours above the IEC normal cyclic limits ({IEC_TABLE_4})"]
+    assert f"load above 1.5 × rated: {hours_above:,.0f} h" in row
+    top_oil_h = float((res.thermal.hourly["theta_o"] > 105).sum() * 0.25)
+    assert f"top-oil above 105 °C: {top_oil_h:,.0f} h" in row
+    chart = TemperatureDuration()
+    chart.set_thermal(res.thermal.hourly, 0.25)
+    x, _ = chart.hot.getData()
+    assert x[-1] == pytest.approx(len(idx) * 0.25)                                       # 168 h, not 672
+    assert f"{res.verdict.really['hours hot-spot above 120 °C']:,.1f} h" in chart.caption.text()

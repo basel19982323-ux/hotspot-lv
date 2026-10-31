@@ -459,3 +459,11 @@ def test_scenario_views_count_withdrawn_cases_never_hide_them(panel):
     FixesView._draw_bars(panel.fixes.bars_real, pd.Series([nan, nan], index=["a", "b"]), pd.Series(["At risk"] * 2), whole=False)
     texts = [it.toPlainText() for it in panel.fixes.bars_real[0].getPlotItem().items if isinstance(it, pg.TextItem)]
     assert any("not computed for any fix" in t for t in texts) and not any("no life used" in t for t in texts)
+
+
+def test_the_fixes_tab_offers_only_the_bigger_units_it_has_always_offered(panel):
+    """Catches: v0.2's catalogue sizes leaking into the Fixes comparison, whose unit price is the 800 kVA unit's —
+    a 500 kVA street must still be compared with 800 kVA (the README's example), not with 630 kVA."""
+    from hotspotlv.app.widgets.fixes_view import BIGGER_SIZES
+    assert BIGGER_SIZES == (500, 800)
+    assert [panel.fixes.bigger.itemData(i) for i in range(panel.fixes.bigger.count())] == [800]

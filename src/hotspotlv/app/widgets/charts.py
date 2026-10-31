@@ -314,14 +314,17 @@ class DurationCurve(QWidget):
         self.caption.setText(f"Above 80 %: {above80:,.0f} h · above 100 %: {above100:,.0f} h · peak {lp[0]:.1f} %")
 
 
-TEMPERATURE_DURATION_LEGEND = ((HOTSPOT_COLOR, "&#9644;", "hot-spot °C sorted high → low"),
-                               (OIL_COLOR, "&#9644;", "top-oil °C sorted high → low"),
+TEMPERATURE_DURATION_LEGEND = ((HOTSPOT_COLOR, "&#9644;", "hot-spot °C at the end of each step, sorted high → low"),
+                               (OIL_COLOR, "&#9644;", "top-oil °C at the end of each step, sorted high → low"),
                                (RULE_100, "&#9476;", "dashed: 98 °C = ageing rate 1 · 105 °C top-oil and 120 °C hot-spot "
                                                      "IEC 60076-7 normal cyclic limits"))
 
 
 class TemperatureDuration(QWidget):
-    """Hot-spot and top-oil sorted high → low: read it as 'above x °C for y hours' (the report's fourth chart)."""
+    """Hot-spot and top-oil at the end of each step, sorted high → low: read it as 'above x °C for y hours' (the
+    report's fourth chart). Step-end values, not the step's maximum: a step whose maximum touches x is not a whole
+    step above x (v0.2 review: the maximum gave 169 h above 120 °C where the sub-steps count 94 h). The caption gives
+    the sub-step count and the peak, so the two can be read together."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -348,19 +351,20 @@ class TemperatureDuration(QWidget):
         lay.addWidget(self.caption)
 
     def set_thermal(self, thermal_hourly: pd.DataFrame, step_h: float = 1.0):
-        """thermal_hourly: ThermalResult.hourly — the step's maximum hot-spot (theta_h_max) and its top-oil."""
-        hot = np.sort(thermal_hourly["theta_h_max"].to_numpy())[::-1]
+        """thermal_hourly: ThermalResult.hourly — step-end hot-spot (theta_h) and top-oil (theta_o)."""
+        hot = np.sort(thermal_hourly["theta_h"].to_numpy())[::-1]
         oil = np.sort(thermal_hourly["theta_o"].to_numpy())[::-1]
         hours = np.arange(1, len(hot) + 1) * step_h
         self.hot.setData(hours, hot)
         self.oil.setData(hours, oil)
         self.plot.setXRange(0, max(hours[-1], 1))
-        self.plot.setYRange(min(0.0, float(oil[-1]) - 5), max(self.hot_limit + 5, float(hot[0]) * 1.05))
+        peak = float(thermal_hourly["theta_h_max"].max())                    # within a step, as the verdict's
+        self.plot.setYRange(min(0.0, float(oil[-1]) - 5), max(self.hot_limit + 5, peak * 1.05))
         above = float(thermal_hourly[f"h_above_{self.hot_limit:g}"].sum())    # the verdict's own count (sub-steps)
         oil_h = float((thermal_hourly["theta_o"] > self.oil_limit + TOL).sum() * step_h)
-        self.caption.setText(f"Hot-spot above {self.hot_limit:g} °C: {above:,.1f} h · top-oil above {self.oil_limit:g} °C: "
-                             f"{oil_h:,.0f} h (step-end values) · peak hot-spot {hot[0]:.1f} °C, peak top-oil "
-                             f"{oil[0]:.1f} °C")
+        self.caption.setText(f"Hot-spot above {self.hot_limit:g} °C: {above:,.1f} h (counted within the steps) · top-oil "
+                             f"above {self.oil_limit:g} °C: {oil_h:,.0f} h · highest hot-spot {peak:.1f} °C (within a "
+                             f"step), top-oil {oil[0]:.1f} °C")
 
 
 class YearTimeline(QWidget):
