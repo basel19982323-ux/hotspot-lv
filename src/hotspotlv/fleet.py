@@ -38,8 +38,9 @@ import pandas as pd
 
 from hotspotlv import errors, meterfile
 from hotspotlv.catalogue import custom_transformer
-from hotspotlv.station import (CABLE_LOSS_SHARE_AT_RATED, StationResult, StationSeries, _norm, _to_number,
-                               ambient_for, assess_station, read_station_csv, station_columns, station_from_frame)
+from hotspotlv.station import (CABLE_LOSS_SHARE_AT_RATED, StationResult, StationSeries, _cells, _decimal_shown,
+                               _norm, _to_number, ambient_for, assess_station, read_station_csv, station_columns,
+                               station_from_frame)
 from hotspotlv.weather import SMHI_STATION
 
 LEVEL_RANK = {"At risk": 0, "Watch": 1, "OK": 2, "error": 3}
@@ -174,27 +175,47 @@ def read_fleet_long(path, ratings: dict | None = None, smhi_station: int | None 
     ratings = {str(k).strip(): v for k, v in (ratings or {}).items()}
     losses = {str(k).strip(): v for k, v in (losses or {}).items()}
     found = list(table.found) + [("stations", f"{ids.nunique()} in column {scol!r}")]
+    decimal, shown = read_kwargs.pop("decimal", None), ""
+    if decimal is None:                               # one convention per file: a station whose own values show no
+        signs = {}                                    # decimal sign takes the one the other stations show
+        for c in df.columns:
+            if c in (scol, rcol) or c in loss_cols.values():
+                continue
+            cells = _cells(df[c])
+            if (cells.str.fullmatch(r"-?[\d.,]+") | (cells == "")).mean() < 0.9:
+                continue                              # dates, names: not a number column
+            sign, example = _decimal_shown(cells)
+            if sign in (",", "."):                    # 'mixed': each station's own read says so
+                signs.setdefault(sign, example)
+        if len(signs) == 1:
+            decimal, shown = next(iter(signs.items()))
     out = []
     for sid, part in df.groupby(ids, sort=True):
-        if sid in ratings:
-            kva = _rated_kva(ratings[sid])
-        elif rcol is not None and part[rcol].astype(str).str.strip().replace("", np.nan).dropna().nunique() == 1:
-            kva = _rated_kva(part[rcol].dropna().iloc[0])
-        elif rcol is not None and part[rcol].astype(str).str.strip().replace("", np.nan).dropna().nunique() > 1:
-            raise ValueError(f"station {sid!r} has more than one rating in column {rcol!r}")
-        elif default_kva is not None:
-            kva = float(default_kva)
-        else:
-            raise ValueError(f"no rated_kva for station {sid!r}: add a rating column (rated_kva / Märkeffekt), "
-                             "give ratings, or a default rating for the whole file")
-        error, unit = None, losses.get(sid)
+        error, unit, kva = None, losses.get(sid), float("nan")
         try:
+            given = (part[rcol].dropna().astype(str).str.strip().replace("", np.nan).dropna().unique()
+                     if rcol is not None else [])
+            if sid in ratings:
+                kva = _rated_kva(ratings[sid])
+            elif len(given) == 1:
+                kva = _rated_kva(given[0])
+            elif len(given) > 1:
+                raise ValueError(f"station {sid!r} has more than one rating in column {rcol!r}: {', '.join(given)}")
+            elif default_kva is not None:
+                kva = float(default_kva)
+            else:
+                raise ValueError(f"no rated_kva for station {sid!r}: add a rating column (rated_kva / Märkeffekt) to "
+                                 "the file, or set one rating for every station (in the app: 'rating: … kVA for "
+                                 "all')")
             if unit is None and loss_cols:
                 unit = _custom_losses(part.iloc[0], loss_cols, kva)
             frame = part.drop(columns=[c for c in [scol, rcol, *loss_cols.values()] if c is not None])
             series = station_from_frame(frame.reset_index(drop=True), table.sep, source=f"{path} [{sid}]",
                                         found=found + [("station", f"{sid!r} (column {scol!r})")],
-                                        unsure=list(table.unsure), **read_kwargs)
+                                        unsure=list(table.unsure), decimal=decimal, **read_kwargs)
+            if shown:
+                series.found.append(("numbers", f"decimal {'comma' if decimal == ',' else 'point'} — the file's, "
+                                                f"shown by {shown!r} (one sign for every station)"))
         except ValueError as e:
             series, error = None, f"ValueError: {e}"
         out.append(FleetStation(sid, kva, series=series, smhi_station=smhi_station, error=error, losses=unit))

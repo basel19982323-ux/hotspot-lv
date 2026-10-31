@@ -75,8 +75,8 @@ def test_long_csv(tmp_path):
     table, _ = screen_fleet(stations)
     assert len(table) == 2 and (table["error"] == "").all()
     assert not list(tmp_path.glob(".long__*"))                          # no temp files left behind
-    with pytest.raises(ValueError, match="rated_kva"):
-        read_fleet_long(tmp_path / "long.csv", ratings={"101": 500})
+    missing = read_fleet_long(tmp_path / "long.csv", ratings={"101": 500})          # a station without a rating
+    assert missing[0].error is None and "no rated_kva for station 'NS/2 Björk'" in missing[1].error   # is its error row
     # one unreadable station in a long CSV becomes an error row, the others are screened
     bad = pd.concat([a.assign(station_id="A"), pd.DataFrame({"timestamp": ["2023-01-01 00:00", "2023-01-01 02:00", "2023-01-02 00:00"],
                                                              "p_kw": [1, 2, 3], "station_id": "B"})])

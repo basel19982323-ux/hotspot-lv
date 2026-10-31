@@ -63,7 +63,8 @@ def test_day_first_slash_dates_comma_separated():
     st = read("hourly_kw_slash_dates_dayfirst.csv")
     assert found(st, "separator") == "comma (,)"
     assert found(st, "timestamps") == "column 'Datum': DD/MM/YYYY hh:mm (day first)"
-    assert found(st, "numbers").startswith("dots") and found(st, "values").startswith("column 'Aktiv effekt (kW)': kW")
+    assert found(st, "numbers").startswith("decimal point (shown by")
+    assert found(st, "values").startswith("column 'Aktiv effekt (kW)': kW")
     assert_truth(st)
     assert any("normaltid cannot be told apart" in u for u in st.unsure)        # no DST change in January
     assert any(n.startswith("not told by the file — clock") for n in st.notes)   # … and the planner sees it
@@ -102,7 +103,7 @@ def test_normaltid_is_detected_from_a_measured_spring_hour():
     assert found(st, "clock").startswith("normaltid (CET all year) — detected")
     assert len(st.p_kw) == 72 and st.gaps_filled == 0
     assert_truth(st)
-    assert any("from the spring change alone" in u for u in st.unsure)
+    assert any("alone (the file has no October change)" in u and "UTC without offsets" in u for u in st.unsure)
     with pytest.raises(ValueError, match="normaltid"):
         read("hourly_kwh_normaltid_spring.csv", tz="Europe/Stockholm")         # local time chosen: refused, explained
     assert read("hourly_kwh_normaltid_spring.csv", tz="normaltid").index.equals(st.index)
@@ -121,7 +122,8 @@ def test_utf16_tab_separated_with_a_value_and_a_unit_column_and_a_sum_line():
 def test_thousands_dots_dotted_dates_and_a_footer():
     st = read("hourly_kwh_thousands_dots_footer.csv")
     assert found(st, "timestamps") == "column 'Tidpunkt': DD.MM.YYYY hh:mm (day first)"
-    assert found(st, "numbers").startswith("decimal comma, thousands dot")
+    assert found(st, "numbers").startswith("decimal comma (shown by")                  # so '1.226,5' and '1.210'
+    assert st.p_kw.max() > 1000                                                          # are thousands, not 1.2
     assert "'Summa;" in found(st, "below the table")
     assert_truth(st, factor=10)
 
@@ -155,8 +157,8 @@ def test_a_long_file_without_ratings_takes_a_default_or_says_what_is_missing(tmp
     text = (FIX / "multi_station_natstation.csv").read_bytes().decode("cp1252")
     lines = [";".join(l.split(";")[:1] + l.split(";")[2:]) for l in text.splitlines()]   # the rating column removed
     (tmp_path / "f.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="no rated_kva for station 'NS 101 Åkervägen'"):
-        read_fleet_long(tmp_path / "f.csv")
+    stations = read_fleet_long(tmp_path / "f.csv")                                     # one error row each,
+    assert all(s.series is None and "no rated_kva for station" in s.error for s in stations)   # not an abort
     assert {s.rated_kva for s in read_fleet(tmp_path / "f.csv", default_kva=500)} == {500.0}
 
 

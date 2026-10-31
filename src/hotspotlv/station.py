@@ -18,25 +18,37 @@ cable rules are reported as "not checked" rather than silently passed.
 
 What the reader accepts (headers matched after normalising case, units in
 parentheses and Swedish/English synonyms):
-  * the file as a DSO exports it (meterfile.py): UTF-8 with or without BOM,
-    UTF-16 or Windows-1252; separator ; tab , or |; lines above the header and a
-    sum line below the table are left out (and said so)
-  * one timestamp column, or separate date + time columns (`Datum;Tid`);
+  * the file in the shapes DSO exports take (meterfile.py): UTF-8 with or without
+    BOM, UTF-16 or Windows-1252; separator ; tab , or |; lines above the header
+    (metering-point ids, from/to dates), a units row under the names, empty
+    ';;' lines, a ';' at the end of every line, and a sum line below the table
+  * one timestamp column, or separate date + time columns (`Datum;Tid`, or
+    `Datum;Timme` with hour numbers 1–24 or 0–23 or ranges '00-01');
     `2025-01-01 00:00`, `2025-01-01T00:00:00+01:00`, `01/01/2025 00:00` (day or
-    month first decided from the dates, else day first and said so), `01.01.2025`
+    month first decided from the dates, else day first and said so), `01.01.2025`,
+    intervals written out ('2025-01-01 00:00 - 01:00': the start), Excel's day
+    numbers; a clock in the header — '(UTC)', '(normaltid)', '(lokal tid)' — is used
   * active power per step (`kW`, `Effekt`, `Aktiv effekt`) or energy per step
     (`kWh`, `Energi`, `Förbrukning`, `Uttag`, `Wh`), or a `Värde` column with its
     unit in an `Enhet` column or in the cells; an export column (`Produktion`,
     `Inmatning`, `Export`) is subtracted → net P; `unit=` decides a column whose
     unit the file does not state
-  * optional reactive power (`kvar`, `Reaktiv effekt`) and, for a transformer
-    measurement, apparent power (`kVA`)
+  * optional reactive power (`kvar`, `Reaktiv effekt`, `kvarh` per step) and,
+    for a transformer measurement, apparent power (`kVA`)
   * a station column (`Station`, `Nätstation`): one station is read (`station=`);
-    a file with several goes to the fleet mode (fleet.read_fleet_long)
-  * decimal point or comma, thousands dot, comma or space (_to_number)
+    a file with several goes to the fleet mode (fleet.read_fleet_long); a rating
+    column is reported, and a rating it contradicts is questioned
+  * decimal point or comma, thousands dot, comma or space, decided per column
+    from the cells that show it (_to_number)
+Refused with the reason, never guessed: two columns for the load (phases, meters),
+one row per meter, a column name twice, a value column with an unknown unit, a
+cell that is not a number, a quarter-hour 'Värde' column without a unit, a unit
+chosen against the one the file states, a clock name that does not exist.
   * timestamps: tz="auto" (default) — Swedish local time with summer time, unless
-    the daylight-saving days of the file show normaltid (CET all year, as EIFS
-    2023:1 prescribes for registered meter values; meterfile.to_utc says how);
+    the daylight-saving days of the file show normaltid (CET all year: EIFS
+    2025:1 1 kap. 2 § keeps registered meter values in normaltid, while values
+    made available to customers carry the current time, 12 kap. 5 §;
+    meterfile.to_utc says how);
     `tz="Europe/Stockholm"` or `"normaltid"` fix it; ISO stamps with offsets or
     `Z` are read as given; `24:00` is the next day's 00:00. The spring hour that
     does not exist is dropped when it holds a placeholder (0, blank, a copy of
@@ -80,14 +92,20 @@ P_NAMES = ("p_kw", "kw", "effekt", "aktiv_effekt", "active_power", "active_power
 E_NAMES = ("kwh", "energy_kwh", "energy", "energi", "e_kwh", "forbrukning", "uttag", "import", "consumption",
            "konsumtion", "forbrukad_energi")
 EXPORT_NAMES = ("produktion", "inmatning", "export", "generation", "feed_in", "production", "utmatning")
-Q_NAMES = ("q_kvar", "kvar", "reaktiv_effekt", "reactive_power", "reactive_power_kvar")
+Q_NAMES = ("q_kvar", "kvar", "reaktiv_effekt", "reactive_power", "reactive_power_kvar", "reaktiv_energi",
+           "reactive_energy", "kvarh")
 S_NAMES = ("s_kva", "kva", "skenbar_effekt", "apparent_power", "apparent_power_kva")
 VALUE_NAMES = ("varde", "value", "matvarde", "matvarden", "volym", "kvantitet", "quantity", "reading")
 UNIT_COL_NAMES = ("enhet", "unit", "matenhet", "units")
 STATION_NAMES = ("station_id", "station", "natstation", "natstation_id", "natstationsnummer", "stationsnummer",
                  "stationsnamn", "station_name", "substation", "substation_id", "secondary_substation")
 RATING_NAMES = ("rated_kva", "markeffekt", "trafo_kva", "transformer_kva", "rating_kva", "transformatorstorlek",
-                "trafostorlek", "rating", "nameplate_kva")
+                "trafostorlek", "rating", "nameplate_kva", "transformatoreffekt", "trafoeffekt", "trafo_storlek")
+METER_NAMES = ("anlaggnings_id", "anlaggningsid", "anlaggning", "anlaggningsidentitet", "matpunkt", "matpunkt_id",
+               "matpunktsid", "matarpunkt", "meter", "meter_id", "metering_point", "matar_id", "matarnummer")
+CLOCK_HINTS = {"utc": "UTC", "gmt": "UTC", "z": "UTC", "normaltid": "normaltid", "utc+1": "normaltid",
+               "utc+01:00": "normaltid", "gmt+1": "normaltid", "lokaltid": LOCAL_TZ, "svensktid": LOCAL_TZ,
+               "cet/cest": LOCAL_TZ, "sommartid": LOCAL_TZ, "aktuelltid": LOCAL_TZ}   # a header's '(…)' after a time
 SINGLE_LETTER = {"p": "p", "q": "q", "s": "s", "e": "e"}      # accepted only when nothing else matches
 ALLOWED_STEPS_MIN = (5.0, 10.0, 15.0, 30.0, 60.0)
 MAX_GAP_STEPS_DEFAULT = 6
@@ -99,6 +117,7 @@ UNIT_SCALE = {            # → kW for power columns, kWh for energy columns
     "kw": ("power", 1.0), "mw": ("power", 1000.0), "w": ("power", 0.001),
     "kwh": ("energy", 1.0), "mwh": ("energy", 1000.0), "wh": ("energy", 0.001),
     "kvar": ("reactive", 1.0), "mvar": ("reactive", 1000.0),
+    "kvarh": ("reactive_energy", 1.0), "mvarh": ("reactive_energy", 1000.0),
     "kva": ("apparent", 1.0), "mva": ("apparent", 1000.0),
 }
 
@@ -119,6 +138,7 @@ class StationSeries:
     notes: list[str] = field(default_factory=list)
     found: list[tuple[str, str]] = field(default_factory=list)    # what was read from the file, and how
     unsure: list[str] = field(default_factory=list)               # what the file could not tell (and what was assumed)
+    file_kva: float | None = None                                   # a rating the file itself gives (a rating column)
 
     @property
     def index(self) -> pd.DatetimeIndex:
@@ -139,20 +159,19 @@ class StationSeries:
 
 
 def _norm(name: str) -> tuple[str, str]:
-    """('normalised_name', 'unit') — 'Förbrukning (kWh)' → ('forbrukning', 'kwh'), 'Effekt kW' → ('effekt', 'kw').
-    An unknown unit in brackets raises: reading 'Energi (MWh)' as kWh would be 1000x wrong, silently."""
+    """('normalised_name', 'bracket') — 'Förbrukning (kWh)' → ('forbrukning', 'kwh'), 'Effekt kW' → ('effekt', 'kw'),
+    'Tidpunkt (CET)' → ('tidpunkt', 'cet'). The bracket is kept as written (lower case, no spaces): a VALUE column
+    whose bracket is not a known unit is refused in station_from_frame — reading 'Energi (GWh)' as kWh would be
+    wrong by 10⁶, silently — while a bracket on a date, station or status column is only a label."""
     s = str(name).strip().lower()
     unit = ""
     m = re.search(r"\(([^)]*)\)|\[([^\]]*)\]", s)
     if m:
         unit = (m.group(1) or m.group(2) or "").strip().lower().replace(" ", "")
         s = s[:m.start()] + s[m.end():]
-        if unit and unit not in UNIT_SCALE and not re.fullmatch(r"[a-z]*", unit) is None and unit not in ("", "-"):
-            if unit not in UNIT_SCALE:
-                raise ValueError(f"column {name!r}: unit {unit!r} is not understood (known: {sorted(UNIT_SCALE)})")
     s = (s.replace("å", "a").replace("ä", "a").replace("ö", "o").replace("é", "e"))
     s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
-    tail = re.search(r"(?:^|_)(mwh|kwh|wh|mw|kw|w|kvar|mvar|kva|mva)$", s)   # 'forbrukning_kwh', bare 'wh'
+    tail = re.search(r"(?:^|_)(mwh|kwh|wh|mw|kw|w|kvarh|mvarh|kvar|mvar|kva|mva)$", s)   # 'forbrukning_kwh', bare 'wh'
     if tail and not unit:
         unit = tail.group(1)
         s = s[:tail.start()].strip("_") or unit
@@ -170,61 +189,137 @@ def _pick(cols: dict[str, tuple[str, str]], names, unit_hints=()) -> str | None:
     return None
 
 
+def _kind(unit: str) -> str:
+    return UNIT_SCALE.get(unit, ("?",))[0] if unit else ""
+
+
+def _pick_value(cols: dict, role: str, names, unit_hints, kinds) -> str | None:
+    """The one column for a value role (load, energy, export, reactive, apparent). A name match whose stated unit is
+    of another kind ('Effekt (kVA)') is not this role. Two or more candidates raise: the reader never silently takes
+    the first of 'P L1', 'P L2', 'P L3' or of two meters' columns (v0.2 review)."""
+    by_name = [o for o, (n, u) in cols.items() if n in names and _kind(u) in ("",) + kinds]
+    hits = by_name or [o for o, (n, u) in cols.items() if u and u in unit_hints]
+    if len(hits) > 1:
+        raise ValueError(f"several columns could be the {role}: {', '.join(map(repr, hits))} — the reader adds no "
+                         "columns up (phases, meters): add them up in the file, or name the one column to read "
+                         "(p_col= / e_col=)")
+    return hits[0] if hits else None
+
+
 UNIT_SUFFIX_RE = re.compile(r"(?i)\s*(?:kvarh|kwh|mwh|wh|kvar|mvar|kva|mva|kw|mw|w)\s*$")
 THOUSANDS_SPACE_RE = re.compile(r"[\s\u00a0\u202f]")      # space, no-break space, narrow no-break space
 DOT_GROUPED_RE = re.compile(r"^[-+]?[1-9]\d{0,2}(?:\.\d{3})+$")   # 1.226 / 12.345.678: groups of three, no leading 0
 BLANKS = {"", "nan", "none", "-", "null", "n/a", "na"}
 
 
-def _to_number(col: pd.Series, name: str, decimal: str | None = None, sep: str | None = None,
-               notes: list | None = None) -> pd.Series:
-    """Numbers from strings. Spaces (also no-break) are thousands separators and trailing units (kW, kWh …) are
-    ignored. The decimal sign is decided per cell where the cell itself shows it, and per COLUMN where it does not:
-      * both '.' and ',' in a cell: the last one is the decimal sign — '1.226,5' → 1226.5, '1,226.5' → 1226.5
-      * only ',': a decimal comma — '12,5' → 12.5 (two or more commas, '1,226,500', are thousands)
-      * only '.': a decimal point — unless EVERY dot-only value in the column has groups of exactly three digits
-        after its dots (at least two such values, none starting with '0.'), or any value has two or more dots; then
-        the dots are thousands separators — '1.226', '2.450' → 1226, 2450. In a comma-separated file a dot is
-        always the decimal sign. A column read with thousands dots gets a note, because '12.345' with three decimals
-        looks the same: pass decimal='.' (or ',') to decide it instead.
-    Blanks, '-', 'null' → NaN."""
-    if decimal not in (None, ".", ","):
-        raise ValueError("decimal must be '.' or ','")
-    s = col.astype(str).str.strip().str.replace(UNIT_SUFFIX_RE, "", regex=True)
-    s = s.str.replace(THOUSANDS_SPACE_RE, "", regex=True).str.lstrip("+")
-    blank = s.str.lower().isin(BLANKS)
-    s = s.mask(blank, "")
+COMMA_GROUPED_RE = re.compile(r"^[-+]?[1-9]\d{0,2}(?:,\d{3})+$")   # 1,226 / 12,345: groups of three, no leading 0
+
+
+def _cells(col: pd.Series) -> pd.Series:
+    """The cells as number text: unit after the number, spaces (also no-break) and a leading '+' removed, the
+    minus sign '−' as '-', blanks as ''."""
+    s = col.astype(str).str.strip().str.replace("−", "-", regex=False)
+    s = s.str.replace(UNIT_SUFFIX_RE, "", regex=True).str.replace(THOUSANDS_SPACE_RE, "", regex=True).str.lstrip("+")
+    return s.mask(s.str.lower().isin(BLANKS), "")
+
+
+def _decimal_shown(s: pd.Series) -> tuple[str | None, str]:
+    """The decimal sign the cells of a column show, and a cell that shows it: (',' or '.', cell), ('mixed', 'a and b')
+    when cells show both, or (None, '') when none does. A cell shows ',' by '1.226,5', '12,5', '0,500' (not three
+    digits after it, or a leading 0) or '1.226.500' (two dots: thousands); '.' by '1,226.5', '12.5', '0.125' or
+    '1,226,500'. '1.226' and '23,000' show nothing: three digits after the sign can be decimals or a thousands group."""
     dots, commas = s.str.count(r"\."), s.str.count(",")
     both = (dots > 0) & (commas > 0)
     comma_last = s.str.rfind(",") > s.str.rfind(".")
-    only_comma = (commas > 0) & (dots == 0)
-    only_dot = (dots > 0) & (commas == 0)
+    only_comma, only_dot = (commas > 0) & (dots == 0), (dots > 0) & (commas == 0)
+    comma = (both & comma_last) | (only_comma & (commas == 1) & ~s.str.match(COMMA_GROUPED_RE)) | (only_dot & (dots > 1))
+    dot = (both & ~comma_last) | (only_dot & (dots == 1) & ~s.str.match(DOT_GROUPED_RE)) | (only_comma & (commas > 1))
+    if comma.any() and dot.any():
+        return "mixed", f"{s[comma].iloc[0]!r} and {s[dot].iloc[0]!r}"
+    if comma.any():
+        return ",", s[comma].iloc[0]
+    if dot.any():
+        return ".", s[dot].iloc[0]
+    return None, ""
 
+
+def _to_number(col: pd.Series, name: str, decimal: str | None = None, sep: str | None = None,
+               notes: list | None = None, info: dict | None = None) -> pd.Series:
+    """Numbers from strings. Spaces (also no-break) are thousands separators and a unit after the number (kW, kWh …)
+    is ignored. The decimal sign is decided for the whole COLUMN by the cells that show it (_decimal_shown): in a
+    decimal-comma column '1.300' is 1300, in a decimal-point column '1,300' is 1300 (v0.2 review: a lone '1.300'
+    among '950,5' was read as 1.3). A cell with both signs always takes the last as its decimal sign. Where no cell
+    shows the sign — or cells show both, which is then said — each cell is read by itself:
+      * a comma is a decimal comma ('23,000' → 23.0); outside a ';' file a note says so when every comma has three
+        digits after it (a ';' file has ';' because ',' is its decimal sign);
+      * dots are thousands separators when every one-dot value has groups of three (none starting with '0.') and
+        there are two or more of them, or one among two or more whole numbers ('980', '1.005', '990'); else
+        decimals. In a comma-separated file a dot is the decimal sign. Read as thousands, a note says so: '12.345'
+        with three decimals looks the same — decimal='.' (or ',') decides it instead.
+    The notes go to `notes` (the caller adds them to what the file could not tell); `info["numbers"]` gets a line
+    for the File tab. Blanks, '-', 'null' → NaN; any other cell that is not a number raises with its row — it would
+    otherwise become a gap and be filled (v0.2 review: '400,0*' at a peak was interpolated away)."""
+    if decimal not in (None, ".", ","):
+        raise ValueError("decimal must be '.' or ','")
+    s = _cells(col)
+    sign, example = (decimal, "") if decimal else _decimal_shown(s)
+    dots, commas = s.str.count(r"\."), s.str.count(",")
+    both = (dots > 0) & (commas > 0)
+    comma_last = s.str.rfind(",") > s.str.rfind(".")
+    only_comma, only_dot = (commas > 0) & (dots == 0), (dots > 0) & (commas == 0)
+    one_dot = s[only_dot & (dots == 1)]
+    whole = s.str.fullmatch(r"-?\d+")
+    per_cell = sign in (None, "mixed")
+    dot_rule = per_cell and sep != "," and len(one_dot) > 0 and bool(one_dot.str.match(DOT_GROUPED_RE).all()) \
+        and (len(one_dot) >= 2 or int(whole.sum()) >= 2)
+    comma_thousands = only_comma & ((commas > 1) | (sign == "."))
+    dot_thousands = only_dot & ((dots > 1) | (sign == ",") | dot_rule)
     out = s.copy()
-    eu = both & comma_last                                                      # 1.226,5
-    out[eu] = s[eu].str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
-    us = both & ~comma_last                                                     # 1,226.5
-    out[us] = s[us].str.replace(",", "", regex=False)
-    comma_thousands = only_comma & ((commas > 1) | (decimal == "."))            # 1,226,500 or decimal='.' given
-    out[comma_thousands] = s[comma_thousands].str.replace(",", "", regex=False)
-    comma_decimal = only_comma & ~comma_thousands                               # 12,5
-    out[comma_decimal] = s[comma_decimal].str.replace(",", ".", regex=False)
+    eu, us = both & comma_last, both & ~comma_last
+    out[eu] = s[eu].str.replace(".", "", regex=False).str.replace(",", ".", regex=False)      # 1.226,5
+    out[us] = s[us].str.replace(",", "", regex=False)                                         # 1,226.5
+    out[comma_thousands] = s[comma_thousands].str.replace(",", "", regex=False)               # 1,226,500
+    decimal_comma = only_comma & ~comma_thousands
+    out[decimal_comma] = s[decimal_comma].str.replace(",", ".", regex=False)                  # 12,5
+    out[dot_thousands] = s[dot_thousands].str.replace(".", "", regex=False)                   # 1.226.500
 
-    if decimal is not None:
-        dot_thousands = decimal == ","
+    if sign == ",":
+        what = f"decimal comma (shown by {example!r})" if example else "decimal comma (given)"
+    elif sign == ".":
+        what = f"decimal point (shown by {example!r})" if example else "decimal point (given)"
+    elif not (commas.any() or dots.any()):
+        what = "whole numbers"
     else:
-        d = s[only_dot]
-        many_dots = bool((d.str.count(r"\.") > 1).any())
-        grouped = bool(len(d) >= 2 and d.str.match(DOT_GROUPED_RE).all())
-        dot_thousands = sep != "," and (many_dots or grouped)
-        if dot_thousands and notes is not None:
-            example = d.iloc[0]
-            notes.append(f"{name}: values like {example!r} read with '.' as a thousands separator "
-                         f"({example!r} → {example.replace('.', '')}): every dot-only value has groups of three digits"
-                         " — if they are decimals, read the file with decimal='.'")
-    if dot_thousands:
-        out[only_dot] = s[only_dot].str.replace(".", "", regex=False)
+        what = "no cell shows the decimal sign" if sign is None else f"both decimal signs appear ({example})"
+        if sign == "mixed" and notes is not None:
+            notes.append(f"{name}: the column shows both decimal signs ({example}) — each cell read by itself (its "
+                         "last sign is the decimal one); check the numbers")
+        if dot_rule:
+            ex = one_dot.iloc[0]
+            what += f" — dots read as thousands ({ex!r} → {ex.replace('.', '')})"
+            if notes is not None:
+                notes.append(f"{name}: values like {ex!r} read with '.' as a thousands separator ({ex!r} → "
+                             f"{ex.replace('.', '')}): no value shows a decimal sign and every dot has three digits "
+                             "after it — if they are decimals, choose the decimal point (decimal='.'; report command: "
+                             "--decimal .)")
+        elif only_dot.any():
+            what += f" — dots read as decimals ({s[only_dot].iloc[0]!r})"
+        if decimal_comma.any():
+            ex = s[decimal_comma].iloc[0]
+            what += f" — commas read as decimals ({ex!r})"
+            if sign is None and sep != ";" and decimal_comma.sum() >= 2 and notes is not None:
+                notes.append(f"{name}: every value with a comma has three digits after it ({ex!r}) — read as a "
+                             f"decimal comma ({ex!r} → {ex.replace(',', '.')}); if the commas are thousands "
+                             "separators, choose the decimal point (decimal='.'; report command: --decimal .)")
     x = pd.to_numeric(out.replace({"": np.nan}), errors="coerce")
+    bad = x.isna() & (out != "")
+    if bad.any():
+        i = int(np.flatnonzero(bad.to_numpy())[0])
+        raise ValueError(f"{name}: {int(bad.sum())} value{'s' if bad.sum() != 1 else ''} cannot be read as a number "
+                         f"(first: {col.iloc[i]!r}, table row {i + 1}) — mark a missing value with an empty cell or "
+                         "'-', never with text")
+    if info is not None:
+        info["numbers"] = what
     return x.rename(name)
 
 
@@ -240,9 +335,10 @@ def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, t
         tcol = _pick(cols, TIMESTAMP_NAMES)
         dcol, hcol = _pick(cols, DATE_NAMES), _pick(cols, TIME_NAMES)
         if tcol is None and dcol is not None and hcol is not None:
-            raw = df[dcol].astype(str).str.strip() + " " + df[hcol].astype(str).str.strip()
+            hours, hour_note = _time_of_day(df[hcol].astype(str).str.strip())
+            raw = df[dcol].astype(str).str.strip() + " " + hours
             notes.append(f"timestamps joined from columns {dcol!r} + {hcol!r}")
-            where = f"columns {dcol!r} + {hcol!r}"
+            where = f"columns {dcol!r} + {hcol!r}" + (f" ({hour_note})" if hour_note else "")
         elif tcol is None and dcol is not None:
             raw = df[dcol].astype(str).str.strip()
             where = f"column {dcol!r}"
@@ -253,10 +349,24 @@ def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, t
             raw = df[df.columns[0]].astype(str).str.strip()
             notes.append(f"first column {df.columns[0]!r} taken as the timestamp")
             where = f"first column {df.columns[0]!r} (no timestamp name found)"
+    raw, range_note = _start_of_ranges(raw)
+    raw, serial_note = _excel_days(raw)
     raw, shape, order_unsure = meterfile.stamp_text(raw, dayfirst)
-    found.append(("timestamps", f"{where}: {shape}"))
+    found.append(("timestamps", f"{where}: {shape}" + "".join(f" ({n})" for n in (range_note, serial_note) if n)))
+    if range_note:
+        notes.append(f"timestamps: {range_note}")
     if order_unsure:
         unsure.append(order_unsure)
+    stamp_cols = [c for c in (timestamp_col, _pick(cols, TIMESTAMP_NAMES), _pick(cols, DATE_NAMES),
+                              _pick(cols, TIME_NAMES)) if c is not None and c in cols]
+    hint = next((CLOCK_HINTS[cols[c][1]] for c in stamp_cols if cols[c][1] in CLOCK_HINTS), None)
+    if hint and tz.lower() == "auto":
+        tz = hint
+        found.append(("clock hint", f"the header says ({next(cols[c][1] for c in stamp_cols if cols[c][1] in CLOCK_HINTS)})"
+                                    f" — read as {'normaltid' if hint == 'normaltid' else hint}"))
+    elif any(cols[c][1] == "cet" for c in stamp_cols):
+        found.append(("clock hint", "the header says (CET), which can mean CET all year or Swedish time with summer "
+                                    "time — decided from the daylight-saving days instead"))
     # 24:00 → next day 00:00
     is24 = raw.str.contains(r"\b24:00", regex=True)
     if is24.any():
@@ -294,6 +404,52 @@ def _parse_timestamps(df: pd.DataFrame, cols: dict, timestamp_col: str | None, t
     dropped = np.zeros(len(raw), bool)
     dropped[labels[drop]] = True
     return pd.DatetimeIndex(out), notes, found, unsure, dropped
+
+
+RANGE_RE = re.compile(r"^(?P<a>.*?\d{1,2}(?::\d{2}){0,2})\s*[-–]\s*(?P<b>(?:\d{4}-\d{2}-\d{2}[ T]|\d{1,2}[./]\d{1,2}[./]\d{2,4} )?"
+                      r"\d{1,2}(?::\d{2}){0,2})$")
+
+
+def _time_of_day(t: pd.Series) -> tuple[pd.Series, str]:
+    """A time column as hh:mm. Hour numbers: 1–24 (the hour that ENDS at the number: 1 = 00:00–01:00, the Swedish
+    'timme 1') or 0–23 (the hour that starts there); '00-01' → its start. Clock times pass unchanged."""
+    if t.str.fullmatch(r"\d{1,2}\s*[-–]\s*\d{1,2}").all():
+        return t.str.extract(r"^(\d{1,2})")[0].astype(int).map("{:02d}:00".format), "hour ranges, the start taken"
+    if t.str.fullmatch(r"\d{1,2}").all():
+        h = t.astype(int)
+        if h.min() >= 1 and h.max() == 24:
+            return (h - 1).map("{:02d}:00".format), "hour numbers 1–24 read as the hour ending there: 1 = 00:00–01:00"
+        if h.min() == 0 and h.max() <= 23:
+            return h.map("{:02d}:00".format), "hour numbers 0–23 read as the hour starting there"
+        raise ValueError(f"the hour numbers run {h.min()}–{h.max()}: neither 1–24 nor 0–23 — write clock times "
+                         "(hh:mm) instead")
+    return t, ""
+
+
+def _start_of_ranges(raw: pd.Series) -> tuple[pd.Series, str]:
+    """'2025-01-13 00:00 - 01:00' or '… - 2025-01-13 01:00' (an interval written out) → its start. Only when every
+    stamp is a range: a lone '-hh:mm' is a UTC offset."""
+    m = raw.str.extract(RANGE_RE)
+    if m["a"].notna().all() and m["a"].str.contains(DATE_RE).all() and (m["b"].str.len() < m["a"].str.len() + 1).all() \
+            and not raw.str.contains("T", regex=False).any():
+        return m["a"].str.strip(), "intervals written 'from – to': the start of each is the stamp"
+    return raw, ""
+
+
+def _excel_days(raw: pd.Series) -> tuple[pd.Series, str]:
+    """Excel's day numbers (45658.04167 = 2025-01-01 01:00) → stamps; days counted from 1899-12-30, read as the
+    local clock the sheet showed, to the minute."""
+    if not raw.str.fullmatch(r"[2-7]\d{4}(?:[.,]\d+)?").all():
+        return raw, ""
+    days = pd.to_numeric(raw.str.replace(",", ".", regex=False))
+    t = (pd.Timestamp("1899-12-30") + pd.to_timedelta(days, unit="D")).dt.round("min")
+    return t.dt.strftime("%Y-%m-%d %H:%M"), "Excel day numbers (days since 1899-12-30), rounded to the minute"
+
+
+def _local_text(t) -> str:
+    """A UTC stamp as the file's reader sees it: Swedish time first."""
+    t = pd.Timestamp(t)
+    return f"{t.tz_convert(LOCAL_TZ):%Y-%m-%d %H:%M} Swedish time ({t:%H:%M} UTC)"
 
 
 def _uniform_step_min(index: pd.DatetimeIndex) -> float:
@@ -340,8 +496,15 @@ def read_station_csv(path, *, station: str | None = None, sep: str | None = None
         raise ValueError(f"cannot read {path} as a CSV: {e}") from e
     df, found = table.df, list(table.found)
     scol, rcol = station_columns(df)
+    file_kva = None
+    if scol is not None and df[scol].isna().all():
+        found.append(("station", f"column {scol!r} is empty — ignored"))
+        df, scol = df.drop(columns=[scol]), None
     if scol is not None:
-        ids = df[scol].astype(str).str.strip()
+        ids = df[scol].fillna("").astype(str).str.strip()
+        if (ids == "").any():
+            raise ValueError(f"column {scol!r}: {int((ids == '').sum())} rows have no station id (first: table row "
+                             f"{int(np.flatnonzero((ids == '').to_numpy())[0]) + 1})")
         names = list(dict.fromkeys(ids))
         if station is not None:
             keep = ids == str(station).strip()
@@ -351,11 +514,21 @@ def read_station_csv(path, *, station: str | None = None, sep: str | None = None
         elif len(names) > 1:
             raise ManyStations(scol, names)
         found.append(("station", f"{df[scol].iloc[0].strip()!r} (column {scol!r})"))
-        df = df.drop(columns=[c for c in (scol, rcol) if c is not None]).reset_index(drop=True)
+        df = df.drop(columns=[scol]).reset_index(drop=True)
+    if rcol is not None:
+        ratings = df[rcol].dropna().astype(str).str.strip().replace("", np.nan).dropna().unique()
+        if len(ratings) == 1:
+            file_kva = float(_to_number(pd.Series(ratings), "rating").iloc[0])
+            found.append(("rating in the file", f"{file_kva:g} kVA (column {rcol!r}) — the assessment uses the "
+                                                "rating you set"))
+        elif len(ratings) > 1:
+            raise ValueError(f"column {rcol!r} gives more than one rating ({_names(ratings)}) for one station")
+        df = df.drop(columns=[rcol]).reset_index(drop=True)
     elif station is not None:
         raise ValueError(f"station={station!r} was given, but the file has no station column")
     source = str(path) if isinstance(path, (str, Path)) else str(getattr(path, "name", "") or "")
-    return station_from_frame(df, table.sep, source=source, found=found, unsure=list(table.unsure), **kwargs)
+    st = station_from_frame(df, table.sep, source=source, found=found, unsure=list(table.unsure), **kwargs)
+    return replace(st, file_kva=file_kva)
 
 
 def station_from_frame(df: pd.DataFrame, sep: str, *, source: str = "", found: list | None = None,
@@ -373,6 +546,7 @@ def station_from_frame(df: pd.DataFrame, sep: str, *, source: str = "", found: l
     unsure = list(unsure or [])
     if unit is not None and UNIT_SCALE.get(unit.lower(), ("",))[0] not in ("power", "energy"):
         raise ValueError("unit must be one of kW, kWh, W, Wh, MW, MWh")
+    meterfile.check_tz(tz)
     if measured_at not in ("meters", "transformer"):
         raise ValueError("measured_at must be 'meters' or 'transformer'")
     if stamp not in ("start", "end"):
@@ -383,21 +557,37 @@ def station_from_frame(df: pd.DataFrame, sep: str, *, source: str = "", found: l
         raise ValueError("max_gap_steps must be >= 0")
     if df.shape[1] < 2 or len(df) == 0:
         raise ValueError("CSV needs at least a timestamp column, a value column and some rows")
+    twice = [str(c).rsplit(".", 1)[0] for c in df.columns
+             if re.fullmatch(r".+\.\d+", str(c)) and str(c).rsplit(".", 1)[0] in df.columns]   # pandas' 'X.1'
+    if twice:
+        raise ValueError(f"the header has the column name {twice[0]!r} twice — name each column once")
     cols = {c: _norm(c) for c in df.columns}
     for c in [c for c, (n, _) in cols.items() if n in RATING_NAMES + STATION_NAMES]:
         del cols[c]                                   # a rating (kVA) or a station id is never a measured value
-    pcol = p_col or _pick(cols, P_NAMES, unit_hints=("kw",))
-    ecol = e_col or _pick(cols, E_NAMES, unit_hints=("kwh", "wh"))
-    xcol = export_col or _pick(cols, EXPORT_NAMES)
-    qcol = q_col or _pick(cols, Q_NAMES, unit_hints=("kvar",))
-    scol = s_col or _pick(cols, S_NAMES, unit_hints=("kva",))
+    meter = _pick(cols, METER_NAMES)
+    if meter is not None and df[meter].nunique() > 1:
+        raise ValueError(f"the file has one row per meter ({df[meter].nunique()} values in column {meter!r}): the "
+                         "reader takes one series per station and does not add meters up yet — add them up per "
+                         "timestamp first (one total per stamp)")
+    value_names = P_NAMES + E_NAMES + EXPORT_NAMES + Q_NAMES + S_NAMES + VALUE_NAMES
+    for c, (n, u) in cols.items():
+        if n in value_names and u and u not in UNIT_SCALE:
+            raise ValueError(f"column {c!r}: unit {u!r} is not understood (known: {sorted(UNIT_SCALE)})")
+    pcol = p_col or _pick_value(cols, "load (power)", P_NAMES, ("kw", "mw"), ("power",))
+    ecol = e_col or _pick_value(cols, "load (energy)", E_NAMES, ("kwh", "wh", "mwh"), ("energy",))
+    xcol = export_col or _pick_value(cols, "export", EXPORT_NAMES, (), ("power", "energy"))
+    qcol = q_col or _pick_value(cols, "reactive power", Q_NAMES, ("kvar", "kvarh"), ("reactive", "reactive_energy"))
+    scol = s_col or _pick_value(cols, "apparent power", S_NAMES, ("kva", "mva"), ("apparent",))
+    if pcol is not None and ecol is not None:
+        found.append(("not used", f"column {ecol!r}: the power column {pcol!r} is read instead"))
+        ecol = None
     if pcol is None and ecol is None and scol is None:                 # last resort: single letters
         single = {n: orig for orig, (n, _) in cols.items() if n in SINGLE_LETTER}
         pcol, ecol, qcol, scol = single.get("p"), single.get("e"), qcol or single.get("q"), scol or single.get("s")
     stated = True                                     # does the file state the main column's unit?
     bare = False                                      # a 'Värde' column whose unit nothing states
     if pcol is None and ecol is None and scol is None:                 # a value column, its unit elsewhere
-        vcol = _pick(cols, VALUE_NAMES)
+        vcol = _pick_value(cols, "value", VALUE_NAMES, (), ("power", "energy"))
         if vcol is not None:
             u, where = _unit_of_values(df, cols, vcol)
             cols[vcol] = (cols[vcol][0], u or "")
@@ -410,7 +600,13 @@ def station_from_frame(df: pd.DataFrame, sep: str, *, source: str = "", found: l
     if pcol is None and ecol is None and scol is None:
         raise ValueError(f"no power/energy column found; columns are {list(df.columns)} "
                          f"(expected e.g. kW / Effekt / kWh / Energi / Förbrukning, or pass p_col= / e_col=)")
+    if pcol is None and ecol is None:
+        raise ValueError(f"only an apparent-power column ({scol!r}, kVA): the reader needs the active power or energy "
+                         "as well (kW / Effekt / kWh / Energi)")
     main = pcol or ecol
+    if unit is not None and main is not None and cols[main][1] and cols[main][1] != unit.lower():
+        raise ValueError(f"the column {main!r} states its unit ({cols[main][1]}), but the unit chosen is {unit}: set "
+                         "the unit to 'from the file' (a chosen unit is only for a column that does not state one)")
     if unit is not None and main is not None:         # the user's unit decides the main column's meaning
         u = unit.lower()
         cols[main] = (cols[main][0], u)
@@ -439,8 +635,13 @@ def station_from_frame(df: pd.DataFrame, sep: str, *, source: str = "", found: l
         rows = df[value_cols].astype(str).agg("|".join, axis=1)
         groups = pd.DataFrame({"t": index, "v": rows.to_numpy()})[dup].groupby("t")["v"].nunique()
         if (groups > 1).any():
-            raise ValueError(f"duplicated timestamp {groups[groups > 1].index[0]} with different values — "
-                             "an October file in local time with both 02:00 rows merged, or two exports concatenated?")
+            share = groups.size / max(len(set(index)), 1)
+            if share > 0.5:
+                raise ValueError(f"{100 * share:.0f} % of the timestamps appear more than once with different values — "
+                                 "one row per meter or per phase? The reader takes one total per stamp: add them up "
+                                 "first")
+            raise ValueError(f"duplicated timestamp {_local_text(groups[groups > 1].index[0])} with different values "
+                             "— two exports concatenated?")
         keep = ~index.duplicated(keep="first")
         notes.append(f"{int((~keep).sum())} exactly repeated rows dropped")
         df, index = df[keep].reset_index(drop=True), index[keep]
@@ -461,20 +662,34 @@ def station_from_frame(df: pd.DataFrame, sep: str, *, source: str = "", found: l
         if (loc_first - loc_first.normalize()) == pd.Timedelta(minutes=step_min) and loc_last == loc_last.normalize():
             unsure.append(f"the stamps run from {loc_first:%H:%M} to {loc_last:%H:%M} — typical of stamps at the "
                           "interval END; they are read as interval START, as chosen: choose 'end' if the export says so")
+    if any(n.startswith("timestamps: intervals written") for n in notes) and stamp == "end":
+        stamp = "start"
+        notes.append("the intervals are written out, so their start is the stamp — stamp='end' not applied")
     if stamp == "end":
         index = index - pd.Timedelta(minutes=step_min)
         notes.append(f"stamps taken as interval END; shifted back {step_min:g} min")
     else:
         notes.append("stamps taken as interval START")
+    found.append(("interval", f"each stamp is the {stamp.upper()} of its interval — "
+                  + ("read from the file" if any("24:00" in n or "intervals written" in n for n in notes)
+                     else "your setting: a file cannot show it")))
     full = pd.date_range(index[0], index[-1], freq=f"{int(round(step_min))}min", tz="UTC")
     off_grid = ~index.isin(full)
     if off_grid.any():
         raise ValueError(f"{int(off_grid.sum())} timestamps are not on the {step_min:g}-min grid "
-                         f"(first: {index[off_grid][0]}) — mixed resolutions must be resampled first")
+                         f"(first: {_local_text(index[off_grid][0])}) — mixed resolutions must be resampled first")
     df.index = index
 
+    number_info: dict = {}
+
     def clean(col, name):
-        s = _to_number(df[col], name, decimal, sep, notes).reindex(full)
+        told: list = []
+        s = _to_number(df[col], name, decimal, sep, told, number_info if col == main else None)
+        unsure.extend(u for u in told if u not in unsure)
+        if col in (main, scol) and len(s) >= 24 and s.nunique() == 1:
+            unsure.append(f"the column {col!r} has the same value ({s.iloc[0]:g}) in every row — a rating or a "
+                          "placeholder rather than a measured load?")
+        s = s.reindex(full)
         missing = int(s.isna().sum())
         if missing:
             isna = s.isna().to_numpy()
@@ -484,8 +699,9 @@ def station_from_frame(df: pd.DataFrame, sep: str, *, source: str = "", found: l
             longest = int(lengths.max())
             if longest > max_gap_steps:
                 start = full[int(edges[::2][np.argmax(lengths)])]
-                raise ValueError(f"{name}: a gap of {longest} steps starting {start} exceeds {max_gap_steps} "
-                                 f"(if the whole column is empty, check the decimal sign and the column choice)")
+                raise ValueError(f"{name}: a gap of {longest} steps from {_local_text(start)} is longer than "
+                                 f"{max_gap_steps} steps — shorten the period, or fill the gap in the file (report "
+                                 "command: --max-gap); if the whole column is empty, check the column choice")
             s = s.interpolate(limit_direction="both")
             notes.append(f"{name}: {missing} missing steps interpolated")
         return s.astype(float), missing
@@ -506,14 +722,16 @@ def station_from_frame(df: pd.DataFrame, sep: str, *, source: str = "", found: l
     else:
         e, gaps = clean(ecol, "energy")
         p = as_kw(e, cols[ecol][1] or "kwh", "energy", "P")
-    if xcol is not None:
+    if xcol is not None:                              # an export column without a unit takes the load column's
         x, _ = clean(xcol, "export")
-        x = as_kw(x, cols[xcol][1] or ("kwh" if ecol is not None else "kw"), "energy" if ecol is not None else "power", "export")
+        x = as_kw(x, cols[xcol][1] or cols[main][1] or ("kwh" if ecol is not None else "kw"),
+                  "energy" if ecol is not None else "power", "export")
         p = p - x.abs()
         notes.append(f"export column {xcol!r} subtracted → net P (negative = export)")
     if qcol is not None and _to_number(df[qcol], "q", decimal, sep).notna().mean() > 0.5:
         q, _ = clean(qcol, "Q")
-        q = q * UNIT_SCALE.get(cols[qcol][1], ("reactive", 1.0))[1]
+        kind, scale = UNIT_SCALE.get(cols[qcol][1], ("reactive", 1.0))
+        q = q * scale / (step_h if kind == "reactive_energy" else 1.0)            # kvarh per step → mean kvar
     else:
         q = p.clip(lower=0) * math.tan(math.acos(pf))
         notes.append(f"Q estimated from P at pf {pf} (consumption only" +
@@ -528,7 +746,7 @@ def station_from_frame(df: pd.DataFrame, sep: str, *, source: str = "", found: l
     elif scol is not None:
         notes.append(f"column {scol!r} (kVA) ignored: measured_at='meters' — pass measured_at='transformer' to use it")
     found.append(("values", _values_text(pcol, ecol, cols, step_min)))
-    found.append(("numbers", _number_style(df[main] if main is not None else df[scol])))
+    found.append(("numbers", number_info.get("numbers", "")))
     found.append(("reactive power", f"column {qcol!r}" if qcol is not None and not any(n.startswith("Q estimated")
                                                                                          for n in notes)
                   else f"not in the file — estimated from P at power factor {pf}"))
@@ -549,7 +767,12 @@ def _unit_of_values(df: pd.DataFrame, cols: dict, vcol: str) -> tuple[str | None
         if len(units) > 1:
             raise ValueError(f"column {ucol!r} mixes units {sorted(units)} — one unit per file")
         if units and next(iter(units)) in UNIT_SCALE:
+            if UNIT_SCALE[next(iter(units))][0] not in ("power", "energy"):
+                raise ValueError(f"column {ucol!r} says {next(iter(units))!r}: not active power or energy")
             return next(iter(units)), f"from column {ucol!r}"
+        if units:
+            raise ValueError(f"column {ucol!r} says {next(iter(units))!r}, which is not a unit the reader knows "
+                             f"(known: {sorted(k for k, (kind, _) in UNIT_SCALE.items() if kind in ('power', 'energy'))})")
     cells = df[vcol].dropna().astype(str).str.strip()
     m = cells.str.extract(r"(?i)\d\s*([a-z]+)\s*$")[0].dropna().str.lower()
     if len(m) and m.nunique() == 1 and m.iloc[0] in UNIT_SCALE:
@@ -565,21 +788,6 @@ def _values_text(pcol, ecol, cols, step_min) -> str:
     if kind == "energy":
         return f"column {col!r}: {name} per {step_min:g}-min step → mean kW (÷ {step_min / 60:g} h)"
     return f"column {col!r}: {name} (mean power per step)" + ("" if unit == "kw" else " → kW")
-
-
-def _number_style(col: pd.Series) -> str:
-    s = col.dropna().astype(str).str.strip()
-    s = s[s.str.contains(r"\d")]
-    both = s.str.contains(",", regex=False) & s.str.contains(".", regex=False)
-    if both.any():
-        last = s[both].iloc[0]
-        return (f"decimal comma, thousands dot (e.g. {last!r})" if last.rfind(",") > last.rfind(".")
-                else f"decimal point, thousands comma (e.g. {last!r})")
-    if s.str.contains(",", regex=False).any():
-        return f"decimal comma (e.g. {s[s.str.contains(',', regex=False)].iloc[0]!r})"
-    if s.str.contains(".", regex=False).any():
-        return f"dots (e.g. {s[s.str.contains('.', regex=False)].iloc[0]!r}; see the notes if read as thousands)"
-    return "whole numbers"
 
 
 def to_hourly(st: StationSeries) -> StationSeries:
@@ -733,6 +941,12 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
                      "SMHI's quality-checked archive (which follows about three months later)")
     year = year_result_from_station(st, rated_kva, cable_loss_share_at_rated, losses)
     k = year.hourly["loading_pct"] / 100
+    peak = float(k.max())
+    if not 0.01 <= peak <= 3.0:                       # v0.2 review: a decimal sign or unit 1000× off looks like this
+        notes.append(f"check the file: the peak load is {100 * peak:,.1f} % of {rated_kva:g} kVA — far from any "
+                     "station's; check the decimal sign, the unit and the rating (the File tab says how they were read)")
+    if st.file_kva is not None and abs(st.file_kva - float(rated_kva)) > 0.5:
+        notes.append(f"check the rating: the file gives {st.file_kva:g} kVA, the assessment uses {rated_kva:g} kVA")
     clipped = int((k > K_MAX).sum())
     if clipped:
         notes.append(f"loading above {K_MAX:g} × rated in {clipped} steps — the thermal run was clipped there (its "

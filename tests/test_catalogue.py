@@ -190,9 +190,12 @@ def test_one_study_case_on_the_315_kva_unit_reproduces_its_committed_row():
     row = row.iloc[0]
     now = run_study.run_one("rural", 2009, 77)
     assert now["kVA"] == 315 and now["verdict"] == row["verdict"] == "Watch"
-    for c in ("max_hot_spot_c", "max_top_oil_c", "life_days_per_year", "peak_loading_pct", "max_load_pu"):
+    for c in ("max_hot_spot_c", "max_top_oil_c", "life_days_per_year", "peak_loading_pct", "max_load_pu",
+              "hours_above_80", "hours_above_100", "voltage_bad_hours", "voltage_plan_hours", "max_cable_pct",
+              "energy_mwh"):
         assert now[c] == pytest.approx(row[c], rel=1e-9), c
-    assert now["rules_watch"] == row["rules_watch"]
+    for c in ("rules_watch", "rules_at_risk"):
+        assert (now[c] or "") == ("" if pd.isna(row[c]) else row[c]), c
 
 
 def test_the_assumptions_page_lists_every_size_with_its_sources():
@@ -240,3 +243,44 @@ def test_the_station_panel_offers_every_size_and_a_custom_unit(app):
     panel.custom_pk.setValue(100)                            # below the no-load loss
     with pytest.raises(ValueError, match="swapped|watts"):
         panel.rating()
+
+
+def test_custom_losses_reach_a_fleet_run(tmp_path):
+    """Catches: screen_fleet dropping a custom unit's losses — the catalogue values would be used, silently."""
+    from hotspotlv.fleet import read_fleet_index, screen_fleet
+    from hotspotlv.paths import package_data
+    example = package_data() / "examples" / "ns-101.csv"
+    lines = ["station_id;rated_kva;file;p_noload_w;p_load_w", f"A;500;{example};;", f"B;500;{example};900;9000"]
+    (tmp_path / "idx.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    table, results = screen_fleet(read_fleet_index(tmp_path / "idx.csv"))
+    assert results["A"].losses is None and results["B"].losses["p_load_w"] == 9000
+    load = results["A"].station.p_kw.to_numpy() > 0                       # (in export hours losses lower |S|)
+    assert (results["B"].year.hourly["s_kva"].to_numpy() > results["A"].year.hourly["s_kva"].to_numpy())[load].all()
+    assert results["B"].thermal.params.R == pytest.approx(10.0)
+
+
+def test_the_station_panel_gives_the_worker_its_custom_unit(app, monkeypatch):
+    """Catches: run() forgetting the custom losses on the way to the worker thread."""
+    from hotspotlv.app.widgets import station_panel as spm
+    from hotspotlv.paths import package_data
+    seen = {}
+
+    class Recorder:
+        def __init__(self, fn, *args, **kw):
+            seen["args"] = args
+            self.finished_ok = self.failed = type("S", (), {"connect": lambda *_: None})()
+
+        def start(self):
+            pass
+
+        def isRunning(self):
+            return False
+
+    monkeypatch.setattr(spm, "Worker", Recorder)
+    panel = spm.StationPanel()
+    panel.path.setText(str(package_data() / "examples" / "ns-102.csv"))
+    panel.kva.setCurrentIndex(panel.kva.findData("custom"))
+    panel.custom_kva.setValue(125); panel.custom_p0.setValue(160); panel.custom_pk.setValue(1500)
+    panel.run()
+    args = seen["args"]
+    assert args[1] == 125 and args[11]["p_load_w"] == 1500.0 and args[11]["p_noload_w"] == 160.0
