@@ -441,7 +441,7 @@ def to_hourly(st: StationSeries) -> StationSeries:
 # physics: from the sum of meters to the transformer
 # ---------------------------------------------------------------------------
 def s_from_meters(p_kw: pd.Series, q_kvar: pd.Series, rated_kva: float, measured_at: str = "meters",
-                  cable_loss_share_at_rated: float = CABLE_LOSS_SHARE_AT_RATED) -> pd.Series:
+                  cable_loss_share_at_rated: float = CABLE_LOSS_SHARE_AT_RATED, losses: dict | None = None) -> pd.Series:
     """Apparent power at the transformer's HV side from measured P and Q.
 
     measured_at='meters'      : P is the sum of customer meters → add LV cable losses (I²R, so a share
@@ -449,8 +449,9 @@ def s_from_meters(p_kw: pd.Series, q_kvar: pd.Series, rated_kva: float, measured
                                 transformer's own losses (catalogue: no-load + load·K²)
     measured_at='transformer' : P, Q already at the LV terminals → only the transformer's losses
     The transformer's reactive consumption uk·K²·S_rated is added in both cases. Six fixed-point
-    passes (K → losses → S → K): converged to < 0.2 % of nameplate up to K ≈ 3.5."""
-    tr = transformer(int(rated_kva))
+    passes (K → losses → S → K): converged to < 0.2 % of nameplate up to K ≈ 3.5.
+    losses: a custom unit's losses and uk (catalogue.custom_transformer); None → the catalogue size."""
+    tr = losses or transformer(rated_kva)
     p = p_kw.to_numpy(dtype=float)
     q = q_kvar.to_numpy(dtype=float)
     share = cable_loss_share_at_rated if measured_at == "meters" else 0.0
@@ -481,13 +482,14 @@ def ambient_for(index: pd.DatetimeIndex, smhi_station: int = SMHI_STATION) -> pd
 
 
 def year_result_from_station(st: StationSeries, rated_kva: float,
-                             cable_loss_share_at_rated: float = CABLE_LOSS_SHARE_AT_RATED) -> YearResult:
+                             cable_loss_share_at_rated: float = CABLE_LOSS_SHARE_AT_RATED,
+                             losses: dict | None = None) -> YearResult:
     """A YearResult for the verdict: transformer S per step; voltages and cable unknown → neutral values
     (the verdict marks them as not checked)."""
     if st.s_kva_measured is not None:
         s = st.s_kva_measured.rename("s_kva")
     else:
-        s = s_from_meters(st.p_kw, st.q_kvar, rated_kva, st.measured_at, cable_loss_share_at_rated)
+        s = s_from_meters(st.p_kw, st.q_kvar, rated_kva, st.measured_at, cable_loss_share_at_rated, losses)
     h = pd.DataFrame({
         "s_kva": s.to_numpy(), "loading_pct": s.to_numpy() / rated_kva * 100, "p_kw": st.p_kw.to_numpy(),
         "vmin_pu": 1.0, "vmax_pu": 1.0, "losses_kw": 0.0, "line_max_pct": 0.0,
@@ -516,6 +518,7 @@ class StationResult:
     verdict: Verdict
     smhi_station: int = SMHI_STATION
     overlay: dict = field(default_factory=dict)
+    losses: dict | None = None                  # a custom unit's losses; None → the catalogue size
 
     def metrics(self) -> dict:
         v = self.verdict
@@ -541,9 +544,18 @@ class StationResult:
 def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | None = None,
                    smhi_station: int | None = None, enclosure: str = "kiosk",
                    cable_loss_share_at_rated: float = CABLE_LOSS_SHARE_AT_RATED,
-                   overlay: dict | None = None) -> StationResult:
-    """Thermal year and verdict for one station from its measured profile."""
+                   overlay: dict | None = None, losses: dict | None = None) -> StationResult:
+    """Thermal year and verdict for one station from its measured profile. `losses` (catalogue.custom_transformer)
+    makes it a custom unit: its own losses and uk, the same generic IEC thermal constants."""
     notes = []
+    if losses is None:
+        transformer(rated_kva)                          # an unknown size fails here, before SMHI is fetched
+    else:
+        uk = (f"uk {losses['uk_percent']:g} %" if losses.get("uk_given", True) else
+              f"uk {losses['uk_percent']:g} % (assumed: none given)")
+        notes.append(f"transformer losses entered by the user: no-load {losses['p_noload_w']:g} W, load "
+                     f"{losses['p_load_w']:g} W, {uk} — not the catalogue's Ecodesign values; the thermal "
+                     "constants are still the generic IEC 60076-7 ones")
     if smhi_station is None:
         smhi_station = SMHI_STATION
         notes.append(f"ambient: SMHI station {SMHI_STATION} {SMHI_STATION_NAME} — the default; choose the SMHI station "
@@ -563,7 +575,7 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
     if latest is not None:
         notes.append(f"outdoor temperature from {latest:%Y-%m-%d %H:%M} UTC on: SMHI's latest-months data, not yet in "
                      "SMHI's quality-checked archive (which follows about three months later)")
-    year = year_result_from_station(st, rated_kva, cable_loss_share_at_rated)
+    year = year_result_from_station(st, rated_kva, cable_loss_share_at_rated, losses)
     k = year.hourly["loading_pct"] / 100
     clipped = int((k > K_MAX).sum())
     if clipped:
@@ -577,7 +589,7 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
         notes.append(f"the data cover {span}: life used per year is scaled "
                      f"×{scale_text(HOURS_PER_YEAR / hours)} as if this period repeated all year — a winter-only file "
                      "overstates the yearly figure, a summer-only file understates it")
-    params = ThermalParams.for_transformer(int(rated_kva), enclosure=enclosure)
+    params = ThermalParams.for_transformer(rated_kva, enclosure=enclosure, losses=losses)
     thermal = simulate(k, ambient, params, step_min=st.step_min)
     verdict = judge(year, thermal)                           # withdraws the thermal figures above 2 × rated
     from hotspotlv.study import enclosure_note
@@ -587,7 +599,7 @@ def assess_station(st: StationSeries, rated_kva: float, ambient: pd.Series | Non
     verdict.notes.append("voltage and cable rules not checked: station data carries no feeder model")
     verdict.notes.extend(notes)
     verdict.notes.extend(st.notes)
-    return StationResult(st, float(rated_kva), year, thermal, verdict, smhi_station, overlay or {})
+    return StationResult(st, float(rated_kva), year, thermal, verdict, smhi_station, overlay or {}, losses)
 
 
 def with_overlay(st: StationSeries, ambient: pd.Series, n_ev: int = 0, n_hp: int = 0,

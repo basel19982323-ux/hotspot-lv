@@ -11,15 +11,15 @@ from pathlib import Path
 import pandas as pd
 from PySide6.QtCore import QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-                               QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
+                               QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter,
+                               QTabWidget, QVBoxLayout, QWidget)
 
 from hotspotlv.app.report import write_station_card
 from hotspotlv.app.widgets.charts import DurationCurve, WorstWeek, YearTimeline
 from hotspotlv.app.widgets.verdict_card import VerdictCard
 from hotspotlv.app.workers import Worker
-from hotspotlv.catalogue import TRANSFORMERS
+from hotspotlv.catalogue import CUSTOM_KVA_RANGE, CUSTOM_UK_PERCENT, TRANSFORMERS, custom_transformer
 from hotspotlv.loads.ev import EVParams
 from hotspotlv.paths import package_data
 from hotspotlv.station import StationResult, ambient_for, assess_station, read_station_csv, to_hourly, with_overlay
@@ -35,8 +35,9 @@ def _energy_mwh(st) -> float:
     return float(st.p_kw.clip(lower=0).sum() * st.step_min / 60 / 1000)
 
 
-def _assess(path, rated_kva, measured_at, tz, stamp, smhi_station, smhi_is_default, enclosure, n_ev, n_hp, seed):
-    """The whole mode-B pipeline, run in the worker thread."""
+def _assess(path, rated_kva, measured_at, tz, stamp, smhi_station, smhi_is_default, enclosure, n_ev, n_hp, seed,
+            losses=None):
+    """The whole mode-B pipeline, run in the worker thread. losses: a custom unit (catalogue.custom_transformer)."""
     st = read_station_csv(path, measured_at=measured_at, tz=tz, stamp=stamp)
     overlay = {}
     if n_ev or n_hp:
@@ -47,7 +48,7 @@ def _assess(path, rated_kva, measured_at, tz, stamp, smhi_station, smhi_is_defau
                    "measured_mwh": measured}                     # so the card can tell measured from synthetic energy
     amb = ambient_for(st.index, smhi_station)
     res = assess_station(st, rated_kva, amb, smhi_station=None if smhi_is_default else smhi_station,
-                         enclosure=enclosure, overlay=overlay)
+                         enclosure=enclosure, overlay=overlay, losses=losses)
     return res, amb
 
 
@@ -87,13 +88,33 @@ class StationPanel(QWidget):
         example.clicked.connect(lambda: self.path.setText(str(EXAMPLE)))
         row.addWidget(self.path, 1); row.addWidget(browse); row.addWidget(example)
         f1.addRow(row)
-        self.kva = QComboBox()                               # only sizes whose losses are verified (catalogue.py)
+        self.kva = QComboBox()                               # sizes whose losses are verified (catalogue.py) …
         for kva in sorted(TRANSFORMERS):
             self.kva.addItem(f"{kva} kVA", kva)
+        self.kva.addItem("custom (enter the losses)", "custom")   # … or a unit whose losses the user knows
         self.kva.setCurrentIndex(self.kva.findData(500))
-        self.kva.setToolTip("Nameplate rating of the transformer. Only sizes whose Ecodesign Tier-2 losses are verified in the "
-                            "catalogue are offered (v0.1: " + " and ".join(f"{k}" for k in sorted(TRANSFORMERS)) +
-                            " kVA) — other sizes are not guessed.")
+        self.kva.setToolTip("Nameplate rating of the transformer. The listed sizes use the Ecodesign Tier-2 maximum losses "
+                            "(see the Assumptions tab). 'custom': another size, or a known unit's own losses from its "
+                            "test report — other sizes are not guessed.")
+        self.custom_box = QWidget(); fc = QFormLayout(self.custom_box); fc.setContentsMargins(0, 0, 0, 0)
+        fc.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow); fc.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        self.custom_kva = QDoubleSpinBox(); self.custom_kva.setRange(*CUSTOM_KVA_RANGE); self.custom_kva.setDecimals(0)
+        self.custom_kva.setValue(500); self.custom_kva.setSuffix(" kVA")
+        self.custom_p0 = QDoubleSpinBox(); self.custom_p0.setRange(1, 50_000); self.custom_p0.setDecimals(0)
+        self.custom_p0.setValue(459); self.custom_p0.setSuffix(" W")
+        self.custom_p0.setToolTip("No-load (iron) loss from the unit's test report, in watts.")
+        self.custom_pk = QDoubleSpinBox(); self.custom_pk.setRange(1, 200_000); self.custom_pk.setDecimals(0)
+        self.custom_pk.setValue(3900); self.custom_pk.setSuffix(" W")
+        self.custom_pk.setToolTip("Load (copper) loss at rated current from the unit's test report, in watts.")
+        self.custom_uk = QDoubleSpinBox(); self.custom_uk.setRange(1.9, 10); self.custom_uk.setDecimals(1)
+        self.custom_uk.setSingleStep(0.5); self.custom_uk.setSuffix(" %")
+        self.custom_uk.setSpecialValueText(f"not known ({CUSTOM_UK_PERCENT:g} % assumed)"); self.custom_uk.setValue(1.9)
+        self.custom_uk.setToolTip("Short-circuit impedance from the rating plate. It only sets the transformer's own "
+                                  "reactive power here (a small part of S).")
+        fc.addRow("Rating", self.custom_kva); fc.addRow("No-load loss", self.custom_p0)
+        fc.addRow("Load loss", self.custom_pk); fc.addRow("uk", self.custom_uk)
+        self.custom_box.setVisible(False)
+        self.kva.currentIndexChanged.connect(lambda *_: self.custom_box.setVisible(self.kva.currentData() == "custom"))
         self.measured = QComboBox()
         self.measured.addItem("sum of customer meters", "meters"); self.measured.addItem("measured at the transformer", "transformer")
         self.measured.setToolTip("Sum of meters: cable and transformer losses are added to reach the transformer.\n"
@@ -114,6 +135,7 @@ class StationPanel(QWidget):
         self.enclosure = QComboBox(); self.enclosure.addItems(["kiosk", "outdoor"])
         self.enclosure.setToolTip("Kiosk (the Swedish norm) adds half the IEC 60076-7:2005 Table 6 kiosk air rise to the top-oil rise (+7.5 K at 500 kVA, ageing ≈ ×2.4).")
         f1.addRow("Transformer rating", self.kva)
+        f1.addRow(self.custom_box)
         f1.addRow("Values are", self.measured)
         f1.addRow("Timestamps", self.tz)
         f1.addRow("", self.stamp)
@@ -178,16 +200,29 @@ class StationPanel(QWidget):
         self._pending_inputs = None
         for w in (self.kva, self.measured, self.tz, self.stamp, self.enclosure):
             w.currentIndexChanged.connect(self._update_export)
-        for w in (self.smhi, self.n_ev, self.n_hp, self.seed):
+        for w in (self.smhi, self.n_ev, self.n_hp, self.seed, self.custom_kva, self.custom_p0, self.custom_pk, self.custom_uk):
             w.valueChanged.connect(self._update_export)
         self.path.textChanged.connect(self._update_export)
         self._update_export()
 
     def _inputs(self) -> tuple:
         overlay = self.n_ev.value() or self.n_hp.value()          # the random draw matters only with an overlay
+        custom = self._custom_values() if self.kva.currentData() == "custom" else None
         return (self.path.text().strip(), self.kva.currentData(), self.measured.currentData(), self.tz.currentData(),
                 self.stamp.currentData(), self.smhi.value(), self.enclosure.currentText(), self.n_ev.value(),
-                self.n_hp.value(), self.seed.value() if overlay else None)
+                self.n_hp.value(), self.seed.value() if overlay else None, custom)
+
+    def _custom_values(self) -> tuple:
+        uk = self.custom_uk.value()
+        return (self.custom_kva.value(), self.custom_p0.value(), self.custom_pk.value(),
+                None if uk == self.custom_uk.minimum() else uk)
+
+    def rating(self) -> tuple[float, dict | None]:
+        """(kVA, custom losses or None) from the inputs; a ValueError says what is wrong with custom values."""
+        if self.kva.currentData() != "custom":
+            return float(self.kva.currentData()), None
+        kva, p0, pk, uk = self._custom_values()
+        return kva, custom_transformer(kva, p0, pk, uk)
 
     def _update_export(self, *_):
         if self.result is None:
@@ -223,15 +258,20 @@ class StationPanel(QWidget):
         p = Path(self.path.text().strip())
         if not p.exists():
             QMessageBox.warning(self, "File", "Choose an existing CSV file."); return
+        try:
+            kva, losses = self.rating()
+        except ValueError as e:
+            show_error(self, "Custom transformer", str(e)); return
         self._pending_inputs = self._inputs()
         self._busy = True
         self.run_btn.setEnabled(False); self.export_btn.setEnabled(False)
         self.cancel_btn.setVisible(True); self.progress.setVisible(True)
         self._t0 = time.perf_counter(); self._timer.start(500)
         self.status.setText("Reading the file …")
-        self._worker = Worker(_assess, p, self.kva.currentData(), self.measured.currentData(), self.tz.currentData(),
+        self._worker = Worker(_assess, p, kva, self.measured.currentData(), self.tz.currentData(),
                               self.stamp.currentData(), self.smhi.value(), self.smhi.value() == SMHI_STATION,
-                              self.enclosure.currentText(), self.n_ev.value(), self.n_hp.value(), self.seed.value())
+                              self.enclosure.currentText(), self.n_ev.value(), self.n_hp.value(), self.seed.value(),
+                              losses)
         self._worker.finished_ok.connect(self._done)
         self._worker.failed.connect(self._failed)
         self._worker.start()
@@ -266,7 +306,7 @@ class StationPanel(QWidget):
         self._finish_ui()
         try:
             res, amb = payload
-            self.card.set_verdict(res.verdict, f"{res.rated_kva:.0f} kVA")
+            self.card.set_verdict(res.verdict, f"{res.rated_kva:.0f} kVA" + (" (custom)" if res.losses else ""))
             step_h = res.station.step_min / 60
             ok = thermal_ok(res.verdict)
             self.timeline.set_data(res.year.hourly, res.thermal.hourly if ok else None, amb)

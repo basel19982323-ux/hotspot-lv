@@ -117,9 +117,12 @@ class ThermalParams:
             raise ValueError(f"enclosure must be one of {ENCLOSURES}")
 
     @classmethod
-    def for_transformer(cls, kva: int, enclosure: str = "kiosk", **changes) -> "ThermalParams":
-        """Constants for a catalogue size; a kiosk (the Swedish norm) adds IEC Table 6 / 2 to the top-oil rise."""
-        tr = transformer(kva)                 # raises a clear ValueError for unknown sizes
+    def for_transformer(cls, kva: float, enclosure: str = "kiosk", losses: dict | None = None,
+                        **changes) -> "ThermalParams":
+        """Constants for a catalogue size, or for a custom unit when `losses` (catalogue.custom_transformer) is given:
+        only R = load loss / no-load loss comes from the unit, every other constant is the same IEC default. A kiosk
+        (the Swedish norm) adds IEC Table 6 / 2 to the top-oil rise."""
+        tr = losses or transformer(kva)       # raises a clear ValueError for unknown sizes
         rise = kiosk_extra_top_oil_rise_k(kva) if enclosure == "kiosk" else 0.0
         base = cls(R=tr["p_load_w"] / tr["p_noload_w"], enclosure=enclosure, enclosure_rise_k=rise)
         base = replace(base, d_theta_or=base.d_theta_or + rise)

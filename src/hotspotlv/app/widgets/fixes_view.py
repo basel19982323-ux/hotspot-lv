@@ -98,8 +98,9 @@ class FixesView(QWidget):
         self.cap.setToolTip("The battery tries to keep the transformer under this share of its rating (kVA).")
         self.bigger = QComboBox()
         [self.bigger.addItem(f"{k} kVA", k) for k in sorted(TRANSFORMERS) if k > 500]   # re-filtered against the station at run time
+        self.bigger.setCurrentIndex(self.bigger.findData(800))   # the v0.1 default, kept when v0.2 added 630 kVA
         self.bigger.setToolTip("Filled at run time with the catalogue sizes above the current transformer "
-                               f"(v0.1 catalogue: {', '.join(str(k) for k in sorted(TRANSFORMERS))} kVA). "
+                               f"(catalogue: {', '.join(str(k) for k in sorted(TRANSFORMERS))} kVA). "
                                "The bigger unit is simulated with its own loss figures and kiosk rise.")
         self.fast = QCheckBox("fast mode"); self.fast.setChecked(True)
         self.fast.setToolTip("Fits a power-flow proxy on ~300 real power flows and computes every hour near a limit exactly. "
@@ -263,7 +264,7 @@ class FixesView(QWidget):
             return
         sizes = [k for k in sorted(TRANSFORMERS) if k > case.trafo_kva]
         if not sizes:
-            show_error(self, "No bigger transformer", f"The v0.1 catalogue has {', '.join(str(k) for k in sorted(TRANSFORMERS))} kVA; "
+            show_error(self, "No bigger transformer", f"The catalogue has {', '.join(str(k) for k in sorted(TRANSFORMERS))} kVA; "
                        f"there is no unit bigger than the current {case.trafo_kva} kVA to compare.")
             return
         chosen = self.bigger.currentData()

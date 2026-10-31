@@ -348,7 +348,7 @@ def test_station_panel_layout_keeps_buttons_and_charts_usable(app):
         assert not isinstance(w, QScrollArea), "the buttons must not scroll away with the inputs"
         w = w.parentWidget()
     assert panel.tabs.minimumHeight() >= 300
-    assert [panel.kva.itemData(i) for i in range(panel.kva.count())] == sorted(TRANSFORMERS)
+    assert [panel.kva.itemData(i) for i in range(panel.kva.count())] == sorted(TRANSFORMERS) + ["custom"]
 
 
 def test_legends_sit_above_the_plots_not_on_the_data(app):

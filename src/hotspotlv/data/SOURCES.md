@@ -28,10 +28,12 @@ latest months, and the result's notes say from when. Nothing else is sent or fet
 | `~/.hotspotlv/raw/pvgis_<tag>_<year>.csv` | Raw PVGIS hourly response (fetched by `weather.py`) | PVGIS, as above | as above | as above |
 | repo `data/raw/norway/`, `data/raw/ev/` | Original Zenodo downloads used to build the processed files (not committed) | as above | CC BY 4.0 | as above |
 
-Transformer loss figures in `feeder.py` are the Tier-2 maximum losses of
+Transformer loss figures in `catalogue.py` are the Tier-2 maximum losses of
 Commission Regulation (EU) No 548/2014 as amended by (EU) 2019/1783, Annex I
-Table I.1 (oil-immersed, 500 kVA: 3 900 W load / 459 W no-load; 800 kVA:
-6 000 W / 585 W). Cable conductor resistances are IEC 60228 class 2 (Al, 20 °C);
+Table I.1 (oil-immersed, e.g. 500 kVA: 3 900 W load / 459 W no-load; 800 kVA:
+6 000 W / 585 W; every size, with the source of its uk, in the catalogue table
+on this page; 200 kVA interpolated between the table's 160 and 250 kVA rows, as
+the regulation prescribes). Cable conductor resistances are IEC 60228 class 2 (Al, 20 °C);
 current ratings follow the Prysmian AXQJ datasheet conditions (in ground, 20 °C
 soil, 2.5 K·m/W, 0.7 m, 90 °C conductor).
 

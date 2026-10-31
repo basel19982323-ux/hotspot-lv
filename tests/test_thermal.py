@@ -273,8 +273,8 @@ def test_validation():
     for bad in (dict(paper="nomex"), dict(tau_w_min=float("nan")), dict(y=-1), dict(x=0), dict(k21=0.5)):
         with pytest.raises(ValueError):
             ThermalParams(**bad)
-    with pytest.raises(ValueError):
-        ThermalParams.for_transformer(630)
+    with pytest.raises(ValueError, match="custom"):
+        ThermalParams.for_transformer(300)                 # not a catalogue size (630 kVA is one since v0.2)
     with pytest.raises(ValueError):
         simulate(K, ta, ThermalParams(tau_o_min=0.9))     # unstable sub-step
     assert ThermalParams.for_transformer(800).R == pytest.approx(6000 / 585)

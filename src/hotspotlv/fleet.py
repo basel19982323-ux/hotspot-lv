@@ -8,7 +8,10 @@ one ranked table — the thing a planner forwards to a colleague.
 Two input shapes:
   * an INDEX CSV, one row per station:
         station_id, rated_kva, file[, smhi_station][, enclosure][, measured_at][, tz][, stamp]
-    where `file` is that station's profile CSV (relative to the index file)
+                                   [, p_noload_w, p_load_w[, uk_percent]]
+    where `file` is that station's profile CSV (relative to the index file). A row with p_noload_w and p_load_w
+    is a custom unit (its own losses, catalogue.custom_transformer); without them rated_kva must be a catalogue
+    size
   * a LONG CSV with all stations in one file:
         station_id, timestamp, p_kw[, q_kvar][, s_kva]
     plus a dict of ratings {station_id: rated_kva}
@@ -33,7 +36,8 @@ import numpy as np
 import pandas as pd
 
 from hotspotlv import errors
-from hotspotlv.station import (CABLE_LOSS_SHARE_AT_RATED, LOCAL_TZ, StationResult, StationSeries,
+from hotspotlv.catalogue import custom_transformer
+from hotspotlv.station import (CABLE_LOSS_SHARE_AT_RATED, LOCAL_TZ, StationResult, StationSeries, _to_number,
                                ambient_for, assess_station, read_station_csv)
 from hotspotlv.weather import SMHI_STATION
 
@@ -55,6 +59,7 @@ class FleetStation:
     measured_at: str = "meters"
     tz: str = LOCAL_TZ
     stamp: str = "start"
+    losses: dict | None = None              # a custom unit's losses (catalogue.custom_transformer); None → catalogue
 
 
 def _rated_kva(value) -> float:
@@ -73,8 +78,29 @@ def _opt(row, cols, name, default):
     return default
 
 
+def _custom_losses(row, cols, kva: float) -> dict | None:
+    """The row's own losses, or None when it gives neither; one without the other is an error."""
+    p0 = _opt(row, cols, "p_noload_w", None)
+    pk = _opt(row, cols, "p_load_w", None)
+    uk = _opt(row, cols, "uk_percent", None)
+    if p0 is None and pk is None:
+        if uk is not None:
+            raise ValueError("uk_percent is given without p_noload_w and p_load_w")
+        return None
+    if p0 is None or pk is None:
+        raise ValueError("a custom transformer needs both p_noload_w and p_load_w (in watts)")
+    def num(x, name):
+        v = _to_number(pd.Series([str(x)]), name).iloc[0]
+        if pd.isna(v):
+            raise ValueError(f"cannot read {name} {x!r} as a number")
+        return float(v)
+    return custom_transformer(kva, num(p0, "p_noload_w"), num(pk, "p_load_w"),
+                              None if uk is None else num(uk, "uk_percent"))
+
+
 def read_fleet_index(path) -> list[FleetStation]:
-    """Index CSV → list of stations (files resolved relative to the index file)."""
+    """Index CSV → list of stations (files resolved relative to the index file). A row whose custom losses are
+    wrong becomes an error row, like a station whose file cannot be read."""
     path = Path(path)
     df = _read_index(path)
     cols = {c.lower().strip(): c for c in df.columns}
@@ -93,8 +119,13 @@ def read_fleet_index(path) -> list[FleetStation]:
         if not f.is_absolute():
             f = path.parent / f
         smhi = _opt(r, cols, "smhi_station", None)
+        kva = _rated_kva(r[cols["rated_kva"]])
+        try:
+            losses, error = _custom_losses(r, cols, kva), None
+        except ValueError as e:
+            losses, error = None, f"ValueError: {e}"
         out.append(FleetStation(
-            station_id=sid, rated_kva=_rated_kva(r[cols["rated_kva"]]), file=f,
+            station_id=sid, rated_kva=kva, file=f, losses=losses, error=error,
             smhi_station=int(float(smhi)) if smhi is not None else None,
             enclosure=str(_opt(r, cols, "enclosure", "kiosk")),
             measured_at=str(_opt(r, cols, "measured_at", "meters")),
@@ -118,10 +149,11 @@ def _read_index(path: Path) -> pd.DataFrame:
     raise ValueError(f"cannot decode {path}: {last}")
 
 
-def read_fleet_long(path, ratings: dict, smhi_station: int | None = None, **read_kwargs) -> list[FleetStation]:
+def read_fleet_long(path, ratings: dict, smhi_station: int | None = None, losses: dict | None = None,
+                    **read_kwargs) -> list[FleetStation]:
     """Long CSV (station_id, timestamp, p_kw, …) → list of stations, one series each. A station whose
     rows cannot be read becomes an error entry (its error row appears in the table) instead of
-    aborting the whole import."""
+    aborting the whole import. losses: {station_id: catalogue.custom_transformer(…)} for custom units."""
     path = Path(path)
     df = _read_index(path)
     cols = {c.lower().strip(): c for c in df.columns}
@@ -131,6 +163,7 @@ def read_fleet_long(path, ratings: dict, smhi_station: int | None = None, **read
     if (ids == "") .any() or ids.str.lower().eq("nan").any():
         raise ValueError("long CSV has rows without station_id")
     ratings = {str(k).strip(): v for k, v in ratings.items()}
+    losses = {str(k).strip(): v for k, v in (losses or {}).items()}
     out = []
     for sid, part in df.groupby(ids, sort=True):
         if sid not in ratings:
@@ -141,9 +174,11 @@ def read_fleet_long(path, ratings: dict, smhi_station: int | None = None, **read
             tmp_path = Path(tmp.name)
         try:
             series = read_station_csv(tmp_path, **read_kwargs)
-            out.append(FleetStation(sid, _rated_kva(ratings[sid]), series=series, smhi_station=smhi_station))
+            out.append(FleetStation(sid, _rated_kva(ratings[sid]), series=series, smhi_station=smhi_station,
+                                    losses=losses.get(sid)))
         except ValueError as e:
-            out.append(FleetStation(sid, _rated_kva(ratings[sid]), smhi_station=smhi_station, error=f"ValueError: {e}"))
+            out.append(FleetStation(sid, _rated_kva(ratings[sid]), smhi_station=smhi_station, error=f"ValueError: {e}",
+                                    losses=losses.get(sid)))
         finally:
             tmp_path.unlink(missing_ok=True)
     return out
@@ -170,7 +205,7 @@ def screen_fleet(stations: list[FleetStation], progress: Callable[[int, int, str
             if not amb.index.equals(st.index):
                 amb = ambient_for(st.index, smhi)
             res = assess_station(st, fs.rated_kva, amb, smhi_station=fs.smhi_station, enclosure=fs.enclosure,
-                                 cable_loss_share_at_rated=cable_loss_share_at_rated)
+                                 cable_loss_share_at_rated=cable_loss_share_at_rated, losses=fs.losses)
             results[fs.station_id] = res
             rows.append({"station_id": fs.station_id, **res.metrics(), "error": ""})
         except Exception as e:                       # one bad station must not stop the fleet

@@ -98,8 +98,8 @@ def test_fuse_kw():
 
 
 def test_bad_feeder_arguments_rejected():
-    with pytest.raises(ValueError):
-        build_feeder(trafo_kva=630)
+    with pytest.raises(ValueError, match="no catalogue data"):
+        build_feeder(trafo_kva=300)                    # not a catalogue size (630 kVA is one since v0.2)
     with pytest.raises(ValueError):
         build_feeder(n_houses=0)
     with pytest.raises(ValueError):

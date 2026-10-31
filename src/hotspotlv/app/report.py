@@ -149,8 +149,8 @@ def render_charts(res: StationResult, ambient: pd.Series, width: int = CHART_W, 
 # ---------------------------------------------------------------------------
 # the assumption tables (built from the engine's constants, never typed here)
 # ---------------------------------------------------------------------------
-def thermal_rows(p: ThermalParams, kva: float | None = None) -> list[tuple[str, str, str]]:
-    """(name, value, meaning) for every constant the thermal run used."""
+def thermal_rows(p: ThermalParams, kva: float | None = None, custom: bool = False) -> list[tuple[str, str, str]]:
+    """(name, value, meaning) for every constant the thermal run used; custom: R from the user's losses."""
     rise = f"{p.d_theta_or:g} K"
     if p.enclosure_rise_k:
         rise += (f" (= {p.d_theta_or - p.enclosure_rise_k:g} K outdoor + {p.enclosure_rise_k:g} K for the kiosk: half the "
@@ -165,7 +165,8 @@ def thermal_rows(p: ThermalParams, kva: float | None = None) -> list[tuple[str, 
         ("enclosure", p.enclosure, "kiosk is the Swedish norm; it raises the top-oil rise"),
         ("Δθor", rise, "top-oil rise over ambient at rated load"),
         ("Δθhr", f"{p.d_theta_hr:g} K", "hot-spot rise over top-oil at rated load (H·gr in the standard)"),
-        ("R", f"{p.R:.2f}", "load loss / no-load loss at rated load (Ecodesign Tier 2 catalogue values)"),
+        ("R", f"{p.R:.2f}", "load loss / no-load loss at rated load (" +
+         ("the losses entered by the user)" if custom else "Ecodesign Tier 2 catalogue values)")),
         ("x", f"{p.x:g}", "oil exponent"),
         ("y", f"{p.y:g}", "winding exponent"),
         ("k11 · k21 · k22", f"{p.k11:g} · {p.k21:g} · {p.k22:g}", "IEC 60076-7 thermal model constants, distribution ONAN"),
@@ -201,7 +202,8 @@ def rule_rows(checked: bool = False) -> list[tuple[str, str, str, str, str]]:
 def s_estimate_text(res: StationResult) -> str:
     st = res.station
     q_loss = "Q_loss = uk·K²·S_rated is the transformer's reactive consumption"
-    tr_losses = "the transformer's own losses from the catalogue (no-load loss + load loss × K²)"
+    tr_losses = ("the transformer's own losses as entered by the user (no-load loss + load loss × K²)" if res.losses
+                 else "the transformer's own losses from the catalogue (no-load loss + load loss × K²)")
     if st.s_kva_measured is not None:
         return ("Apparent power S at the transformer was taken from the file's kVA column as measured at the "
                 "transformer; no losses were added. K is therefore S at the LV terminals over the rating — about 3 % "
@@ -289,7 +291,10 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
         ("period", period),
         ("resolution", f"{st.step_min:g}-min values, {st.gaps_filled} missing steps filled"),
         ("values are", "the sum of customer meters" if st.measured_at == "meters" else "measured at the transformer"),
-        ("transformer rating", f"{res.rated_kva:g} kVA"),
+        ("transformer rating", f"{res.rated_kva:g} kVA" + (
+            f" — custom unit: no-load loss {res.losses['p_noload_w']:g} W, load loss {res.losses['p_load_w']:g} W, "
+            f"uk {res.losses['uk_percent']:g} %" + ("" if res.losses.get("uk_given", True) else " (assumed)")
+            if res.losses else "")),
         ("outdoor temperature", f"SMHI station {smhi}"),
         ("enclosure", res.thermal.params.enclosure),
         ("energy in the period", energy),
@@ -322,7 +327,7 @@ def station_card_html(res: StationResult, charts: dict | None = None, source_nam
 
     notes_html = "".join(f"<li>{_esc(n)}</li>" for n in v.notes)
     thermal_html = "".join(f"<tr><td><b>{_esc(n)}</b></td><td>{_esc(val)}</td><td style='color:{MUTED}'>{_esc(m)}</td></tr>"
-                           for n, val, m in thermal_rows(res.thermal.params, res.rated_kva))
+                           for n, val, m in thermal_rows(res.thermal.params, res.rated_kva, res.losses is not None))
     rules_html = "".join(
         f"<tr><td><b>{_esc(w)}</b></td><td>{_esc(wa)}</td><td>{_esc(ar)}</td><td style='color:{MUTED}'>{_esc(src)}</td>"
         + (f"<td style='color:{MUTED}'><i>{_esc(status)}</i></td></tr>" if status.startswith("not checked")

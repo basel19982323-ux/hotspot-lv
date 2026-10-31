@@ -46,12 +46,23 @@ The data keep their own licences (below), not MIT.
 
 
 def _assumptions_markdown() -> str:
+    import hotspotlv.catalogue as catalogue
     import hotspotlv.thermal as thermal
     import hotspotlv.verdict as verdict
     sources = (package_data() / "SOURCES.md").read_text(encoding="utf-8")
     code = lambda text: "```\n" + text.strip("\n") + "\n```\n"
+    lo, hi = catalogue.CUSTOM_KVA_RANGE
+    custom = (f"\n**Custom unit** (Own station data and Fleet screening): a rating from {lo:g} to {hi:g} kVA with the "
+              "no-load and load losses of the unit's test report, in watts, and optionally its uk (else "
+              f"{catalogue.CUSTOM_UK_PERCENT:g} % is assumed and said so). The losses set the loss ratio R of the "
+              "thermal model and the transformer's own losses added to the meters; every other thermal constant "
+              "stays the generic IEC 60076-7 distribution value. Values that cannot be right are refused: a "
+              "no-load loss outside 0.01–1 % or a load loss outside 0.1–5 % of the rating (kW typed for W), a "
+              "load loss not above the no-load loss (swapped), a uk outside 2–10 %.\n")
     return (ABOUT + "\n## Verdict rules (from the engine's own documentation)\n" + code(verdict.__doc__)
             + "\n## Thermal model (from the engine's own documentation)\n" + code(thermal.__doc__)
+            + "\n## Transformer catalogue (from the engine's own documentation)\n" + code(catalogue.__doc__)
+            + "\n" + catalogue.catalogue_markdown() + custom
             + "\n## Data sources and licences\n" + sources.replace("# Data sources and licences", ""))
 
 
