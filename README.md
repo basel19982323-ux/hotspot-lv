@@ -94,7 +94,7 @@ But a transformer does not fail at 100 %. What wears it out is heat. The hottest
     the same houses, with indicative costs.
   - *Sweep*: where the verdict flips as houses, EVs or PV are added.
   - *Spread*: the same street with different random draws of the houses.
-- **Tested:** 408 automated tests (pytest). The Windows build checks itself with a `--self-test` that runs every mode
+- **Tested:** 409 automated tests (pytest). The Windows build checks itself with a `--self-test` that runs every mode
   without a window.
 
 **Tech:** Python · PySide6 (Qt) · pyqtgraph · pandapower · pandas / NumPy · pvlib · matplotlib · pytest ·
@@ -158,14 +158,13 @@ the inputs, the method and every rule with its source.
 
 ## Download for Windows
 
-The download is version 0.1.0. Version 0.2.0 is this source code (see [CHANGELOG.md](CHANGELOG.md)). It is not
-built or released yet, so its new features need the Python install ([Run from source](#run-from-source)).
+The current version is 0.2.0 ([CHANGELOG.md](CHANGELOG.md)).
 
-1. Download `HotspotLV-0.1.0-win64.zip` and `HotspotLV-0.1.0-win64.zip.sha256` from the
+1. Download `HotspotLV-0.2.0-win64.zip` and `HotspotLV-0.2.0-win64.zip.sha256` from the
    [latest release](https://github.com/basel19982323-ux/hotspot-lv/releases/latest).
 2. Check the download. In PowerShell, in the download folder, this must print `True`:
    ```powershell
-   (Get-FileHash .\HotspotLV-0.1.0-win64.zip -Algorithm SHA256).Hash -eq (Get-Content .\HotspotLV-0.1.0-win64.zip.sha256).Split(' ')[0]
+   (Get-FileHash .\HotspotLV-0.2.0-win64.zip -Algorithm SHA256).Hash -eq (Get-Content .\HotspotLV-0.2.0-win64.zip.sha256).Split(' ')[0]
    ```
 3. Extract the zip into a short path, for example `C:\Tools`, which creates `C:\Tools\HotspotLV`. Double-click
    `HotspotLV.exe` there. Keep the folder together: the program needs the `_internal` folder next to it.
@@ -227,8 +226,8 @@ above 300 % of the rating asks you to check the decimal sign, the unit and the r
 
 ## A report from one command
 
-With the Python install ([Run from source](#run-from-source)), one command writes one station's report without
-opening a window:
+One command writes one station's report without opening a window. With the Python install
+([Run from source](#run-from-source)):
 
 ```powershell
 hotspot-lv report station.csv --kva 500 --out station-report.pdf
@@ -255,8 +254,9 @@ hotspot-lv report station.csv --kva 500 --out station-report.pdf
   - `hotspot-lv report --help` lists them all.
 - **Exit code:** 0 when the report is written, 1 with the reason when the file cannot be assessed, 2 for wrong
   arguments.
-- **The Windows zip:** the 0.1.0 zip does not have the command. A future windowed build would run it but print
-  nothing, so the command is for the Python install.
+- **In the Windows zip:** `HotspotLV.exe report …` runs the same command. The program has no console, so its lines
+  go to `<report>.log.txt` next to the report, and the exit code needs `Start-Process … -Wait -PassThru`.
+  README.txt in the zip gives the PowerShell line.
 
 ## The study in short
 

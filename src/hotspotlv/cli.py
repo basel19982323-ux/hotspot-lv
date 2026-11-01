@@ -6,7 +6,9 @@
 
 The same pipeline as the Own-station tab, so the report and the screen agree. Charts are drawn with the app's
 own Qt charts, laid out but never shown (no window opens). Prints a short summary; exit code 0 on success,
-2 for wrong arguments (argparse), 1 when the file cannot be assessed (the reason is printed)."""
+2 for wrong arguments (argparse), 1 when the file cannot be assessed (the reason is printed). The Windows build
+is a windowed program with no console: there the same lines go to <report>.log.txt next to the report, so a
+refusal still says why."""
 
 from __future__ import annotations
 
@@ -62,9 +64,19 @@ def default_out(src: Path, station: str | None = None) -> Path:
     return src.with_name(f"{stem}-report.pdf")
 
 
+_LINES: list[str] = []                               # what was said, for the log of a build without a console
+
+
 def _say(text: str) -> None:
+    _LINES.append(text)
     if sys.stdout is not None:                       # a windowed build has no console
         print(text, flush=True)
+
+
+def log_path(args) -> Path:
+    """Where a run without a console writes its lines: next to the report, <report>.log.txt."""
+    out = Path(args.out) if args.out else default_out(Path(args.csv), args.station)
+    return out.with_name(out.name + ".log.txt")
 
 
 def run(args) -> Path:
@@ -122,12 +134,19 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(errors="replace")     # a pipe in a Windows code page cannot take every '→' or '≤'
     ap = parser()
     args = ap.parse_args(argv)                       # exits with 2 and the usage on wrong arguments
+    _LINES.clear()
+    code = 0
     try:
         run(args)
     except (ValueError, OSError) as e:
         _say(f"hotspot-lv report: {e}")
-        return 1
-    return 0
+        code = 1
+    if sys.stdout is None:                           # the windowed build: nobody saw the lines
+        try:
+            log_path(args).write_text("\n".join(_LINES + [f"exit code {code}"]) + "\n", encoding="utf-8")
+        except OSError:
+            pass                                     # the folder is not writable: the exit code still tells
+    return code
 
 
 if __name__ == "__main__":

@@ -56,6 +56,20 @@ Licences
 Source code and issues: {url}
 This build: version {version}, commit {commit}.
 
+One station's report without the window
+---------------------------------------
+HotspotLV.exe can write one station's report (PDF or HTML) without opening its window. In PowerShell, in the
+HotspotLV folder:
+
+    $p = Start-Process .\HotspotLV.exe -ArgumentList 'report', '"C:\Data\station.csv"', '--kva', '500', '--out', '"C:\Data\station-report.pdf"' -Wait -PassThru; $p.ExitCode
+
+prints 0 when the report is written, 1 when the file cannot be assessed, 2 for a wrong option. The program has
+no console, so what it would print goes to station-report.pdf.log.txt next to the report: what was read from the
+file, what it could not tell, and the reason for a refusal. Options: --station (one station of a file with a
+Nätstation column), --smhi (the nearest SMHI station), --p0 / --pk / --uk (a unit's own losses), --unit, --tz,
+--stamp, --decimal, --dayfirst / --monthfirst, --measured-at, --max-gap, --enclosure. The result is indicative:
+generic transformer constants, not validated on a real station.
+
 Check an installation
 ---------------------
 The program can check itself without opening a window (station, PDF, fleet, scenario runs, cancel, close). In

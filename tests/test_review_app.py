@@ -134,3 +134,14 @@ def test_the_default_report_name_carries_the_station(tmp_path):
     assert cli.default_out(src, "NS 101 Åkervägen") == tmp_path / "fleet-NS-101-Åkervägen-report.pdf"
     assert cli.default_out(src, "NS/2") == tmp_path / "fleet-NS-2-report.pdf"
     assert cli.default_out(src) == tmp_path / "fleet-report.pdf"
+
+
+def test_without_a_console_the_command_writes_its_lines_next_to_the_report(monkeypatch, tmp_path):
+    """The Windows build has no console: a refused file must still say why (v0.2.0 release check)."""
+    out = tmp_path / "r.pdf"
+    monkeypatch.setattr(sys, "stdout", None)
+    assert cli.main([str(EXAMPLE), "--kva", "300", "--out", str(out)]) == 1
+    log = (tmp_path / "r.pdf.log.txt").read_text(encoding="utf-8")
+    assert "no catalogue data for 300 kVA" in log and log.rstrip().endswith("exit code 1")
+    assert cli.log_path(cli.parser().parse_args([str(tmp_path / "s.csv"), "--kva", "500", "--station", "B 2"])) \
+        == tmp_path / "s-B-2-report.pdf.log.txt"

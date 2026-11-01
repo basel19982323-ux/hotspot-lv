@@ -3,7 +3,7 @@
 What changed in each version of Hotspot LV. It is a simulation tool: its results are indicative, with generic
 transformer constants, and not validated on a real station.
 
-## 0.2.0 — not yet released
+## 0.2.0 — 1 November 2026
 
 For grid companies' own meter exports: the *Own station data* and *Fleet screening* modes read the shapes Swedish
 DSO exports take — tested on constructed files only, not yet on a real export —, take every common transformer
@@ -82,7 +82,8 @@ reviewers: physics, data, code, tests, honesty, the planner's view) led to the f
   - `read_fleet()` tells such a file from an index.
 - **`hotspot-lv report <csv> --kva 500 --out report.pdf`** (or `.html`) writes one station's report without a
   window (options for the station, the custom unit, the clock, the unit, the decimal sign and the longest gap to
-  fill; the default file name carries the station). It has:
+  fill; the default file name carries the station). In the Windows build, `HotspotLV.exe report …` runs it, and
+  its lines go to `<report>.log.txt` next to the report, since the program has no console. It has:
   - what was read from the file;
   - peak load against the rating;
   - a hot-spot and top-oil temperature duration curve;
